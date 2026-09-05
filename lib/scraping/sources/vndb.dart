@@ -48,7 +48,7 @@ class VndbAdapter extends SourceAdapter {
   @override
   Future<ScrapedGame?> fetchById(String id) async {
     final vid = id.startsWith('v') ? id : 'v$id';
-    final results = await _query(['id', '=', [vid]]);
+    final results = await _query(['id', '=', vid]);
     if (results == null || results.isEmpty) return null;
     return _parse(results.first);
   }

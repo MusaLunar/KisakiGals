@@ -6,7 +6,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:window_manager/window_manager.dart';
+
 import '../../app_services.dart';
+import '../../data/settings_store.dart';
 import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
@@ -186,6 +189,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
     ref.read(trackingGameProvider.notifier).state = g.id!;
     await AppServices.I.settings.setString('runtime.last_game', '${g.id}');
+    final after = await AppServices.I.settings
+        .getString(SettingsStore.kAfterLaunch, 'none');
+    if (after == 'minimize') {
+      await WindowManager.instance.minimize();
+    }
     if (g.playStatus == PlayStatus.wish) {
       g.playStatus = PlayStatus.playing;
       await AppServices.I.repo.updateGame(g);
