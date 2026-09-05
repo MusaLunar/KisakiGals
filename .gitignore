@@ -1,0 +1,6 @@
+.reference/
+build/
+.dart_tool/
+*.iml
+.idea/
+fsdk/
