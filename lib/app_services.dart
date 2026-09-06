@@ -15,6 +15,7 @@ import 'data/settings_store.dart';
 import 'scraping/metadata_fetcher.dart';
 import 'scraping/tag_translator.dart';
 import 'services/autostart.dart';
+import 'services/ai_service.dart';
 import 'services/playtime_tracker.dart';
 import 'services/plugin_system.dart';
 
@@ -64,6 +65,7 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
   late PlaytimeTracker tracker;
   late PluginManager plugins;
   late AutostartService autostart;
+  late AiService ai;
   PluginContext? pluginContext;
 
   bool get ready => _ready;
@@ -132,6 +134,7 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
     }
 
     s.autostart = AutostartService();
+    s.ai = AiService(proxy: s.fetcher.proxy);
 
     s._ready = true;
     _i = s;

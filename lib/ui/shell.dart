@@ -15,6 +15,7 @@ import '../main.dart' show shotBoundaryKey;
 import '../providers.dart';
 import 'home/home_page.dart';
 import 'library/library_page.dart';
+import 'ai/ai_page.dart';
 import 'stats/stats_page.dart';
 import 'settings/settings_page.dart';
 import 'theme.dart';
@@ -121,7 +122,8 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
                             0 => const HomePage(key: ValueKey(0)),
                             1 => const LibraryPage(key: ValueKey(1)),
                             2 => const StatsPage(key: ValueKey(2)),
-                            _ => const SettingsPage(key: ValueKey(3)),
+                            3 => const AiPage(key: ValueKey(3)),
+                            _ => const SettingsPage(key: ValueKey(4)),
                           },
                         ),
                       ),
@@ -238,6 +240,7 @@ class _NavRail extends StatelessWidget {
     (Icons.home_rounded, '主页'),
     (Icons.videogame_asset_rounded, '游戏库'),
     (Icons.insights_rounded, '统计'),
+    (Icons.auto_awesome_rounded, 'AI'),
     (Icons.settings_rounded, '设置'),
   ];
 

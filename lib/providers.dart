@@ -27,6 +27,15 @@ final themeProvider = StateNotifierProvider<ThemeController, ThemeModePref>(
 
 final tabIndexProvider = StateProvider<int>((ref) => 0);
 
+/// 设置页分区索引（跨页跳转到「设置 → AI」等分区时设置）。
+final settingsSectionProvider = StateProvider<int>((ref) => 0);
+
+/// 跳转到设置页的指定分区（AI=3）。
+void jumpToSettingsSection(WidgetRef ref, int section) {
+  ref.read(settingsSectionProvider.notifier).state = section;
+  ref.read(tabIndexProvider.notifier).state = 4;
+}
+
 /// 刷新信号：任何库变更后自增，通知各页重新读取。
 final libraryVersionProvider = StateProvider<int>((ref) => 0);
 

@@ -78,6 +78,11 @@ class SettingsStore {
   static const kIdleReminder = 'plugin.idle_reminder';
   static const kIdleMinutes = 'plugin.idle_minutes';
 
+  // AI 助手（OpenAI 兼容端点）
+  static const kAiBaseUrl = 'ai.baseUrl';
+  static const kAiApiKey = 'ai.apiKey';
+  static const kAiModel = 'ai.model';
+
   Future<ThemeModePref> themeMode() async {
     final s = await getString(kThemeMode, 'system');
     return ThemeModePref.values.firstWhere((e) => e.id == s,

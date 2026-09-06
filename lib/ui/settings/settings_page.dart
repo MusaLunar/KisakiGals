@@ -14,6 +14,7 @@ import '../../core/utils.dart' show fmtDateTime;
 import '../../data/settings_store.dart';
 import '../../main.dart' show applyCloseBehavior;
 import '../../providers.dart';
+import '../../services/ai_service.dart';
 import '../../services/autostart.dart';
 import '../../services/cloud_sync.dart';
 import '../../services/plugin_system.dart';
@@ -29,12 +30,21 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-  int _section = 0;
+  late int _section = ref.read(settingsSectionProvider);
+
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual(settingsSectionProvider, (prev, next) {
+      if (next != _section && mounted) setState(() => _section = next);
+    });
+  }
 
   static const _sections = [
     (Icons.tune_rounded, '系统'),
     (Icons.account_circle_rounded, '账号'),
     (Icons.travel_explore_rounded, '数据源'),
+    (Icons.auto_awesome_rounded, 'AI'),
     (Icons.storage_rounded, '数据'),
     (Icons.extension_rounded, '插件'),
     (Icons.info_outline_rounded, '关于'),
@@ -74,7 +84,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       borderRadius: BorderRadius.circular(14),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
-                        onTap: () => setState(() => _section = i),
+                        onTap: () {
+                          setState(() => _section = i);
+                          ref.read(settingsSectionProvider.notifier).state = i;
+                        },
                         child: Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(
@@ -113,8 +126,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 0 => const _SystemSection(),
                 1 => const _AccountSection(),
                 2 => const _SourceSection(),
-                3 => const _DataSection(),
-                4 => const _PluginSection(),
+                3 => const _AiSection(),
+                4 => const _DataSection(),
+                5 => const _PluginSection(),
                 _ => const _AboutSection(),
               },
             ),
@@ -763,6 +777,150 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
               if (id != KisakiSources.cngal) const Divider(),
             ],
           ],
+        ),
+      ],
+    );
+  }
+}
+
+// ---------- AI ----------
+
+class _AiSection extends ConsumerStatefulWidget {
+  const _AiSection();
+
+  @override
+  ConsumerState<_AiSection> createState() => _AiSectionState();
+}
+
+class _AiSectionState extends ConsumerState<_AiSection> {
+  final _baseUrl = TextEditingController();
+  final _apiKey = TextEditingController();
+  final _model = TextEditingController();
+  String _testStatus = '';
+  bool _testing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _baseUrl.dispose();
+    _apiKey.dispose();
+    _model.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final s = AppServices.I.settings;
+    _baseUrl.text = await s.getString(SettingsStore.kAiBaseUrl, '');
+    _apiKey.text = await s.getString(SettingsStore.kAiApiKey, '');
+    _model.text = await s.getString(SettingsStore.kAiModel, '');
+    if (mounted) setState(() {});
+  }
+
+  AiConfig _config() => AiConfig(
+      baseUrl: _baseUrl.text.trim(),
+      apiKey: _apiKey.text.trim(),
+      model: _model.text.trim());
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingsGroup(title: 'AI 服务（OpenAI 兼容）', children: [
+          SettingRow(
+            title: 'Base URL',
+            subtitle: '例：https://api.openai.com/v1、https://api.deepseek.com/v1 或本地 Ollama/LM Studio 端点',
+            trailing: SizedBox(
+              width: 260,
+              child: TextField(
+                controller: _baseUrl,
+                decoration: const InputDecoration(hintText: '填到 /v1 为止', isDense: true),
+                onChanged: (v) => AppServices.I.settings
+                    .setString(SettingsStore.kAiBaseUrl, v.trim()),
+              ),
+            ),
+          ),
+          const Divider(),
+          SettingRow(
+            title: 'API Key',
+            subtitle: '仅保存在本地数据库',
+            trailing: SizedBox(
+              width: 260,
+              child: TextField(
+                controller: _apiKey,
+                obscureText: true,
+                decoration: const InputDecoration(hintText: 'sk-…', isDense: true),
+                onChanged: (v) => AppServices.I.settings
+                    .setString(SettingsStore.kAiApiKey, v.trim()),
+              ),
+            ),
+          ),
+          const Divider(),
+          SettingRow(
+            title: '模型名称',
+            subtitle: '例：gpt-4o-mini、deepseek-chat、qwen-plus',
+            trailing: SizedBox(
+              width: 260,
+              child: TextField(
+                controller: _model,
+                decoration: const InputDecoration(hintText: '模型 id', isDense: true),
+                onChanged: (v) => AppServices.I.settings
+                    .setString(SettingsStore.kAiModel, v.trim()),
+              ),
+            ),
+          ),
+        ]),
+        SettingsGroup(title: '连接', children: [
+          SettingRow(
+            title: '测试连接',
+            subtitle: _testStatus.isEmpty ? '向 AI 发送一条测试消息验证配置' : _testStatus,
+            trailing: _testing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : OutlinedButton(
+                    onPressed: () async {
+                      final config = _config();
+                      if (!config.ready) {
+                        setState(() => _testStatus = '请先填写完整配置');
+                        return;
+                      }
+                      setState(() {
+                        _testing = true;
+                        _testStatus = '测试中…';
+                      });
+                      final r = await AppServices.I.ai.chat(
+                        config: config,
+                        system: '你是 KisakiGals 的连接测试助手。',
+                        user: '请只回复：连接成功',
+                        maxTokens: 20,
+                      );
+                      if (!mounted) return;
+                      setState(() {
+                        _testing = false;
+                        _testStatus = r.ok ? '连接正常：${r.content}' : r.message;
+                      });
+                    },
+                    child: const Text('测试'),
+                  ),
+          ),
+        ]),
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Text(
+            '配置后可在「AI」页生成游玩总结与作品推荐；推荐结果以卡片展示，可一键搜刮入库。'
+            '任何 OpenAI 兼容端点（DeepSeek / 通义 / Ollama / LM Studio 等）均可使用。',
+            style: TextStyle(
+                fontSize: 11.5,
+                height: 1.6,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
         ),
       ],
     );

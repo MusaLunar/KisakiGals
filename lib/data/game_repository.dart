@@ -165,6 +165,21 @@ class GameRepository {
         where: 'game_id = ? AND source = ?', whereArgs: [gameId, source]);
   }
 
+  /// 按归一化名称/别名查重（AI 推荐入库前判断是否已在库）。
+  Future<Game?> findGameByTitle(String title) async {
+    final key = normalizeForMatch(title).replaceAll(' ', '');
+    if (key.isEmpty) return null;
+    for (final g in await listGames()) {
+      final names = [
+        g.displayName,
+        g.name,
+        ...g.aliases,
+      ].map((n) => normalizeForMatch(n).replaceAll(' ', ''));
+      if (names.contains(key)) return g;
+    }
+    return null;
+  }
+
   /// 平台 id → 本地游戏 索引（云端同步匹配用）。
   /// key 形如「vndb:v123」「bgm:45678」，VNDB 的「v」前缀已归一。
   Future<Map<String, Game>> sourceIndex() async {
