@@ -111,6 +111,24 @@ final allTagsProvider = FutureProvider<List<TagItem>>(
         ? AppServices.I.repo.allTags()
         : []);
 
+/// 跳转到游戏库并应用筛选（详情页点开发商/标签时调用）。
+void jumpToLibraryFiltered(
+  WidgetRef ref, {
+  String? developer,
+  String? tag,
+  String? source,
+}) {
+  final f = ref.read(libraryFilterProvider);
+  f
+    ..developer = (developer != null && developer.isNotEmpty) ? developer : null
+    ..tag = tag
+    ..source = source
+    ..status = null
+    ..favoriteOnly = false;
+  ref.read(tabIndexProvider.notifier).state = 1;
+  ref.read(libraryVersionProvider.notifier).state++;
+}
+
 final developersProvider = FutureProvider<List<String>>(
     (ref) async => AppServices.I.repo.developers());
 

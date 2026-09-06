@@ -159,6 +159,12 @@ class GameRepository {
     return rows.map(SourceRecord.fromRow).toList();
   }
 
+  /// 删除某平台数据记录。
+  Future<void> deleteSource(int gameId, String source) async {
+    await db.delete('game_sources',
+        where: 'game_id = ? AND source = ?', whereArgs: [gameId, source]);
+  }
+
   /// 平台 id → 本地游戏 索引（云端同步匹配用）。
   /// key 形如「vndb:v123」「bgm:45678」，VNDB 的「v」前缀已归一。
   Future<Map<String, Game>> sourceIndex() async {

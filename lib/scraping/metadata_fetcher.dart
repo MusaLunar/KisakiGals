@@ -149,6 +149,72 @@ class MetadataFetcher {
     return hits;
   }
 
+  /// 跨源搜索并按身份分组（同一游戏的各源条目归为一组，摘要级合并）。
+  /// 选择列表直接展示组（一条=一个游戏，带多源徽章）。
+  Future<List<ScrapeHitGroup>> searchGrouped(String kw,
+      {List<String>? only}) async {
+    final hits = await searchRanked(kw, only: only);
+    final groups = <ScrapeHitGroup>[];
+    for (final hit in hits) {
+      ScrapeHitGroup? target;
+      for (final g in groups) {
+        // 与组内任一成员同身份即归入该组
+        if (g.members.any((m) => _sameIdentity(m, hit.game))) {
+          target = g;
+          break;
+        }
+      }
+      if (target == null) {
+        groups.add(ScrapeHitGroup(hit.game, [hit.game], hit.score));
+      } else {
+        target.add(hit.game, hit.score);
+      }
+    }
+    groups.sort((a, b) => b.bestScore.compareTo(a.bestScore));
+    return groups;
+  }
+
+  bool _sameIdentity(ScrapedGame a, ScrapedGame b) {
+    if (a.source == b.source && a.sourceId == b.sourceId) return true;
+    final aKeys = _identityKeys(a);
+    final bKeys = _identityKeys(b);
+    return aKeys.intersection(bKeys).isNotEmpty;
+  }
+
+  /// 身份键：名称/别名的归一化形式 + 去空格压扁形式
+  /// （「千恋 万花」与「千恋万花」视为同一身份）。
+  Set<String> _identityKeys(ScrapedGame g) {
+    final keys = <String>{
+      normalizeForMatch(g.displayName),
+      normalizeForMatch(g.name),
+      ...g.aliases.map(normalizeForMatch),
+    };
+    final squashed = keys.map((k) => k.replaceAll(' ', '')).toSet();
+    keys.addAll(squashed);
+    keys.removeWhere((s) => s.isEmpty);
+    return keys;
+  }
+
+  /// 组内合并：逐成员补全详情后融合为一条完整数据。
+  /// 返回 [合并结果, 各源成员...]（供登记每源评分记录）。
+  Future<List<ScrapedGame>> mergeGroup(ScrapeHitGroup group) async {
+    final members = [...group.members];
+    var merged = members.first;
+    try {
+      final full = await adapter(merged.source)?.fetchById(merged.sourceId);
+      if (full != null) merged = _mergeFull(merged, full);
+    } catch (_) {}
+    for (final m in members.skip(1)) {
+      try {
+        final full = await adapter(m.source)?.fetchById(m.sourceId);
+        merged = _mergeTwo(merged, full ?? m);
+      } catch (_) {
+        merged = _mergeTwo(merged, m);
+      }
+    }
+    return [merged, ...members.skip(1)];
+  }
+
   /// 以用户选中的条目为主体，合并其它源中同一游戏的数据。
   ///
   /// 同一性判断：归一化后的名称/别名词典相交（ReinaManager 式
@@ -171,24 +237,11 @@ class MetadataFetcher {
     final bySource = await searchAll(
         (kw != null && kw.trim().isNotEmpty) ? kw : merged.displayName,
         only: only);
-    final keys = <String>{
-      normalizeForMatch(merged.displayName),
-      normalizeForMatch(merged.name),
-      ...merged.aliases.map(normalizeForMatch),
-    }..removeWhere((s) => s.isEmpty);
-
     for (final entry in bySource.entries) {
       if (entry.key == picked.source) continue;
       ScrapedGame? match;
       for (final g in entry.value) {
-        final gKeys = <String>{
-          normalizeForMatch(g.displayName),
-          normalizeForMatch(g.name),
-          ...g.aliases.map(normalizeForMatch),
-        }..removeWhere((s) => s.isEmpty);
-        if (gKeys.intersection(keys).isNotEmpty ||
-            gKeys.any((k) =>
-                keys.any((p) => p.isNotEmpty && (k.contains(p) || p.contains(k))))) {
+        if (_sameIdentity(merged, g)) {
           match = g;
           break;
         }

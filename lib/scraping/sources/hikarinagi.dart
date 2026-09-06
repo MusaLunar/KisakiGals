@@ -76,14 +76,20 @@ class HikarinagiAdapter extends SourceAdapter {
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .where((m) => m['type'] == 'galgame')
-        .map((m) => ScrapedGame(
-              source: KisakiSources.hikarinagi,
-              sourceId: (m['id'] ?? 0).toString(),
-              name: (m['title'] ?? '') as String,
-              developer: (m['developer'] ?? '') as String,
-              coverUrl: (m['cover'] ?? '') as String,
-            ))
-        .toList();
+        .map((m) {
+      // cover 是对象 {url, width, height, ...}
+      String cover = '';
+      if (m['cover'] is Map) {
+        cover = ((m['cover'] as Map)['url'] ?? '').toString();
+      }
+      return ScrapedGame(
+        source: KisakiSources.hikarinagi,
+        sourceId: (m['id'] ?? 0).toString(),
+        name: (m['title'] ?? '') as String,
+        developer: (m['developer'] ?? '') as String,
+        coverUrl: cover,
+      );
+    }).toList();
   }
 
   @override

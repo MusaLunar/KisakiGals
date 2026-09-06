@@ -16,6 +16,7 @@ import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/scrape_search_sheet.dart';
 
 class AddGamePage extends ConsumerStatefulWidget {
   const AddGamePage({super.key});
@@ -42,9 +43,15 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
 
   String _selectedSource = 'auto'; // auto = 全部启用源
   String _exeDir = '';
-  List<ScrapeHit> _hits = [];
+  List<ScrapeHitGroup> _groups = const []; // 跨源分组结果
   List<ScrapedGame> _mergedAll = const []; // [0]=合并结果, 其余=各源原始条目
   String _bgChoice = ''; // ''=纯色背景；非空=截图 URL
+  // 确认页手动编辑
+  final _editNameCn = TextEditingController();
+  final _editName = TextEditingController();
+  final _editCover = TextEditingController();
+  String _coverLocal = '';
+  final _memberIds = <String, TextEditingController>{};
 
   @override
   void dispose() {
@@ -55,7 +62,11 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       _customDeveloper,
       _customCover,
       _customSummary,
-      _customId
+      _customId,
+      _editNameCn,
+      _editName,
+      _editCover,
+      ..._memberIds.values,
     ]) {
       c.dispose();
     }
@@ -252,27 +263,27 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('「${_nameController.text}」的搜索结果（${_hits.length}）',
+        Text('「${_nameController.text}」的搜索结果（${_groups.length}）',
             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
         const SizedBox(height: 12),
         Expanded(
-          child: _hits.isEmpty
+          child: _groups.isEmpty
               ? EmptyState(
                   title: '没有找到匹配的游戏',
                   subtitle: '试试更换名称或数据源，也可以切换到「自定义添加」',
                 )
               : GridView(
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 300,
+                    maxCrossAxisExtent: 400,
                     mainAxisSpacing: 14,
                     crossAxisSpacing: 14,
                     childAspectRatio: 3.4,
                   ),
                   children: [
-                    for (final hit in _hits)
-                      _HitTile(
-                        hit: hit,
-                        onPick: () => _mergeAndConfirm(hit),
+                    for (final g in _groups)
+                      ScrapeGroupTile(
+                        group: g,
+                        onPick: () => _mergeAndConfirm(g),
                       ),
                   ],
                 ),
@@ -281,27 +292,32 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     );
   }
 
-  /// 选中候选 → 整合所有数据源 → 进入确认页。
-  Future<void> _mergeAndConfirm(ScrapeHit hit) async {
+  /// 选中分组 → 组内多源合并（含各源详情补全）→ 进入确认页。
+  Future<void> _mergeAndConfirm(ScrapeHitGroup group) async {
     setState(() {
       _stage = ScrapeStage.merging;
       _bgChoice = '';
+      _coverLocal = '';
+      _memberIds.clear();
     });
     try {
-      final all = await AppServices.I.fetcher.mergeAcrossSources(
-        hit.game,
-        kw: _nameController.text.trim(),
-        only: _selectedSource == 'auto' ? null : [_selectedSource],
-      );
+      final all = await AppServices.I.fetcher.mergeGroup(group);
       if (!mounted) return;
       setState(() {
         _mergedAll = all;
+        final merged = all.first;
+        _editNameCn.text = merged.nameCn;
+        _editName.text = merged.name;
+        _editCover.text = merged.coverUrl;
+        for (final m in all) {
+          _memberIds[m.source] = TextEditingController(text: m.sourceId);
+        }
         _stage = ScrapeStage.confirm;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _mergedAll = [hit.game];
+        _mergedAll = [group.merged, ...group.members.skip(1)];
         _stage = ScrapeStage.confirm;
       });
     }
@@ -323,8 +339,8 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   CoverImage(
-                    path: '',
-                    networkUrl: game.coverUrl,
+                    path: _coverLocal,
+                    networkUrl: _coverLocal.isEmpty ? _editCover.text : '',
                     nsfw: game.nsfw,
                     width: 160,
                     height: 226,
@@ -334,15 +350,13 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(game.displayName,
+                        Text(_editNameCn.text.trim().isNotEmpty
+                            ? _editNameCn.text.trim()
+                            : _editName.text.trim(),
                             style: Theme.of(context)
                                 .textTheme
                                 .titleLarge
                                 ?.copyWith(fontWeight: FontWeight.w800)),
-                        if (game.nameCn.isNotEmpty && game.nameCn != game.displayName)
-                          Text(game.name,
-                              style: TextStyle(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
@@ -444,6 +458,64 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                 ],
               ),
               const SizedBox(height: 20),
+              // 信息确认（可手动修改）
+              Text('信息确认（可修改）',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 13.5)),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _editNameCn,
+                    decoration: const InputDecoration(
+                        labelText: '中文名称', isDense: true),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _editName,
+                    decoration: const InputDecoration(
+                        labelText: '原始名称', isDense: true),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _editCover,
+                    decoration: const InputDecoration(
+                        labelText: '封面图片 URL', isDense: true),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: _pickLocalCover,
+                  icon: const Icon(Icons.image_rounded, size: 18),
+                  label: const Text('本地封面'),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              for (final m in _mergedAll)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(children: [
+                    SizedBox(width: 92, child: SourceBadge(source: m.source)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: _memberIds[m.source],
+                        decoration: const InputDecoration(
+                            labelText: '条目 id', isDense: true),
+                      ),
+                    ),
+                  ]),
+                ),
+              const SizedBox(height: 16),
               // 详情页背景选择：纯色 / 刮削截图
               Text('详情页背景',
                   style: const TextStyle(
@@ -661,17 +733,27 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     final only =
         _selectedSource == 'auto' ? null : [_selectedSource];
     try {
-      final hits = await AppServices.I.fetcher.searchRanked(name, only: only);
+      final groups =
+          await AppServices.I.fetcher.searchGrouped(name, only: only);
       if (!mounted) return;
       setState(() {
-        _hits = hits;
+        _groups = groups;
         _stage = ScrapeStage.choose;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _hits = [];
+        _groups = const [];
         _stage = ScrapeStage.choose;
+      });
+    }
+  }
+
+  Future<void> _pickLocalCover() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result?.files.single.path != null) {
+      setState(() {
+        _coverLocal = result!.files.single.path!;
       });
     }
   }
@@ -695,6 +777,42 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     // 多源元数据落库（封面下载 + 背景 + 各源评分记录）
     await ScrapeApplier(repo, AppServices.I.fetcher)
         .apply(g, _mergedAll, backgroundPick: _bgChoice);
+    // 确认页的手动编辑优先生效
+    final manualNameCn = _editNameCn.text.trim();
+    final manualName = _editName.text.trim();
+    if ((manualNameCn.isNotEmpty && manualNameCn != game.nameCn) ||
+        (manualName.isNotEmpty && manualName != game.name)) {
+      if (manualNameCn.isNotEmpty) g.nameCn = manualNameCn;
+      if (manualName.isNotEmpty) g.name = manualName;
+    }
+    if (_coverLocal.isNotEmpty) {
+      g.coverPath = _coverLocal;
+    } else if (_editCover.text.trim() != game.coverUrl &&
+        _editCover.text.trim().isNotEmpty) {
+      final local = await AppServices.I.fetcher.downloadImage(
+          _editCover.text.trim(), 'game_${g.id}');
+      if (local.isNotEmpty) g.coverPath = local;
+    }
+    // 各源条目 id 手动编辑
+    for (final m in _mergedAll) {
+      final c = _memberIds[m.source];
+      if (c == null) continue;
+      final newId = c.text.trim();
+      if (newId.isNotEmpty && newId != m.sourceId) {
+        m.sourceId; // 保持成员原样，仅更新记录
+        await repo.upsertSource(
+            g.id!,
+            SourceRecord(
+              gameId: g.id!,
+              source: m.source,
+              sourceId: newId,
+              rating: m.rating,
+              voteCount: m.voteCount,
+              raw: m.toJson(),
+            ));
+      }
+    }
+    await repo.updateGame(g);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
@@ -769,81 +887,6 @@ class _BgOptionTile extends StatelessWidget {
   }
 }
 
-/// 搜索结果条目。
-class _HitTile extends StatelessWidget {
-  final ScrapeHit hit;
-  final VoidCallback onPick;
-  const _HitTile({required this.hit, required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    final g = hit.game;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Material(
-      color: dark ? KisakiColors.nightCard : Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onPick,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(
-            children: [
-              CoverImage(
-                path: '',
-                networkUrl: g.coverUrl,
-                nsfw: g.nsfw,
-                width: 46,
-                height: 64,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(g.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 13)),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        SourceBadge(source: g.source),
-                        const SizedBox(width: 6),
-                        if (g.rating > 0)
-                          Text(
-                              '${g.rating.toStringAsFixed(1)} · ${g.voteCount} 评',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant)),
-                        if (g.releaseDate.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Text(g.releaseDate,
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant)),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// 拖拽接收区域包装。
 class DragDropRegion extends StatelessWidget {

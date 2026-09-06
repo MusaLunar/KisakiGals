@@ -1,4 +1,4 @@
-/// 游戏库：自适应网格 + 筛选 + 搜索 + 排序。
+/// 游戏库：自适应网格 + 右侧筛选边栏（排序/状态/收藏/来源/标签/开发商）。
 library;
 
 import 'dart:async';
@@ -21,16 +21,13 @@ class LibraryPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final filter = ref.watch(libraryFilterProvider);
     final games = ref.watch(gamesProvider);
-    final tags = ref.watch(allTagsProvider).valueOrNull ?? const <TagItem>[];
-    final devs = ref.watch(developersProvider).valueOrNull ?? const <String>[];
-    final sources = ref.watch(usedSourcesProvider).valueOrNull ?? const <String>[];
     final dark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Column(
         children: [
-          // 顶栏
+          // 顶栏：标题 + 计数 + 搜索 + 添加
           Row(
             children: [
               Text('游戏库',
@@ -58,7 +55,7 @@ class LibraryPage extends ConsumerWidget {
               ),
               const Spacer(),
               SizedBox(
-                width: 260,
+                width: 280,
                 child: TextField(
                   controller: TextEditingController(text: filter.query)
                     ..selection = TextSelection.collapsed(offset: filter.query.length),
@@ -74,31 +71,6 @@ class LibraryPage extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              // 排序
-              PopupMenuButton<GameSort>(
-                tooltip: '排序',
-                onSelected: (s) {
-                  ref.read(libraryFilterProvider).sort = s;
-                  ref.read(libraryVersionProvider.notifier).state++;
-                },
-                icon: const Icon(Icons.sort_rounded),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                itemBuilder: (_) => GameSort.values
-                    .map((s) => PopupMenuItem(
-                        value: s,
-                        child: Row(
-                          children: [
-                            if (filter.sort == s)
-                              const Icon(Icons.check_rounded, size: 18)
-                            else
-                              const SizedBox(width: 18),
-                            const SizedBox(width: 6),
-                            Text(s.label),
-                          ],
-                        )))
-                    .toList(),
-              ),
-              const SizedBox(width: 6),
               FilledButton.icon(
                 onPressed: () async {
                   await Navigator.of(context).push(
@@ -111,176 +83,68 @@ class LibraryPage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // 筛选栏
-          SizedBox(
-            height: 44,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 状态
-                for (final s in PlayStatus.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(s.label),
-                      selected: filter.status == s,
-                      showCheckmark: false,
-                      visualDensity: VisualDensity.compact,
-                      onSelected: (sel) {
-                        ref.read(libraryFilterProvider).status = sel ? s : null;
-                        ref.read(libraryVersionProvider.notifier).state++;
-                      },
-                    ),
-                  ),
-                if (sources.isNotEmpty) ...[
-                  const SizedBox(width: 4),
-                  for (final src in sources)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: SourceBadgeSelectable(
-                        source: src,
-                        selected: filter.source == src,
-                        onTap: () {
-                          final f = ref.read(libraryFilterProvider);
-                          f.source = f.source == src ? null : src;
-                          ref.read(libraryVersionProvider.notifier).state++;
-                        },
-                      ),
-                    ),
-                ],
-                // 收藏
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: const Text('收藏'),
-                    selected: filter.favoriteOnly,
-                    showCheckmark: false,
-                    visualDensity: VisualDensity.compact,
-                    avatar: Icon(
-                      filter.favoriteOnly
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      size: 15,
-                      color: KisakiColors.pink,
-                    ),
-                    onSelected: (sel) {
-                      ref.read(libraryFilterProvider).favoriteOnly = sel;
-                      ref.read(libraryVersionProvider.notifier).state++;
-                    },
+                // 网格
+                Expanded(
+                  child: games.when(
+                    data: (list) => list.isEmpty
+                        ? EmptyState(
+                            title: '没有符合条件的游戏',
+                            subtitle: filter.hasActive
+                                ? '试试在右侧筛选栏放宽条件'
+                                : '点击右上角「添加游戏」，或直接把游戏 exe 拖进来',
+                            action: filter.hasActive
+                                ? OutlinedButton.icon(
+                                    onPressed: () {
+                                      final f = ref.read(libraryFilterProvider);
+                                      f.status = null;
+                                      f.tag = null;
+                                      f.developer = null;
+                                      f.source = null;
+                                      f.favoriteOnly = false;
+                                      f.query = '';
+                                      ref.read(libraryVersionProvider.notifier).state++;
+                                    },
+                                    icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
+                                    label: const Text('清除筛选'))
+                                : FilledButton.icon(
+                                    onPressed: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                            builder: (_) => const AddGamePage())),
+                                    icon: const Icon(Icons.add_rounded),
+                                    label: const Text('添加第一款游戏'),
+                                  ),
+                          )
+                        : LayoutBuilder(builder: (context, constraints) {
+                            const spacing = 18.0;
+                            final count =
+                                (constraints.maxWidth / 172).floor().clamp(2, 10);
+                            return GridView(
+                              padding: const EdgeInsets.only(bottom: 20, top: 4),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: count,
+                                mainAxisSpacing: spacing,
+                                crossAxisSpacing: spacing,
+                                childAspectRatio: 0.52,
+                              ),
+                              children: [
+                                for (final g in list) GameCard(game: g),
+                              ],
+                            );
+                          }),
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => EmptyState(title: '加载失败', subtitle: '$e'),
                   ),
                 ),
-                // 标签
-                for (final t in tags.take(14))
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(t.name),
-                      selected: filter.tag == t.name,
-                      showCheckmark: false,
-                      visualDensity: VisualDensity.compact,
-                      onSelected: (sel) {
-                        ref.read(libraryFilterProvider).tag = sel ? t.name : null;
-                        ref.read(libraryVersionProvider.notifier).state++;
-                      },
-                    ),
-                  ),
-                // 开发商
-                if (devs.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: PopupMenuButton<String>(
-                      tooltip: '开发商',
-                      onSelected: (d) {
-                        final f = ref.read(libraryFilterProvider);
-                        f.developer = f.developer == d ? null : d;
-                        ref.read(libraryVersionProvider.notifier).state++;
-                      },
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      itemBuilder: (_) => [
-                        const PopupMenuItem(value: '', child: Text('全部开发商')),
-                        ...devs.map((d) => PopupMenuItem(value: d, child: Text(d))),
-                      ],
-                      child: Container(
-                        height: 32,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.black12),
-                          color: filter.developer != null
-                              ? (dark
-                                  ? KisakiColors.lavender.withValues(alpha: 0.25)
-                                  : KisakiColors.lavenderContainer)
-                              : Colors.transparent,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(filter.developer ?? '开发商',
-                                style: const TextStyle(fontSize: 12.5)),
-                            const Icon(Icons.expand_more_rounded, size: 16),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                // 清除
-                if (filter.hasActive)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 2),
-                    child: ActionChip(
-                      visualDensity: VisualDensity.compact,
-                      avatar: const Icon(Icons.close_rounded, size: 15),
-                      label: const Text('清除筛选'),
-                      onPressed: () {
-                        final f = ref.read(libraryFilterProvider);
-                        f.status = null;
-                        f.tag = null;
-                        f.developer = null;
-                        f.source = null;
-                        f.favoriteOnly = false;
-                        f.query = '';
-                        ref.read(libraryVersionProvider.notifier).state++;
-                      },
-                    ),
-                  ),
+                const SizedBox(width: 14),
+                // 右侧筛选边栏
+                _FilterSidebar(filter: filter),
               ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          // 网格
-          Expanded(
-            child: games.when(
-              data: (list) => list.isEmpty
-                  ? EmptyState(
-                      title: '游戏库还是空的',
-                      subtitle: '点击右上角「添加游戏」，或直接把游戏 exe 拖进来',
-                      action: FilledButton.icon(
-                        onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const AddGamePage())),
-                        icon: const Icon(Icons.add_rounded),
-                        label: const Text('添加第一款游戏'),
-                      ),
-                    )
-                  : LayoutBuilder(builder: (context, constraints) {
-                      const spacing = 18.0;
-                      final count =
-                          (constraints.maxWidth / 172).floor().clamp(2, 10);
-                      return GridView(
-                        padding: const EdgeInsets.only(bottom: 20, top: 4),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: count,
-                          mainAxisSpacing: spacing,
-                          crossAxisSpacing: spacing,
-                          childAspectRatio: 0.52,
-                        ),
-                        children: [
-                          for (final g in list) GameCard(game: g),
-                        ],
-                      );
-                    }),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(title: '加载失败', subtitle: '$e'),
             ),
           ),
         ],
@@ -289,7 +153,6 @@ class LibraryPage extends ConsumerWidget {
   }
 
   static void _debouncedRefresh(WidgetRef ref) {
-    // 简易防抖：200ms 后刷新
     _searchTimer?.cancel();
     _searchTimer = Timer(const Duration(milliseconds: 250), () {
       ref.read(libraryVersionProvider.notifier).state++;
@@ -299,41 +162,264 @@ class LibraryPage extends ConsumerWidget {
 
 Timer? _searchTimer;
 
-/// 可选中的来源徽标。
-class SourceBadgeSelectable extends StatelessWidget {
-  final String source;
+/// 右侧筛选边栏：按类别整理全部筛选/排序项，外观统一。
+class _FilterSidebar extends ConsumerWidget {
+  final LibraryFilter filter;
+  const _FilterSidebar({required this.filter});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tags = ref.watch(allTagsProvider).valueOrNull ?? const <TagItem>[];
+    final devs = ref.watch(developersProvider).valueOrNull ?? const <String>[];
+    final sources = ref.watch(usedSourcesProvider).valueOrNull ?? const <String>[];
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    void apply() => ref.read(libraryVersionProvider.notifier).state++;
+
+    return SizedBox(
+      width: 234,
+      child: Card(
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        color: dark ? KisakiColors.nightCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+          children: [
+            _sectionLabel(context, '排序'),
+            for (final s in GameSort.values)
+              _sortRow(context, s, apply),
+            const Divider(height: 22),
+            _sectionLabel(context, '游玩状态'),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final s in PlayStatus.values)
+                  _SideChip(
+                    label: s.label,
+                    selected: filter.status == s,
+                    onTap: () {
+                      filter.status = filter.status == s ? null : s;
+                      apply();
+                    },
+                  ),
+              ],
+            ),
+            const Divider(height: 22),
+            _sectionLabel(context, '收藏'),
+            _SideChip(
+              label: '仅看收藏',
+              icon: filter.favoriteOnly
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              selected: filter.favoriteOnly,
+              onTap: () {
+                filter.favoriteOnly = !filter.favoriteOnly;
+                apply();
+              },
+            ),
+            if (sources.isNotEmpty) ...[
+              const Divider(height: 22),
+              _sectionLabel(context, '数据来源'),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final src in sources)
+                    _SideChip(
+                      label: KisakiSources.labels[src] ?? src,
+                      selected: filter.source == src,
+                      onTap: () {
+                        filter.source = filter.source == src ? null : src;
+                        apply();
+                      },
+                    ),
+                ],
+              ),
+            ],
+            if (devs.isNotEmpty) ...[
+              const Divider(height: 22),
+              _sectionLabel(context, '开发商'),
+              PopupMenuButton<String>(
+                onSelected: (d) {
+                  filter.developer = filter.developer == d ? null : d;
+                  apply();
+                },
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: '', child: Text('全部开发商')),
+                  ...devs.map((d) => PopupMenuItem(value: d, child: Text(d))),
+                ],
+                child: Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  alignment: Alignment.centerLeft,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: filter.developer != null
+                        ? (dark
+                            ? KisakiColors.pink.withValues(alpha: 0.2)
+                            : KisakiColors.pinkContainer)
+                        : (dark ? Colors.white10 : const Color(0xFFFDF3EE)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          filter.developer ?? '全部开发商',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: filter.developer != null
+                                  ? FontWeight.w700
+                                  : FontWeight.w500),
+                        ),
+                      ),
+                      const Icon(Icons.expand_more_rounded, size: 16),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (tags.isNotEmpty) ...[
+              const Divider(height: 22),
+              _sectionLabel(context, '标签'),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final t in tags.take(40))
+                    _SideChip(
+                      label: t.name,
+                      selected: filter.tag == t.name,
+                      onTap: () {
+                        filter.tag = filter.tag == t.name ? null : t.name;
+                        apply();
+                      },
+                    ),
+                ],
+              ),
+            ],
+            if (filter.hasActive) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () {
+                  final f = ref.read(libraryFilterProvider);
+                  f.status = null;
+                  f.tag = null;
+                  f.developer = null;
+                  f.source = null;
+                  f.favoriteOnly = false;
+                  f.query = '';
+                  apply();
+                },
+                icon: const Icon(Icons.filter_alt_off_rounded, size: 16),
+                label: const Text('清除全部筛选'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(BuildContext context, String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 8, top: 2),
+        child: Text(text,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      );
+
+  Widget _sortRow(BuildContext context, GameSort s, VoidCallback apply) =>
+      Consumer(builder: (context, ref, _) {
+        final current = ref.watch(libraryFilterProvider).sort;
+        final selected = current == s;
+        return InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            ref.read(libraryFilterProvider).sort = s;
+            apply();
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            child: Row(
+              children: [
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
+                  size: 16,
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text(s.label,
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500)),
+              ],
+            ),
+          ),
+        );
+      });
+}
+
+/// 边栏统一胶囊筛选块（状态/来源/标签/收藏共用一种外观）。
+class _SideChip extends StatelessWidget {
+  final String label;
   final bool selected;
   final VoidCallback onTap;
-  const SourceBadgeSelectable(
-      {super.key, required this.source, required this.selected, required this.onTap});
+  final IconData? icon;
+  const _SideChip(
+      {required this.label, required this.selected, required this.onTap, this.icon});
 
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
+      borderRadius: BorderRadius.circular(9),
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
       child: Container(
-        height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(9),
           color: selected
-              ? (dark
-                  ? KisakiColors.pink.withValues(alpha: 0.25)
-                  : KisakiColors.pinkContainer)
-              : Colors.transparent,
-          border: Border.all(color: Colors.black12),
-        ),
-        child: Text(
-          source == 'custom' ? '自定义' : KisakiSources.labels[source] ?? source,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? scheme.primary : null,
+              ? (dark ? KisakiColors.pink.withValues(alpha: 0.25) : KisakiColors.pinkContainer)
+              : (dark ? Colors.white10 : const Color(0xFFFDF3EE)),
+          border: Border.all(
+            color: selected
+                ? scheme.primary.withValues(alpha: 0.55)
+                : Colors.transparent,
           ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon,
+                  size: 13,
+                  color: selected
+                      ? scheme.primary
+                      : Theme.of(context).colorScheme.onSurfaceVariant),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected
+                    ? (dark ? KisakiColors.pinkSoft : KisakiColors.pink)
+                    : Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ],
         ),
       ),
     );

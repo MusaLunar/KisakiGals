@@ -16,7 +16,6 @@ import '../../core/utils.dart';
 import '../../data/models.dart';
 import '../../data/settings_store.dart';
 import '../../providers.dart';
-import '../../scraping/apply.dart';
 import '../../services/game_launcher.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -160,11 +159,21 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
             ),
           ),
         const SizedBox(width: 8),
-        // 换背景：纯色 / 刮削截图
+        // 收藏（心形，直接切换）
         IconButton(
-          tooltip: '更换背景',
-          onPressed: () => _pickBackground(game),
-          icon: const Icon(Icons.wallpaper_rounded),
+          tooltip: game.isFavorite ? '取消收藏' : '加入收藏',
+          onPressed: () async {
+            game.isFavorite = !game.isFavorite;
+            await AppServices.I.repo.updateGame(game);
+            ref.read(libraryVersionProvider.notifier).state++;
+            if (mounted) setState(() {});
+          },
+          icon: Icon(
+            game.isFavorite
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+            color: game.isFavorite ? KisakiColors.pink : null,
+          ),
         ),
       ],
     );
@@ -246,7 +255,10 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
               _InfoRow(
                   icon: Icons.business_rounded,
                   label: '开发商',
-                  value: game.developer.isEmpty ? '未知' : game.developer),
+                  value: game.developer.isEmpty ? '未知' : game.developer,
+                  onTap: game.developer.isEmpty
+                      ? null
+                      : () => _jumpLibrary(developer: game.developer)),
               _InfoRow(
                   icon: Icons.event_rounded,
                   label: '发售日期',
@@ -303,26 +315,11 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                         borderRadius: BorderRadius.circular(16)),
                     icon: const Icon(Icons.more_horiz_rounded),
                     onSelected: (v) async {
-                      if (v == 'rescan') {
-                        await _rescan(game);
-                      } else if (v == 'favorite') {
-                        game.isFavorite = !game.isFavorite;
-                        await AppServices.I.repo.updateGame(game);
-                        ref.read(libraryVersionProvider.notifier).state++;
-                      } else if (v == 'delete') {
+                      if (v == 'delete') {
                         await _confirmDelete(game);
                       }
                     },
                     itemBuilder: (_) => [
-                      const PopupMenuItem(
-                          value: 'rescan',
-                          child: Text('重新刮削元数据')),
-                      PopupMenuItem(
-                          value: 'favorite',
-                          child: Text(game.isFavorite
-                              ? '取消收藏'
-                              : '加入收藏')),
-                      const PopupMenuDivider(),
                       const PopupMenuItem(
                           value: 'delete',
                           child: Text('删除游戏',
@@ -344,23 +341,27 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
       runSpacing: 8,
       children: [
         for (final t in tags.take(18))
-          Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 11, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: dark
-                  ? KisakiColors.lavender.withValues(alpha: 0.16)
-                  : KisakiColors.lavenderContainer,
-            ),
-            child: Text(
-              t.name,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _jumpLibrary(tag: t.name),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 11, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
                 color: dark
-                    ? KisakiColors.lavenderSoft
-                    : KisakiColors.onLavenderContainer,
+                    ? KisakiColors.lavender.withValues(alpha: 0.16)
+                    : KisakiColors.lavenderContainer,
+              ),
+              child: Text(
+                t.name,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: dark
+                      ? KisakiColors.lavenderSoft
+                      : KisakiColors.onLavenderContainer,
+                ),
               ),
             ),
           ),
@@ -368,88 +369,10 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
     );
   }
 
-  // ---------- 背景 ----------
-
-  Future<void> _pickBackground(Game game) async {
-    final hasShots = game.screenshots.isNotEmpty;
-    final choice = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('详情页背景'),
-        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-        content: SizedBox(
-          width: 460,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.format_color_fill_rounded),
-                title: const Text('纯色背景'),
-                subtitle: const Text('使用主题底色，最简洁'),
-                onTap: () => Navigator.pop(ctx, ''),
-              ),
-              if (!hasShots)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
-                  child: Text('该游戏暂无刮削截图；重新刮削（需启用 VNDB 源）可获得截图背景。',
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
-                )
-              else
-                Flexible(
-                  child: GridView.count(
-                    crossAxisCount: 3,
-                    shrinkWrap: true,
-                    childAspectRatio: 1.6,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    children: [
-                      for (final url in game.screenshots.take(9))
-                        GestureDetector(
-                          onTap: () => Navigator.pop(ctx, url),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: _bgThumb(url),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, null),
-              child: const Text('取消')),
-        ],
-      ),
-    );
-    if (choice == null) return;
-    if (choice.isEmpty) {
-      game.backgroundUrl = '';
-    } else {
-      final local = await AppServices.I.fetcher.downloadImage(
-          choice, 'bg_${game.id}');
-      game.backgroundUrl = local.isNotEmpty ? local : '';
-    }
-    await AppServices.I.repo.updateGame(game);
-    ref.read(libraryVersionProvider.notifier).state++;
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(game.backgroundUrl.isEmpty ? '已使用纯色背景' : '背景已更新')));
-  }
-
-  Widget _bgThumb(String url) {
-    if (url.startsWith('http')) {
-      return Image.network(url, fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const ColoredBox(
-              color: Color(0x22000000),
-              child: Center(child: Icon(Icons.broken_image_rounded, size: 18))));
-    }
-    return Image.file(File(url), fit: BoxFit.cover);
+  /// 点开发商/标签 → 回游戏库并应用对应筛选。
+  void _jumpLibrary({String? developer, String? tag}) {
+    jumpToLibraryFiltered(ref, developer: developer, tag: tag);
+    Navigator.of(context).pop();
   }
 
   // ---------- 动作 ----------
@@ -487,25 +410,6 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
       await AppServices.I.repo.updateGame(game);
     }
     if (mounted) setState(() {});
-  }
-
-  Future<void> _rescan(Game game) async {
-    final kw = game.nameCn.isNotEmpty ? game.nameCn : game.name;
-    final best = await AppServices.I.fetcher.fetchBest(kw);
-    if (best == null || best.source.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('未找到匹配的元数据')));
-      return;
-    }
-    final all = await AppServices.I.fetcher.mergeAcrossSources(best, kw: kw);
-    await ScrapeApplier(AppServices.I.repo, AppServices.I.fetcher)
-        .apply(game, all);
-    ref.read(libraryVersionProvider.notifier).state++;
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            '已重新刮削：${all.first.displayName}（${all.length} 个数据源）')));
   }
 
   Future<void> _confirmDelete(Game game) async {
@@ -559,8 +463,13 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
   final bool ellipsis;
+  final VoidCallback? onTap;
   const _InfoRow(
-      {required this.icon, required this.label, required this.value, this.ellipsis = false});
+      {required this.icon,
+      required this.label,
+      required this.value,
+      this.ellipsis = false,
+      this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -574,12 +483,35 @@ class _InfoRow extends StatelessWidget {
           Text('$label：',
               style: TextStyle(fontSize: 13, color: soft)),
           Expanded(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: ellipsis ? TextOverflow.ellipsis : TextOverflow.clip,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-            ),
+            child: onTap != null
+                ? InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: onTap,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(value,
+                              maxLines: 1,
+                              overflow: ellipsis
+                                  ? TextOverflow.ellipsis
+                                  : TextOverflow.clip,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: KisakiColors.pink)),
+                        ),
+                        const Icon(Icons.arrow_forward_rounded,
+                            size: 13, color: KisakiColors.pink),
+                      ],
+                    ),
+                  )
+                : Text(
+                    value,
+                    maxLines: 1,
+                    overflow: ellipsis ? TextOverflow.ellipsis : TextOverflow.clip,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
           ),
         ],
       ),

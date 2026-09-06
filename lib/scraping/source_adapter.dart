@@ -30,10 +30,15 @@ abstract class SourceAdapter {
     Map<String, String>? headers,
   }) async {
     final limiter = limiters.forSource(id);
+    // Uri.replace 的 queryParameters 只接受 String / List<String>
+    final safeQuery = query?.map((k, v) {
+      if (v is String || v is List) return MapEntry(k, v);
+      return MapEntry(k, '$v');
+    });
     for (var attempt = 0; attempt < 3; attempt++) {
       await limiter.acquire();
       final response = await dio.getUri(
-        Uri.parse(url).replace(queryParameters: query),
+        Uri.parse(url).replace(queryParameters: safeQuery),
         options: Options(
           headers: headers,
           validateStatus: (s) => s != null && s < 500,

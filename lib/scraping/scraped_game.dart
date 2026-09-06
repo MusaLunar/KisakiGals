@@ -118,3 +118,42 @@ class ScrapeHit {
   final int score; // 匹配分
   ScrapeHit(this.game, this.score);
 }
+
+/// 跨源同身份候选组：同一游戏在不同源的条目归为一组。
+class ScrapeHitGroup {
+  ScrapedGame merged; // 摘要级合并（名称/封面/日期等，详情懒补）
+  final List<ScrapedGame> members;
+  int bestScore;
+
+  ScrapeHitGroup(this.merged, this.members, this.bestScore);
+
+  List<String> get sources =>
+      members.map((m) => m.source).toSet().toList();
+
+  void add(ScrapedGame g, int score) {
+    members.add(g);
+    if (score > bestScore) bestScore = score;
+    merged = mergeTwoSummaries(merged, g);
+  }
+}
+
+/// 摘要级合并（无 IO）：主体优先、空位补全。
+ScrapedGame mergeTwoSummaries(ScrapedGame a, ScrapedGame b) {
+  String pick(String x, String y) => x.isNotEmpty ? x : y;
+  return ScrapedGame(
+    source: a.source,
+    sourceId: a.sourceId,
+    name: pick(a.name, b.name),
+    nameCn: pick(a.nameCn, b.nameCn),
+    aliases: {...a.aliases, ...b.aliases}.toList(),
+    coverUrl: pick(a.coverUrl, b.coverUrl),
+    developer: pick(a.developer, b.developer),
+    releaseDate: pick(a.releaseDate, b.releaseDate),
+    summary: pick(a.summary, b.summary),
+    rating: a.rating > 0 ? a.rating : b.rating,
+    voteCount: a.voteCount > 0 ? a.voteCount : b.voteCount,
+    tags: a.tags.isNotEmpty ? a.tags : b.tags,
+    screenshots: {...a.screenshots, ...b.screenshots}.toList(),
+    nsfw: a.nsfw || b.nsfw,
+  );
+}

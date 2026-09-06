@@ -845,44 +845,56 @@ class _DataSectionState extends ConsumerState<_DataSection> {
           const Divider(),
           SettingRow(
             title: '当前备份',
-            subtitle: '已有 $_backupCount 份备份',
+            subtitle: '默认备份目录已有 $_backupCount 份；「备份到…」可选任意位置，方便把数据拷到另一台电脑',
             trailing: Row(
               children: [
                 OutlinedButton(
                   onPressed: () async {
-                    final svc = BackupService(
+                    // 默认存数据目录 backups/；也可选择其他位置（便于拷贝到别的电脑）
+                    final dir = await FilePicker.platform.getDirectoryPath(
+                        dialogTitle: '备份保存到（取消则存默认备份目录）');
+                    final target = BackupService(
                         dbFile: AppServices.I.paths.dbFile,
-                        backupsDir: AppServices.I.paths.backups);
-                    await svc.backup();
-                    await svc.prune(20);
+                        backupsDir: (dir != null && dir.isNotEmpty)
+                            ? dir
+                            : AppServices.I.paths.backups);
+                    final path = await target.backup();
+                    if (dir == null || dir.isEmpty) {
+                      final keep = await AppServices.I.settings
+                          .getInt(SettingsStore.kBackupKeep, 20);
+                      await target.prune(keep);
+                    }
                     await _load();
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('备份完成')));
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('备份完成：$path')));
                     }
                   },
-                  child: const Text('立即备份'),
+                  child: const Text('备份到…'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton(
                   onPressed: () async {
-                    final svc = BackupService(
-                        dbFile: AppServices.I.paths.dbFile,
-                        backupsDir: AppServices.I.paths.backups);
-                    final files = svc.list();
-                    if (files.isEmpty) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(const SnackBar(content: Text('暂无备份')));
+                    final result = await FilePicker.platform.pickFiles(
+                      type: FileType.any,
+                      dialogTitle: '选择要恢复的备份文件（.db）',
+                    );
+                    final path = result?.files.single.path;
+                    if (path == null || path.isEmpty) return;
+                    if (!path.toLowerCase().endsWith('.db')) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('请选择 .db 备份文件')));
                       }
                       return;
                     }
+                    if (!context.mounted) return;
                     final ok = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
                         title: const Text('恢复备份'),
                         content: Text(
-                            '将用最近一份备份（${files.first.path.split(Platform.pathSeparator).last}）覆盖当前数据库。\n恢复后需要重启应用。继续吗？'),
+                            '将用 ${path.split(Platform.pathSeparator).last} 覆盖当前数据库。\n恢复后需要重启应用。继续吗？'),
                         actions: [
                           TextButton(
                               onPressed: () => Navigator.pop(ctx, false),
@@ -894,14 +906,17 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                       ),
                     );
                     if (ok == true) {
-                      await svc.restore(files.first.path);
+                      final svc = BackupService(
+                          dbFile: AppServices.I.paths.dbFile,
+                          backupsDir: AppServices.I.paths.backups);
+                      await svc.restore(path);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('已恢复，请重启应用')));
                       }
                     }
                   },
-                  child: const Text('恢复最近备份'),
+                  child: const Text('从文件恢复…'),
                 ),
               ],
             ),
