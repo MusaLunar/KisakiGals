@@ -499,11 +499,20 @@ class _RatingTile extends StatelessWidget {
               ],
             ),
           ),
-          Text(game.userRating.toStringAsFixed(0),
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: Theme.of(context).colorScheme.primary)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(game.userRating.toStringAsFixed(0),
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: Theme.of(context).colorScheme.primary)),
+              Text('满分 10 · ${game.userRating ~/ 2}/5 星',
+                  style: TextStyle(
+                      fontSize: 10,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
+          ),
         ],
       ),
     );
@@ -600,17 +609,20 @@ class _SummaryTab extends ConsumerWidget {
   }
 
   Future<String> _buildSummary(AggStats s) async {
-    if (s.totalSeconds == 0) return '这个${period.label == '本周' ? '周' : '时段'}还没有游玩记录，打开一部作品开始新的故事吧。';
+    if (s.totalSeconds == 0) {
+      return '这个${period.label}还没有游玩记录，打开一部作品开始新的故事吧。';
+    }
     final tags = await AppServices.I.repo.tagCloud(period: period);
     final topTags = tags.take(4).map((t) => t.name).toList();
     final topGame = s.topGames.isEmpty ? '' : s.topGames.first.name;
-    final hours = (s.totalSeconds / 3600).toStringAsFixed(1);
+    final durText = fmtDuration(s.totalSeconds);
+    final avg = fmtDuration(s.avgPerActiveDay ~/ (s.sessionCount == 0 ? 1 : s.sessionCount));
     final tagText =
         topTags.isEmpty ? '' : '，最吸引你的关键词是「${topTags.join('」「')}」';
     final gameText =
         topGame.isEmpty ? '' : '，投入最多的作品是《$topGame》';
-    return '这个$hours 小时的${period.label}里，你在 ${s.activeDays} 天里游玩了 ${s.sessionCount} 次，'
-        '平均每次 ${fmtDuration(s.avgPerActiveDay ~/ (s.sessionCount == 0 ? 1 : s.sessionCount))}'
+    return '这个${period.label}你游玩了 $durText，分布在 ${s.activeDays} 天、共 ${s.sessionCount} 次，'
+        '平均每次 $avg'
         '$gameText$tagText。'
         '${s.activeDays >= 5 ? '保持这样细腻的节奏，故事会一直陪着你。' : '偶尔也要记得休息，故事不会跑。'}';
   }

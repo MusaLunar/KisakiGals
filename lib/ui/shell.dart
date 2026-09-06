@@ -1,11 +1,17 @@
 /// 应用外壳：自绘标题栏 + 左侧导航栏 + 页面切换。
 library;
 
+import 'dart:io';
+import 'dart:ui' show ImageByteFormat;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../app_services.dart';
+import '../main.dart' show shotBoundaryKey;
 import '../providers.dart';
 import 'home/home_page.dart';
 import 'library/library_page.dart';
@@ -21,17 +27,24 @@ class ShellPage extends ConsumerStatefulWidget {
 }
 
 class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
+
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
+    // F10：应用内截图（保存到 docs/screens/，用于视觉验收）
+    HardwareKeyboard.instance.addHandler(_onKey);
     // 会话结束 → 落库 + 刷新统计
     AppServices.I.tracker.onSessionEnd.listen((event) async {
-      await AppServices.I.repo.addSession(event.session);
+      if (event.session != null) {
+        await AppServices.I.repo.addSession(event.session!);
+      }
       if (mounted) {
-        ref.read(libraryVersionProvider.notifier).state++;
+        if (event.session != null) {
+          ref.read(libraryVersionProvider.notifier).state++;
+        }
         final gid = ref.read(trackingGameProvider);
-        if (gid == event.session.gameId) {
+        if (gid == event.gameId) {
           ref.read(trackingGameProvider.notifier).state = null;
         }
       }
@@ -39,8 +52,41 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
   }
 
   @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  @override
   void onWindowFocus() {
     setState(() {});
+  }
+
+  bool _onKey(KeyEvent e) {
+    if (e is KeyDownEvent &&
+        e.logicalKey == LogicalKeyboardKey.f10 &&
+        shotBoundaryKey.currentContext != null) {
+      _capture();
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _capture() async {
+    try {
+      final boundary =
+          shotBoundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final image = await boundary.toImage(pixelRatio: 1.0);
+      final bytes = await image.toByteData(format: ImageByteFormat.png);
+      const dir = 'E:/Programming/KisakiGals/docs/screens';
+      Directory(dir).createSync(recursive: true);
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final file = File('$dir/auto_$stamp.png');
+      await file.writeAsBytes(bytes!.buffer.asUint8List());
+      debugPrint('screenshot saved: ${file.path}');
+    } catch (e) {
+      debugPrint('screenshot failed: $e');
+    }
   }
 
   @override
@@ -55,7 +101,10 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
           Expanded(
             child: Row(
               children: [
-                _NavRail(tab: tab, onChanged: (i) => ref.read(tabIndexProvider.notifier).state = i),
+                _NavRail(
+                    tab: tab,
+                    onChanged: (i) =>
+                        ref.read(tabIndexProvider.notifier).state = i),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(8, 4, 16, 16),
@@ -79,14 +128,14 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
                     ),
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    }
   }
-}
 
 class _TitleBar extends StatelessWidget {
   final bool dark;
@@ -145,7 +194,6 @@ class _TitleBar extends StatelessWidget {
             ),
             _WindowButton(
               icon: Icons.close_rounded,
-              danger: true,
               onTap: () => windowManager.close(),
             ),
             const SizedBox(width: 8),
@@ -159,8 +207,7 @@ class _TitleBar extends StatelessWidget {
 class _WindowButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
-  final bool danger;
-  const _WindowButton({required this.icon, required this.onTap, this.danger = false});
+  const _WindowButton({required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -175,9 +222,7 @@ class _WindowButton extends StatelessWidget {
         child: Icon(
           icon,
           size: 17,
-          color: danger
-              ? (dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft)
-              : (dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
+          color: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft,
         ),
       ),
     );
@@ -234,17 +279,22 @@ class _NavRail extends StatelessWidget {
                         size: 26,
                         color: selected
                             ? scheme.primary
-                            : (dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
+                            : (dark
+                                ? KisakiColors.nightInkSoft
+                                : KisakiColors.inkSoft),
                       ),
                       const SizedBox(height: 5),
                       Text(
                         _items[i].$2,
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
                           color: selected
                               ? scheme.primary
-                              : (dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
+                              : (dark
+                                  ? KisakiColors.nightInkSoft
+                                  : KisakiColors.inkSoft),
                         ),
                       ),
                     ],

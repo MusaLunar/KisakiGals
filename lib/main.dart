@@ -37,6 +37,9 @@ Future<void> main() async {
   runApp(const ProviderScope(child: KisakiApp()));
 }
 
+/// F10 截图边界（全局，覆盖所有路由）。
+final GlobalKey shotBoundaryKey = GlobalKey();
+
 /// 应用根：主题切换 + 外壳。
 class KisakiApp extends ConsumerWidget {
   const KisakiApp({super.key});
@@ -54,6 +57,10 @@ class KisakiApp extends ConsumerWidget {
         ThemeModePref.light => ThemeMode.light,
         ThemeModePref.dark => ThemeMode.dark,
       },
+      builder: (context, child) => RepaintBoundary(
+        key: shotBoundaryKey,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: const ShellPage(),
     );
   }

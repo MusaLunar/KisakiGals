@@ -10,7 +10,6 @@ import 'process_monitor.dart';
 
 class PlaytimeTracker {
   Timer? _timer;
-  final List<PlaySessionEnd> _finished = [];
   final _controller = StreamController<PlaySessionEnd>.broadcast();
 
   /// 会话结束事件流。
@@ -93,7 +92,7 @@ class PlaytimeTracker {
     }
   }
 
-  /// 结束跟踪；[saveSession] 为真时产出会话事件。
+  /// 结束跟踪；始终发出事件（session 可为 null，用于 UI 复位），有有效时长时才计会话。
   void stopTracking({bool saveSession = true}) {
     _timer?.cancel();
     _timer = null;
@@ -103,19 +102,14 @@ class PlaytimeTracker {
     _startedAt = null;
     _watchNames = {};
     if (game == null || start == null) return;
-    if (!saveSession || _countedSeconds <= 0) return;
     final end = DateTime.now();
-    final session = PlaySessionEnd(
-      session: GameSession(
-        gameId: game,
-        start: start,
-        end: end,
-        seconds: _countedSeconds,
-      ),
-      elapsedSeconds: end.difference(start).inSeconds,
-    );
-    _finished.add(session);
-    _controller.add(session);
+    final elapsed = end.difference(start).inSeconds;
+    final session =
+        saveSession && _countedSeconds > 0
+            ? GameSession(gameId: game, start: start, end: end, seconds: _countedSeconds)
+            : null;
+    _controller.add(PlaySessionEnd(
+        session: session, elapsedSeconds: elapsed, gameId: game));
   }
 
   /// 当前已计入秒数（UI 实时展示）。
@@ -128,7 +122,9 @@ class PlaytimeTracker {
 }
 
 class PlaySessionEnd {
-  final GameSession session;
+  final GameSession? session; // null = 会话无效（进程未出现/零时长）
   final int elapsedSeconds;
-  const PlaySessionEnd({required this.session, required this.elapsedSeconds});
+  final int gameId;
+  const PlaySessionEnd(
+      {required this.session, required this.elapsedSeconds, required this.gameId});
 }

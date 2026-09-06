@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_print
 // 刮削层冒烟测试：dart run tool/scrape_smoke.dart [关键词]
 import 'package:kisakigals/data/metadata_cache.dart';
 import 'package:kisakigals/scraping/metadata_fetcher.dart';

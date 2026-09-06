@@ -1,6 +1,7 @@
 /// 游戏详情页：信息、统计、启动、编辑、重刮、评分评价（可同步上传）。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fl_chart/fl_chart.dart';
@@ -312,6 +313,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
       return;
     }
     final mode = await AppServices.I.settings.trackingMode();
+    unawaited(GameLauncher.launch(game.exePath, game.directory));
     AppServices.I.tracker.startTracking(
       gameId: game.id!,
       exePath: game.exePath,

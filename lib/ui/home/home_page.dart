@@ -1,12 +1,15 @@
 /// 主页：统计速览 / Hero 最近游玩 / 活动时间线 / 推荐。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:window_manager/window_manager.dart';
+
+import '../../services/game_launcher.dart';
 
 import '../../app_services.dart';
 import '../../data/settings_store.dart';
@@ -181,6 +184,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
     final mode = await AppServices.I.settings.trackingMode();
+    unawaited(GameLauncher.launch(g.exePath, g.directory));
     AppServices.I.tracker.startTracking(
       gameId: g.id!,
       exePath: g.exePath,
