@@ -2,7 +2,7 @@
 
 # 🌸 KisakiGals
 
-**Galgame 收藏与游玩时长管理器** · Flutter Windows 桌面应用
+**Galgame 收藏与游玩时长管理器** · Flutter Windows 桌面应用 · Vibe Coding
 
 > 「无论何时，都想与她们再次相见。」
 
@@ -125,7 +125,6 @@ dart test              # 13 项单元测试
 
 - 应用源码：本项目以 **GNU Affero General Public License v3.0（AGPL-3.0）** 发布（见 LICENSE）。
 - `assets/data/vndb_tags_zh_cn.json`（第三方内置资源）：MIT © ChronoTide 项目，按 MIT 条款使用。
-- 应用图标与界面为原创设计（樱花粉 × 藤紫 × 奶油）。
 
 **本项目与任何商业 galgame 发行商无关，仅供学习与个人管理使用；请在尊重各作品版权的前提下使用。**
 
