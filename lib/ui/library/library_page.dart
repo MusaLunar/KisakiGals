@@ -25,7 +25,6 @@ class LibraryPage extends ConsumerStatefulWidget {
 class _LibraryPageState extends ConsumerState<LibraryPage> {
   bool _sidebarVisible = true;
   bool _batchMode = false;
-  static const bool _LIB_TEST = false;
   final _selected = <int>{};
 
   @override

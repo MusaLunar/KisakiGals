@@ -4,6 +4,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
 import 'package:path/path.dart' as p;
 
 class AutostartService {
@@ -35,7 +37,14 @@ class BackupService {
   BackupService({required this.dbFile, required this.backupsDir});
 
   /// 创建备份，返回备份文件路径。
-  Future<String> backup() async {
+  /// [checkpointDb]：应用内调用时传入已打开的数据库连接，
+  /// 先把 WAL 合并回主库，否则运行中复制的文件可能缺最新数据。
+  Future<String> backup({Database? checkpointDb}) async {
+    if (checkpointDb != null) {
+      try {
+        await checkpointDb.execute('PRAGMA wal_checkpoint(TRUNCATE)');
+      } catch (_) {}
+    }
     final stamp = DateTime.now()
         .toIso8601String()
         .replaceAll(RegExp(r'[:.]'), '-')
@@ -45,7 +54,28 @@ class BackupService {
     return target;
   }
 
-  /// 从备份恢复（覆盖当前数据库文件，需重启应用生效）。
+  /// 校验文件是否为 SQLite 数据库（文件头 magic）。
+  static bool looksLikeSqlite(String path) {
+    try {
+      final raf = File(path).openSync();
+      final head = raf.readSync(16);
+      raf.closeSync();
+      return String.fromCharCodes(head.take(15)) == 'SQLite format 3';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 删除 WAL/SHM 附属文件（恢复覆盖前必须，否则旧数据会回写）。
+  void removeSidecarFiles() {
+    for (final suffix in ['-wal', '-shm']) {
+      final f = File('$dbFile$suffix');
+      if (f.existsSync()) f.deleteSync();
+    }
+  }
+
+  /// 从备份恢复（覆盖当前数据库文件）。
+  /// 注意：必须在数据库连接关闭后调用，恢复后需重启应用。
   Future<void> restore(String backupFile) async {
     await File(backupFile).copy(dbFile);
   }

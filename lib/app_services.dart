@@ -126,7 +126,7 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
                     .difference(files.first.statSync().modified)
                     .inHours >=
                 24) {
-          await svc.backup();
+          await svc.backup(checkpointDb: s.db);
           await svc.prune(
               await s.settings.getInt(SettingsStore.kBackupKeep, 10));
         }

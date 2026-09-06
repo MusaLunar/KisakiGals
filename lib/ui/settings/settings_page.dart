@@ -1016,7 +1016,8 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                         backupsDir: (dir != null && dir.isNotEmpty)
                             ? dir
                             : AppServices.I.paths.backups);
-                    final path = await target.backup();
+                    final path =
+                        await target.backup(checkpointDb: AppServices.I.db);
                     if (dir == null || dir.isEmpty) {
                       final keep = await AppServices.I.settings
                           .getInt(SettingsStore.kBackupKeep, 20);
@@ -1039,9 +1040,9 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                     );
                     final path = result?.files.single.path;
                     if (path == null || path.isEmpty) return;
-                    if (!path.toLowerCase().endsWith('.db')) {
+                    if (!BackupService.looksLikeSqlite(path)) {
                       if (context.mounted) {
-                        showNotice(ref, '请选择 .db 备份文件', error: true);
+                        showNotice(ref, '所选文件不是有效的数据库备份', error: true);
                       }
                       return;
                     }
@@ -1051,26 +1052,45 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                       builder: (ctx) => AlertDialog(
                         title: const Text('恢复备份'),
                         content: Text(
-                            '将用 ${path.split(Platform.pathSeparator).last} 覆盖当前数据库。\n恢复后需要重启应用。继续吗？'),
+                            '将用 ${path.split(Platform.pathSeparator).last} 覆盖当前数据库，恢复后应用会自动重启。继续吗？'),
                         actions: [
                           TextButton(
                               onPressed: () => Navigator.pop(ctx, false),
                               child: const Text('取消')),
                           FilledButton(
                               onPressed: () => Navigator.pop(ctx, true),
-                              child: const Text('恢复')),
+                              child: const Text('恢复并重启')),
                         ],
                       ),
                     );
-                    if (ok == true) {
-                      final svc = BackupService(
-                          dbFile: AppServices.I.paths.dbFile,
-                          backupsDir: AppServices.I.paths.backups);
-                      await svc.restore(path);
+                    if (ok != true || !context.mounted) return;
+                    try {
+                      // 1. 关闭数据库连接（释放文件锁）
+                      await AppServices.I.db.close();
+                      // 2. 清理 WAL/SHM 附属文件（否则旧数据会回写覆盖恢复结果）
+                      BackupService(
+                              dbFile: AppServices.I.paths.dbFile,
+                              backupsDir: AppServices.I.paths.backups)
+                          .removeSidecarFiles();
+                      // 3. 覆盖
+                      await BackupService(
+                              dbFile: AppServices.I.paths.dbFile,
+                              backupsDir: AppServices.I.paths.backups)
+                          .restore(path);
+                    } catch (e) {
                       if (context.mounted) {
-                        showNotice(ref, '已恢复备份，请重启应用');
+                        showNotice(ref,
+                            '恢复失败：$e（可手动将备份复制到数据目录覆盖 kisakigals.db）',
+                            error: true);
                       }
+                      return;
                     }
+                    // 4. 自动重启应用
+                    final exe = Platform.resolvedExecutable;
+                    await Process.start(exe, [],
+                        workingDirectory: File(exe).parent.path,
+                        mode: ProcessStartMode.detached);
+                    exit(0);
                   },
                   child: const Text('从文件恢复…'),
                 ),
