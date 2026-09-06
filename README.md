@@ -8,6 +8,8 @@
 
 **当前版本：0.9.0-beta** ｜ 作者：MusaLunar ｜ [项目主页](https://github.com/MusaLunar/KisakiGals)
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 </div>
 
 ---
@@ -121,8 +123,8 @@ dart test              # 13 项单元测试
 
 ## 📜 许可
 
-- 应用源码：本项目以 **MIT License** 发布（见 LICENSE）。
-- `assets/data/vndb_tags_zh_cn.json`：MIT © ChronoTide 项目
+- 应用源码：本项目以 **GNU Affero General Public License v3.0（AGPL-3.0）** 发布（见 LICENSE）。
+- `assets/data/vndb_tags_zh_cn.json`（第三方内置资源）：MIT © ChronoTide 项目，按 MIT 条款使用。
 - 应用图标与界面为原创设计（樱花粉 × 藤紫 × 奶油）。
 
 **本项目与任何商业 galgame 发行商无关，仅供学习与个人管理使用；请在尊重各作品版权的前提下使用。**
