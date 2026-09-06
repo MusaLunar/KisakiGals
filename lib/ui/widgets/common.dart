@@ -7,10 +7,31 @@ import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../core/constants.dart';
 import '../../providers.dart';
 import '../theme.dart';
+
+/// 可拖动窗口区域：包住全屏路由（添加/详情页）的顶栏空白处。
+class WindowDragBar extends StatelessWidget {
+  final Widget child;
+  const WindowDragBar({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onPanStart: (_) => windowManager.startDragging(),
+      onDoubleTap: () async {
+        await windowManager.isMaximized()
+            ? windowManager.unmaximize()
+            : windowManager.maximize();
+      },
+      child: child,
+    );
+  }
+}
 
 /// 封面图：本地文件优先 → 网络缓存 → 占位；NSFW 可模糊/占位。
 /// 模糊强度与显示模式来自响应式 provider，设置中切换立即生效。
@@ -52,13 +73,16 @@ class CoverImage extends ConsumerWidget {
   Widget _renderImage(BuildContext context, bool dark, {required bool blur, double sigma = 12}) {
     Widget? image;
     if (path.isNotEmpty && File(path).existsSync()) {
-      image = Image.file(File(path), fit: fit, width: width, height: height);
+      image = Image.file(File(path),
+          fit: fit, width: width, height: height, gaplessPlayback: true);
     } else if ((networkUrl ?? '').isNotEmpty) {
       image = CachedNetworkImage(
         imageUrl: networkUrl!,
         fit: fit,
         width: width,
         height: height,
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
         placeholder: (_, __) => _placeholder(dark),
         errorWidget: (_, __, ___) => _placeholder(dark),
       );

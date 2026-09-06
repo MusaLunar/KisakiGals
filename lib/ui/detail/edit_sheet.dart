@@ -14,6 +14,7 @@ import '../../providers.dart';
 import '../../scraping/apply.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifications.dart';
 import '../widgets/scrape_search_sheet.dart';
 
 class EditSheet extends riverpod.ConsumerStatefulWidget {
@@ -472,8 +473,8 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
         .apply(widget.game, all, backgroundPick: _bgPick);
     ref.read(libraryVersionProvider.notifier).state++;
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('已重新刮削：${all.first.displayName}（${all.length} 个数据源）')));
+    showNotice(ref,
+        '已重新刮削：${all.first.displayName}（${all.length} 个数据源）');
     Navigator.pop(context);
   }
 

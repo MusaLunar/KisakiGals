@@ -86,6 +86,19 @@ switch ($Cmd) {
     [void][W]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
     Write-Output "clicked client($A1,$A2) screen($($p.X),$($p.Y))"
   }
+  'rclick' {
+    $h = Get-Hwnd
+    Activate-Window $h
+    $p = New-Object W+POINT
+    $p.X = [int]$A1; $p.Y = [int]$A2
+    [void][W]::ClientToScreen($h, [ref]$p)
+    [void][W]::SetCursorPos($p.X, $p.Y)
+    Start-Sleep -Milliseconds 120
+    [void][W]::mouse_event(0x08, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+    [void][W]::mouse_event(0x10, 0, 0, 0, [UIntPtr]::Zero)
+    Write-Output "rclicked client($A1,$A2)"
+  }
   'key' {
     $h = Get-Hwnd
     Activate-Window $h

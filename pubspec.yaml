@@ -1,7 +1,7 @@
 name: kisakigals
 description: "KisakiGals - galgame 管理器"
 publish_to: "none"
-version: 0.2.0+1
+version: 0.9.0-beta+1
 
 environment:
   sdk: ">=3.5.0 <4.0.0"

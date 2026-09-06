@@ -19,6 +19,7 @@ import '../../providers.dart';
 import '../../services/game_launcher.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifications.dart';
 import 'edit_sheet.dart';
 import 'rate_dialog.dart';
 
@@ -165,7 +166,12 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
           onPressed: () async {
             game.isFavorite = !game.isFavorite;
             await AppServices.I.repo.updateGame(game);
-            ref.read(libraryVersionProvider.notifier).state++;
+            // 延迟刷新，避免返回游戏库时整页闪烁
+            Future.delayed(const Duration(milliseconds: 450), () {
+              if (mounted) {
+                ref.read(libraryVersionProvider.notifier).state++;
+              }
+            });
             if (mounted) setState(() {});
           },
           icon: Icon(
@@ -380,8 +386,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   Future<void> _launch(Game game) async {
     if (game.exePath.isEmpty || !File(game.exePath).existsSync()) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未找到游戏可执行文件，请先在编辑中设置')));
+      showNotice(ref, '未找到游戏可执行文件，请先在编辑中设置', error: true);
       return;
     }
     final mode = await AppServices.I.settings.trackingMode();
@@ -444,7 +449,10 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
       backgroundColor: Colors.transparent,
       builder: (_) => RateDialog(game: game, sources: sources),
     );
-    ref.read(libraryVersionProvider.notifier).state++;
+    // 延迟刷新，避免关闭动画期间整页闪烁
+    Future.delayed(const Duration(milliseconds: 450), () {
+      if (mounted) ref.read(libraryVersionProvider.notifier).state++;
+    });
   }
 
   Future<void> _openEditSheet(Game game) async {
@@ -454,7 +462,9 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
       backgroundColor: Colors.transparent,
       builder: (_) => EditSheet(game: game),
     );
-    ref.read(libraryVersionProvider.notifier).state++;
+    Future.delayed(const Duration(milliseconds: 450), () {
+      if (mounted) ref.read(libraryVersionProvider.notifier).state++;
+    });
   }
 }
 

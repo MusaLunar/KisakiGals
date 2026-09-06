@@ -21,6 +21,7 @@ import '../../scraping/scraped_game.dart';
 import '../add/add_game_page.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifications.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -42,13 +43,14 @@ class _HomePageState extends ConsumerState<HomePage> {
     return home.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('加载失败：$e')),
-      data: (data) => SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      // 固定布局：整页不滚动，一屏展示全部内容；动态/推荐卡片内部滚动
+      data: (data) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _greeting(data),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             // 1. Stat Cards
             Row(
               children: [
@@ -74,37 +76,44 @@ class _HomePageState extends ConsumerState<HomePage> {
                 )),
               ],
             ),
-            const SizedBox(height: 16),
-            // 2. Hero Card
-            _HeroCard(
-              games: data.recentGames,
-              index: _heroIndex,
-              onSwitch: (i) => setState(() => _heroIndex = i),
-              onContinue: (g) => _continueGame(g),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 3. Activity Timeline
-                Expanded(
-                  flex: 3,
-                  child: _TimelineCard(activity: data.activity),
-                ),
-                const SizedBox(width: 16),
-                // 4. Recommendation
-                Expanded(
-                  flex: 2,
-                  child: _RecommendCard(
-                    recommendations: _recommendations,
-                    loading: _loadingRecommendations,
-                    onRefresh: _loadRecommendations,
-                    libraryTopTags: () => _topTags(),
+            const SizedBox(height: 14),
+            // 2/3/4. 最近游玩 + 动态 + 推荐（固定高度，内部滚动）
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _HeroCard(
+                          games: data.recentGames,
+                          index: _heroIndex,
+                          onSwitch: (i) => setState(() => _heroIndex = i),
+                          onContinue: (g) => _continueGame(g),
+                        ),
+                        const SizedBox(height: 14),
+                        Expanded(
+                          child: _TimelineCard(activity: data.activity),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 14),
+                  Expanded(
+                    flex: 2,
+                    child: _RecommendCard(
+                      recommendations: _recommendations,
+                      loading: _loadingRecommendations,
+                      onRefresh: _loadRecommendations,
+                      libraryTopTags: () => _topTags(),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             // 快捷入口
             Row(
               children: [
@@ -177,10 +186,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<void> _continueGame(Game g) async {
     if (g.exePath.isEmpty || !File(g.exePath).existsSync()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('未找到可执行文件，请到详情页设置')));
-      }
+      showNotice(ref, '未找到可执行文件，请到详情页设置', error: true);
       return;
     }
     final mode = await AppServices.I.settings.trackingMode();
@@ -459,8 +465,7 @@ class _TimelineCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (activity.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 28),
+            Expanded(
               child: Center(
                 child: Text('暂无动态',
                     style: TextStyle(
@@ -469,7 +474,15 @@ class _TimelineCard extends StatelessWidget {
               ),
             )
           else
-            ...activity.take(8).map((a) => _activityTile(context, a)),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  for (final a in activity.take(20))
+                    _activityTile(context, a),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -604,13 +617,11 @@ class _RecommendCard extends StatelessWidget {
             ),
           const SizedBox(height: 10),
           if (loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 30),
+            const Expanded(
               child: Center(child: CircularProgressIndicator()),
             )
           else if (recommendations == null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
+            Expanded(
               child: Center(
                 child: Text('根据库内标签推荐新游戏\n点击右上角刷新试试',
                     textAlign: TextAlign.center,
@@ -621,59 +632,67 @@ class _RecommendCard extends StatelessWidget {
               ),
             )
           else if (recommendations!.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
+            Expanded(
               child: Center(
                 child: Text('暂无推荐（网络不可用或标签太少）',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                         fontSize: 12.5,
                         color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ),
             )
           else
-            ...recommendations!.take(5).map((g) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Row(
-                    children: [
-                      CoverImage(
-                        path: '',
-                        networkUrl: g.coverUrl,
-                        nsfw: g.nsfw,
-                        width: 32,
-                        height: 44,
-                        borderRadius: BorderRadius.circular(6),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  for (final g in recommendations!.take(6))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        children: [
+                          CoverImage(
+                            path: '',
+                            networkUrl: g.coverUrl,
+                            nsfw: g.nsfw,
+                            width: 32,
+                            height: 44,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(g.displayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600)),
+                                if (g.rating > 0)
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.star_rounded,
+                                          size: 12, color: Color(0xFFF0B95E)),
+                                      Text(
+                                          ' ${g.rating.toStringAsFixed(1)} · ${KisakiSources.labels[g.source] ?? g.source}',
+                                          style: TextStyle(
+                                              fontSize: 10.5,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurfaceVariant)),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(g.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w600)),
-                            if (g.rating > 0)
-                              Row(
-                                children: [
-                                  const Icon(Icons.star_rounded,
-                                      size: 12, color: Color(0xFFF0B95E)),
-                                  Text(
-                                      ' ${g.rating.toStringAsFixed(1)} · ${KisakiSources.labels[g.source] ?? g.source}',
-                                      style: TextStyle(
-                                          fontSize: 10.5,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant)),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
+                    ),
+                ],
+              ),
+            ),
         ],
       ),
     );

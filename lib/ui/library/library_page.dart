@@ -6,19 +6,46 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
 import '../../providers.dart';
 import '../add/add_game_page.dart';
 import '../theme.dart';
-import '../widgets/common.dart';
+import '../widgets/notifications.dart';
 import 'game_card.dart';
 
-class LibraryPage extends ConsumerWidget {
+class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LibraryPage> createState() => _LibraryPageState();
+}
+
+class _LibraryPageState extends ConsumerState<LibraryPage> {
+  bool _sidebarVisible = true;
+  bool _batchMode = false;
+  static const bool _LIB_TEST = false;
+  final _selected = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    AppServices.I.settings
+        .getBool('library.sidebar', def: false)
+        .then((v) {
+      if (mounted) setState(() => _sidebarVisible = v);
+    });
+  }
+
+  Future<void> _toggleSidebar() async {
+    setState(() => _sidebarVisible = !_sidebarVisible);
+    await AppServices.I.settings.setBool('library.sidebar', _sidebarVisible);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     final filter = ref.watch(libraryFilterProvider);
     final games = ref.watch(gamesProvider);
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -71,6 +98,37 @@ class LibraryPage extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 10),
+              IconButton(
+                tooltip: _sidebarVisible ? '隐藏筛选栏' : '显示筛选栏',
+                onPressed: _toggleSidebar,
+                icon: Icon(
+                  _sidebarVisible
+                      ? Icons.filter_alt_rounded
+                      : Icons.filter_alt_off_rounded,
+                  size: 22,
+                  color: _sidebarVisible
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: '批量管理',
+                onPressed: () {
+                  setState(() {
+                    _batchMode = !_batchMode;
+                    _selected.clear();
+                  });
+                },
+                icon: Icon(
+                  Icons.checklist_rounded,
+                  size: 22,
+                  color: _batchMode
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: () async {
                   await Navigator.of(context).push(
@@ -84,46 +142,24 @@ class LibraryPage extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
               children: [
-                // 网格
-                Expanded(
-                  child: games.when(
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: games.when(
                     data: (list) => list.isEmpty
-                        ? EmptyState(
-                            title: '没有符合条件的游戏',
-                            subtitle: filter.hasActive
-                                ? '试试在右侧筛选栏放宽条件'
-                                : '点击右上角「添加游戏」，或直接把游戏 exe 拖进来',
-                            action: filter.hasActive
-                                ? OutlinedButton.icon(
-                                    onPressed: () {
-                                      final f = ref.read(libraryFilterProvider);
-                                      f.status = null;
-                                      f.tag = null;
-                                      f.developer = null;
-                                      f.source = null;
-                                      f.favoriteOnly = false;
-                                      f.query = '';
-                                      ref.read(libraryVersionProvider.notifier).state++;
-                                    },
-                                    icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
-                                    label: const Text('清除筛选'))
-                                : FilledButton.icon(
-                                    onPressed: () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                            builder: (_) => const AddGamePage())),
-                                    icon: const Icon(Icons.add_rounded),
-                                    label: const Text('添加第一款游戏'),
-                                  ),
-                          )
+                        ? const Center(child: Text('没有符合条件的游戏'))
                         : LayoutBuilder(builder: (context, constraints) {
                             const spacing = 18.0;
-                            final count =
-                                (constraints.maxWidth / 172).floor().clamp(2, 10);
+                            final count = (constraints.maxWidth / 172)
+                                .floor()
+                                .clamp(2, 10);
                             return GridView(
-                              padding: const EdgeInsets.only(bottom: 20, top: 4),
+                              padding:
+                                  const EdgeInsets.only(bottom: 20, top: 4),
                               gridDelegate:
                                   SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: count,
@@ -132,18 +168,55 @@ class LibraryPage extends ConsumerWidget {
                                 childAspectRatio: 0.52,
                               ),
                               children: [
-                                for (final g in list) GameCard(game: g),
+                                for (final g in list)
+                                  GameCard(
+                                    game: g,
+                                    selectionMode: _batchMode,
+                                    selected: _selected.contains(g.id),
+                                    onSelectionChanged: (sel) {
+                                      setState(() {
+                                        if (sel) {
+                                          _selected.add(g.id!);
+                                        } else {
+                                          _selected.remove(g.id);
+                                        }
+                                      });
+                                    },
+                                  ),
                               ],
                             );
                           }),
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => EmptyState(title: '加载失败', subtitle: '$e'),
+                    error: (e, _) => Center(child: Text('加载失败：$e')),
                   ),
                 ),
-                const SizedBox(width: 14),
-                // 右侧筛选边栏
-                _FilterSidebar(filter: filter),
+                    if (_sidebarVisible) ...[
+                      const SizedBox(width: 14),
+                      _FilterSidebar(filter: filter),
+                    ],
+                  ],
+                ),
+              ),
+              if (_batchMode)
+                _BatchBar(
+                  selected: _selected,
+                  onSelectAll: (all) {
+                    setState(() {
+                      final list = ref.read(gamesProvider).valueOrNull ?? [];
+                      _selected.clear();
+                      if (all) {
+                        for (final g in list) {
+                          _selected.add(g.id!);
+                        }
+                      }
+                    });
+                  },
+                  onDone: () => setState(() {
+                    _batchMode = false;
+                    _selected.clear();
+                  }),
+                ),
               ],
             ),
           ),
@@ -421,6 +494,116 @@ class _SideChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 批量管理操作栏。
+class _BatchBar extends ConsumerWidget {
+  final Set<int> selected;
+  final ValueChanged<bool> onSelectAll;
+  final VoidCallback onDone;
+  const _BatchBar(
+      {required this.selected, required this.onSelectAll, required this.onDone});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final n = selected.length;
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: dark ? KisakiColors.nightCard : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Text('已选 $n 项',
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(width: 10),
+          TextButton(
+              onPressed: () => onSelectAll(true), child: const Text('全选')),
+          TextButton(
+              onPressed: () => onSelectAll(false), child: const Text('清除')),
+          const Spacer(),
+          PopupMenuButton<PlayStatus>(
+            tooltip: '批量更改状态',
+            onSelected: (s) async {
+              final repo = AppServices.I.repo;
+              for (final id in selected) {
+                final g = await repo.getGame(id);
+                if (g != null) {
+                  g.playStatus = s;
+                  await repo.updateGame(g);
+                }
+              }
+              ref.read(libraryVersionProvider.notifier).state++;
+              showNotice(ref, '已将 $n 部游戏状态设为「${s.label}」');
+            },
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            itemBuilder: (_) => [
+              for (final s in PlayStatus.values)
+                PopupMenuItem(value: s, child: Text('设为「${s.label}」')),
+            ],
+            child: const Text('更改状态',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+              onPressed: () async {
+                final repo = AppServices.I.repo;
+                for (final id in selected) {
+                  final g = await repo.getGame(id);
+                  if (g != null) {
+                    g.isFavorite = true;
+                    await repo.updateGame(g);
+                  }
+                }
+                ref.read(libraryVersionProvider.notifier).state++;
+                showNotice(ref, '已收藏 $n 部游戏');
+              },
+              child: const Text('收藏')),
+          const SizedBox(width: 8),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('批量删除'),
+                  content: Text('确定要删除选中的 $n 部游戏吗？\n游玩记录与统计将一并删除。'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('取消')),
+                    FilledButton(
+                        style: FilledButton.styleFrom(
+                            backgroundColor: Colors.red),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('删除')),
+                  ],
+                ),
+              );
+              if (ok != true) return;
+              final repo = AppServices.I.repo;
+              for (final id in selected) {
+                await repo.deleteGame(id);
+              }
+              ref.read(libraryVersionProvider.notifier).state++;
+              showNotice(ref, '已删除 $n 部游戏');
+              onDone();
+            },
+            child: const Text('删除'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(onPressed: onDone, child: const Text('完成')),
+        ],
       ),
     );
   }

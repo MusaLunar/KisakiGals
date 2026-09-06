@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,6 +17,7 @@ import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifications.dart';
 import '../widgets/scrape_search_sheet.dart';
 
 class AddGamePage extends ConsumerStatefulWidget {
@@ -51,7 +53,11 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
   final _editName = TextEditingController();
   final _editCover = TextEditingController();
   String _coverLocal = '';
+  String? _coverChoice; // null=默认搜刮封面；''=本地文件(_coverLocal)；URL=指定图
+  bool _adding = false;
   final _memberIds = <String, TextEditingController>{};
+  final _bgCtrl = ScrollController();
+  final _coverCtrl = ScrollController();
 
   @override
   void dispose() {
@@ -70,6 +76,8 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     ]) {
       c.dispose();
     }
+    _bgCtrl.dispose();
+    _coverCtrl.dispose();
     super.dispose();
   }
 
@@ -96,19 +104,21 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        if (_stage == ScrapeStage.choose ||
-                            _stage == ScrapeStage.confirm) {
-                          setState(() => _stage = ScrapeStage.pick);
-                        } else {
-                          Navigator.of(context).pop();
-                        }
-                      },
-                      icon: const Icon(Icons.arrow_back_rounded),
-                    ),
+                WindowDragBar(
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () {
+                          if (_stage == ScrapeStage.choose ||
+                              _stage == ScrapeStage.merging ||
+                              _stage == ScrapeStage.confirm) {
+                            setState(() => _stage = ScrapeStage.pick);
+                          } else {
+                            Navigator.of(context).pop();
+                          }
+                        },
+                        icon: const Icon(Icons.arrow_back_rounded),
+                      ),
                     const SizedBox(width: 6),
                     Text('添加游戏',
                         style: Theme.of(context)
@@ -128,10 +138,12 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                             label: Text('自定义添加')),
                       ],
                       selected: {_mode},
-                      onSelectionChanged: (s) =>
-                          setState(() => _mode = s.first),
+                      onSelectionChanged: _adding
+                          ? null
+                          : (s) => setState(() => _mode = s.first),
                     ),
                   ],
+                  ),
                 ),
                 const SizedBox(height: 22),
                 Expanded(
@@ -340,7 +352,11 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                 children: [
                   CoverImage(
                     path: _coverLocal,
-                    networkUrl: _coverLocal.isEmpty ? _editCover.text : '',
+                    networkUrl: _coverLocal.isEmpty
+                        ? (_coverChoice == null
+                            ? game.coverUrl
+                            : (_coverChoice!.isEmpty ? '' : _coverChoice!))
+                        : '',
                     nsfw: game.nsfw,
                     width: 160,
                     height: 226,
@@ -483,22 +499,52 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                 ),
               ]),
               const SizedBox(height: 10),
-              Row(children: [
-                Expanded(
-                  child: TextField(
-                    controller: _editCover,
-                    decoration: const InputDecoration(
-                        labelText: '封面图片 URL', isDense: true),
-                    onChanged: (_) => setState(() {}),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                OutlinedButton.icon(
-                  onPressed: _pickLocalCover,
-                  icon: const Icon(Icons.image_rounded, size: 18),
-                  label: const Text('本地封面'),
-                ),
-              ]),
+              Text('封面',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 13.5)),
+              const SizedBox(height: 8),
+              _HorizontalWheelScroll(
+                  controller: _coverCtrl,
+                  child: SizedBox(
+                    height: 92,
+                    child: ListView(
+                      controller: _coverCtrl,
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _BgOptionTile(
+                          selected: _coverChoice == null,
+                          onTap: () => setState(() {
+                            _coverChoice = null;
+                            _coverLocal = '';
+                          }),
+                          child: _coverPreview(game.coverUrl),
+                        ),
+                        for (final url in game.screenshots.take(8))
+                          _BgOptionTile(
+                            selected: _coverChoice == url,
+                            onTap: () => setState(() {
+                              _coverChoice = url;
+                              _coverLocal = '';
+                            }),
+                            child: _coverPreview(url),
+                          ),
+                        _BgOptionTile(
+                          selected: _coverChoice == '',
+                          onTap: _pickLocalCover,
+                          child: _coverLocal.isNotEmpty
+                              ? Image.file(File(_coverLocal), fit: BoxFit.cover)
+                              : const Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.image_rounded, size: 22),
+                                    SizedBox(height: 4),
+                                    Text('本地文件', style: TextStyle(fontSize: 11.5)),
+                                  ],
+                                ),
+                        ),
+                      ],
+                    ),
+                  )),
               const SizedBox(height: 10),
               for (final m in _mergedAll)
                 Padding(
@@ -527,34 +573,38 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                         fontSize: 12,
                         color: Theme.of(context).colorScheme.onSurfaceVariant))
               else
-                SizedBox(
-                  height: 92,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _BgOptionTile(
-                        selected: _bgChoice.isEmpty,
-                        onTap: () => setState(() => _bgChoice = ''),
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.format_color_fill_rounded, size: 22),
-                            SizedBox(height: 4),
-                            Text('纯色', style: TextStyle(fontSize: 11.5)),
-                          ],
-                        ),
-                      ),
-                      for (final url in shots.take(8))
+                _HorizontalWheelScroll(
+                  controller: _bgCtrl,
+                  child: SizedBox(
+                    height: 92,
+                    child: ListView(
+                      controller: _bgCtrl,
+                      scrollDirection: Axis.horizontal,
+                      children: [
                         _BgOptionTile(
-                          selected: _bgChoice == url,
-                          onTap: () => setState(() => _bgChoice = url),
-                          child: Image.network(url,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  const Icon(Icons.broken_image_rounded,
-                                      size: 18)),
+                          selected: _bgChoice.isEmpty,
+                          onTap: () => setState(() => _bgChoice = ''),
+                          child: const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.format_color_fill_rounded, size: 22),
+                              SizedBox(height: 4),
+                              Text('纯色', style: TextStyle(fontSize: 11.5)),
+                            ],
+                          ),
                         ),
-                    ],
+                        for (final url in shots.take(8))
+                          _BgOptionTile(
+                            selected: _bgChoice == url,
+                            onTap: () => setState(() => _bgChoice = url),
+                            child: Image.network(url,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) =>
+                                    const Icon(Icons.broken_image_rounded,
+                                        size: 18)),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               const SizedBox(height: 20),
@@ -566,9 +616,15 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                       child: const Text('重新选择')),
                   const Spacer(),
                   FilledButton.icon(
-                    onPressed: _addToLibrary,
-                    icon: const Icon(Icons.check_rounded),
-                    label: const Text('加入游戏库'),
+                    onPressed: _adding ? null : _addToLibrary,
+                    icon: _adding
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check_rounded),
+                    label: Text(_adding ? '添加中…' : '加入游戏库'),
                   ),
                 ],
               ),
@@ -754,13 +810,61 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     if (result?.files.single.path != null) {
       setState(() {
         _coverLocal = result!.files.single.path!;
+        _coverChoice = '';
       });
     }
   }
 
+  Widget _coverPreview(String url) {
+    if (url.isEmpty) {
+      return const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.local_florist_rounded, size: 22),
+          SizedBox(height: 4),
+          Text('搜刮封面', style: TextStyle(fontSize: 11.5)),
+        ],
+      );
+    }
+    return Image.network(url,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) =>
+            const Icon(Icons.broken_image_rounded, size: 18));
+  }
+
   Future<void> _addToLibrary() async {
+    if (_adding) return; // 防重复点击/重复入库
+    setState(() => _adding = true);
+    try {
+      await _doAddToLibrary();
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  Future<void> _doAddToLibrary() async {
     final game = _mergedAll.first;
     final repo = AppServices.I.repo;
+    // 查重：同名（归一化）或同 exe 已在库 → 不重复添加
+    final existing = await repo.findGameByTitle(game.displayName);
+    if (existing != null) {
+      if (!mounted) return;
+      showNotice(ref,
+          '「${existing.displayName}」已在游戏库中，未重复添加');
+      Navigator.of(context).pop();
+      return;
+    }
+    if (_exeController.text.trim().isNotEmpty) {
+      final exe = _exeController.text.trim().toLowerCase();
+      for (final g in await repo.listGames()) {
+        if (g.exePath.toLowerCase() == exe) {
+          if (!mounted) return;
+          showNotice(ref, '该可执行文件已对应「${g.displayName}」，未重复添加');
+          Navigator.of(context).pop();
+          return;
+        }
+      }
+    }
     final g = Game(
       name: game.name,
       nameCn: game.nameCn,
@@ -785,12 +889,12 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       if (manualNameCn.isNotEmpty) g.nameCn = manualNameCn;
       if (manualName.isNotEmpty) g.name = manualName;
     }
+    // 封面选择 → 统一缓存到本地 covers 目录
     if (_coverLocal.isNotEmpty) {
-      g.coverPath = _coverLocal;
-    } else if (_editCover.text.trim() != game.coverUrl &&
-        _editCover.text.trim().isNotEmpty) {
+      g.coverPath = await _cacheLocalCover(_coverLocal, g.id!);
+    } else if (_coverChoice != null && _coverChoice!.isNotEmpty) {
       final local = await AppServices.I.fetcher.downloadImage(
-          _editCover.text.trim(), 'game_${g.id}');
+          _coverChoice!, 'game_${g.id}');
       if (local.isNotEmpty) g.coverPath = local;
     }
     // 各源条目 id 手动编辑
@@ -814,9 +918,8 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     }
     await repo.updateGame(g);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            '已添加「${g.displayName}」到游戏库（${_mergedAll.length} 个数据源）')));
+    showNotice(ref,
+        '已添加「${g.displayName}」到游戏库（${_mergedAll.length} 个数据源）');
     Navigator.of(context).pop();
   }
 
@@ -846,9 +949,53 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
           sourceId: _customId.text.trim(),
         ));
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('已添加「$name」到游戏库')));
+    showNotice(ref, '已添加「$name」到游戏库');
     Navigator.of(context).pop();
+  }
+}
+
+/// 横向滚动容器：把鼠标滚轮（垂直）转为横向滚动。
+class _HorizontalWheelScroll extends StatefulWidget {
+  final ScrollController controller;
+  final Widget child;
+  const _HorizontalWheelScroll(
+      {required this.controller, required this.child});
+
+  @override
+  State<_HorizontalWheelScroll> createState() => _HorizontalWheelScrollState();
+}
+
+class _HorizontalWheelScrollState extends State<_HorizontalWheelScroll> {
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerSignal: (e) {
+        if (e is PointerScrollEvent &&
+            widget.controller.hasClients &&
+            widget.controller.position.maxScrollExtent > 0) {
+          final target = (widget.controller.offset + e.scrollDelta.dy)
+              .clamp(0.0, widget.controller.position.maxScrollExtent);
+          widget.controller.jumpTo(target);
+        }
+      },
+      child: widget.child,
+    );
+  }
+}
+
+/// 把本地选择的封面复制进 covers 目录统一缓存。
+Future<String> _cacheLocalCover(String localPath, int gameId) async {
+  try {
+    final covers = AppServices.I.paths.covers;
+    Directory(covers).createSync(recursive: true);
+    final ext = localPath.contains('.')
+        ? localPath.substring(localPath.lastIndexOf('.'))
+        : '.jpg';
+    final target = '$covers/game_$gameId$ext';
+    File(localPath).copySync(target);
+    return target;
+  } catch (_) {
+    return localPath;
   }
 }
 

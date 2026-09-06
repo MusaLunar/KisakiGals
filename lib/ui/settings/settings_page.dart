@@ -21,6 +21,7 @@ import '../../services/plugin_system.dart';
 import '../../services/upload/upload.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifications.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -717,8 +718,7 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                             'sources.proxy', _proxyController.text.trim());
                         await AppServices.I.fetcher.init(tokens: {});
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('代理设置已保存并重新加载')));
+                          showNotice(ref, '代理设置已保存并重新加载');
                         }
                       },
                       child: const Text('保存'),
@@ -750,9 +750,9 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                               final ok =
                                   await AppServices.I.fetcher.testSource(id);
                               if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                  content: Text(
-                                      '${KisakiSources.labels[id]}：${ok ? '连接正常' : '连接失败'}')));
+                              showNotice(ref,
+                                  '${KisakiSources.labels[id]}：${ok ? '连接正常' : '连接失败'}',
+                                  error: !ok);
                               if (context.mounted) {
                                 setState(() => _testing[id] = false);
                               }
@@ -1041,8 +1041,7 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                     if (path == null || path.isEmpty) return;
                     if (!path.toLowerCase().endsWith('.db')) {
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('请选择 .db 备份文件')));
+                        showNotice(ref, '请选择 .db 备份文件', error: true);
                       }
                       return;
                     }
@@ -1069,8 +1068,7 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                           backupsDir: AppServices.I.paths.backups);
                       await svc.restore(path);
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('已恢复，请重启应用')));
+                        showNotice(ref, '已恢复备份，请重启应用');
                       }
                     }
                   },
@@ -1204,8 +1202,7 @@ class _PluginSection extends ConsumerWidget {
                     final err = await AppServices.I.plugins
                         .importManifest(result!.files.single.path!);
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(err ?? '导入成功（元数据展示模式）')));
+                      showNotice(ref, err ?? '导入成功（元数据展示模式）', error: err != null);
                     }
                   }
                 },
@@ -1221,11 +1218,11 @@ class _PluginSection extends ConsumerWidget {
 
 // ---------- 关于 ----------
 
-class _AboutSection extends StatelessWidget {
+class _AboutSection extends ConsumerWidget {
   const _AboutSection();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -1255,10 +1252,22 @@ class _AboutSection extends StatelessWidget {
               trailing: Text(AppInfo.author,
                   style: const TextStyle(fontWeight: FontWeight.w700))),
           const Divider(),
-          const SettingRow(
+          SettingRow(
               title: '项目地址',
-              trailing: Text('（筹备中）',
-                  style: TextStyle(fontWeight: FontWeight.w600))),
+              subtitle: AppInfo.repository,
+              trailing: OutlinedButton.icon(
+                onPressed: () async {
+                  final url = Uri.parse(AppInfo.repository);
+                  if (!await launchUrl(url,
+                      mode: LaunchMode.externalApplication)) {
+                    if (context.mounted) {
+                      showNotice(ref, '无法打开浏览器：${AppInfo.repository}', error: true);
+                    }
+                  }
+                },
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: const Text('打开'),
+              )),
           const Divider(),
           SettingRow(
             title: '检查更新',

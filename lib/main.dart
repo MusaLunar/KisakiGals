@@ -12,6 +12,7 @@ import 'data/settings_store.dart';
 import 'providers.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
+import 'ui/widgets/notifications.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -137,6 +138,11 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
   }
 
   @override
+  void onTrayIconRightMouseDown() {
+    trayManager.popUpContextMenu();
+  }
+
+  @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case 'show':
@@ -161,9 +167,14 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
         ThemeModePref.light => ThemeMode.light,
         ThemeModePref.dark => ThemeMode.dark,
       },
-      builder: (context, child) => RepaintBoundary(
-        key: shotBoundaryKey,
-        child: child ?? const SizedBox.shrink(),
+      builder: (context, child) => Stack(
+        children: [
+          RepaintBoundary(
+            key: shotBoundaryKey,
+            child: child ?? const SizedBox.shrink(),
+          ),
+          const NoticeOverlay(child: SizedBox.shrink()),
+        ],
       ),
       home: const ShellPage(),
     );
