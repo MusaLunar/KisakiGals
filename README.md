@@ -111,11 +111,11 @@ dart test              # 13 项单元测试
 
 | 项目 | 作者 | 参考内容 |
 | --- | --- | --- |
-| [ChronoTide](https://github.com/ChronoTide-Project/ChronoTide) | ChronoTide 团队 | 多源元数据刮削架构、VNDB 标签中文化资源（MIT，见下）、Hikarinagi 凭据流程、限流策略 |
-| [ReinaManager](https://github.com/ReinaS-64892/ReinaManager) | ReinaS-64892 | 数据源适配层与 OAuth 账号体系、Token 获取入口、多源元数据整合思路、界面视觉风格启发 |
-| [LunaBox](https://github.com/lunabox/lunabox) | LunaBox 团队 | Go 侧元数据服务实现对照（元数据调度、代理解析） |
+| [ChronoTide] (https://github.com/hardman1314/-Chrono.Tide-) | hardman1314 | 多源元数据刮削架构、VNDB 标签中文化资源（MIT，见下）、Hikarinagi 凭据流程、限流策略 |
+| [ReinaManager] (https://github.com/huoshen80/ReinaManager) | huoshen80 | 数据源适配层与 OAuth 账号体系、Token 获取入口、多源元数据整合思路、界面视觉风格启发 |
+| [LunaBox] (https://github.com/Saramanda9988/LunaBox) | Saramanda9988 | Go 侧元数据服务实现对照（元数据调度、代理解析） |
 
-**特别说明**：`assets/data/vndb_tags_zh_cn.json`（VNDB 标签英→中翻译表，约 3000 条）来自 ChronoTide 项目（MIT 许可），原仓库：[ChronoTide](https://github.com/ChronoTide-Project/ChronoTide)。
+**特别说明**：`assets/data/vndb_tags_zh_cn.json`（VNDB 标签英→中翻译表，约 3000 条）来自 ChronoTide 项目
 
 元数据与搜索能力来自以下社区 API / 站点（各站点数据版权归其自身与投稿者所有）：Bangumi、VNDB、月幕GAL、Hikarinagi、Steam、KunGal、TouchGal、DLsite、CnGal。
 
