@@ -37,10 +37,14 @@ void main() {
 
     test('bestMatchScore 打分', () {
       expect(bestMatchScore('atri', 'ATRI'), 100);
-      expect(bestMatchScore('atri', 'ATRI -My Dear Moments-'), 40);
-      expect(bestMatchScore('dear', 'ATRI -My Dear Moments-'), 20);
+      expect(bestMatchScore('atri', 'ATRI -My Dear Moments-'), 55);
+      expect(bestMatchScore('dear', 'ATRI -My Dear Moments-'), 55);
       expect(bestMatchScore('xyz', 'ATRI'), 0);
-      expect(bestMatchScore('千恋万花', '千恋＊万花'), greaterThan(0));
+      expect(bestMatchScore('千恋万花', '千恋＊万花'), 95);
+      // 符号归一化：×视作分隔，PURE×CONNECT 归一为 pure connect
+      expect(bestMatchScore('pure connect', 'PURE×CONNECT'), 100);
+      expect(bestMatchScore('pure x connect', 'PURE×CONNECT'), 25);
+      expect(bestMatchScore('pure connect', 'Pure×Connect 特装版'), 55);
     });
 
     test('cleanExeName 清洗', () {

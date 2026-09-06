@@ -6,13 +6,17 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app_services.dart';
 import '../../core/constants.dart';
+import '../../core/utils.dart' show fmtDateTime;
 import '../../data/settings_store.dart';
-import '../../services/plugin_system.dart';
+import '../../main.dart' show applyCloseBehavior;
 import '../../providers.dart';
 import '../../services/autostart.dart';
+import '../../services/cloud_sync.dart';
+import '../../services/plugin_system.dart';
 import '../../services/upload/upload.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -199,8 +203,11 @@ class _SystemSection extends ConsumerStatefulWidget {
 class _SystemSectionState extends ConsumerState<_SystemSection> {
   bool _autostart = false;
   String _afterLaunch = 'none';
+  String _close = 'exit';
   String _tracking = 'foreground';
   String _nsfw = 'blur';
+  double _nsfwBlur = 12;
+  double _bgBlur = 14;
   String _theme = 'system';
 
   @override
@@ -210,22 +217,24 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
   }
 
   Future<void> _load() async {
-    await _afterLaunchFuture(AppServices.I.settings);
-  }
-
-  Future<void> _afterLaunchFuture(SettingsStore s) async {
-    final autostart = AppServices.I.autostart;
-    final a = await autostart.isEnabled();
+    final s = AppServices.I.settings;
+    final autostart = await AppServices.I.autostart.isEnabled();
     final after = await s.getString(SettingsStore.kAfterLaunch, 'none');
+    final close = await s.getString(SettingsStore.kCloseBehavior, 'exit');
     final tracking = await s.getString(SettingsStore.kTrackingMode, 'foreground');
     final nsfw = await s.getString(SettingsStore.kNsfwMode, 'blur');
+    final nsfwBlur = await s.getDouble('nsfw.blur', 12);
+    final bgBlur = await s.getDouble('detail.bg_blur', 14);
     final theme = await s.getString(SettingsStore.kThemeMode, 'system');
     if (!mounted) return;
     setState(() {
-      _autostart = a;
+      _autostart = autostart;
       _afterLaunch = after;
+      _close = close;
       _tracking = tracking;
       _nsfw = nsfw;
+      _nsfwBlur = nsfwBlur;
+      _bgBlur = bgBlur;
       _theme = theme;
     });
   }
@@ -262,6 +271,25 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                 await AppServices.I.settings
                     .setString(SettingsStore.kAfterLaunch, v.first);
                 setState(() => _afterLaunch = v.first);
+              },
+            ),
+          ),
+          const Divider(),
+          SettingRow(
+            title: '关闭应用时',
+            subtitle: '最小化到托盘后可从托盘图标恢复或退出',
+            trailing: SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'exit', label: Text('直接关闭')),
+                ButtonSegment(value: 'tray', label: Text('最小化到托盘')),
+              ],
+              selected: {_close},
+              onSelectionChanged: (v) async {
+                await AppServices.I.settings
+                    .setString(SettingsStore.kCloseBehavior, v.first);
+                setState(() => _close = v.first);
+                await applyCloseBehavior();
               },
             ),
           ),
@@ -322,8 +350,51 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
               onSelectionChanged: (v) async {
                 await AppServices.I.settings
                     .setString(SettingsStore.kNsfwMode, v.first);
+                ref.read(nsfwModeProvider.notifier).state = v.first;
                 setState(() => _nsfw = v.first);
               },
+            ),
+          ),
+          if (_nsfw == 'blur')
+            SettingRow(
+              title: 'NSFW 模糊强度',
+              subtitle: '当前 ${_nsfwBlur.round()}',
+              trailing: SizedBox(
+                width: 200,
+                child: Slider(
+                  value: _nsfwBlur,
+                  min: 0,
+                  max: 20,
+                  divisions: 20,
+                  label: '${_nsfwBlur.round()}',
+                  onChanged: (v) {
+                    ref.read(nsfwBlurProvider.notifier).state = v;
+                    setState(() => _nsfwBlur = v);
+                  },
+                  onChangeEnd: (v) =>
+                      AppServices.I.settings.setDouble('nsfw.blur', v),
+                ),
+              ),
+            ),
+          const Divider(),
+          SettingRow(
+            title: '详情页背景模糊度',
+            subtitle: '背景图压暗模糊的强度（0 = 不模糊）',
+            trailing: SizedBox(
+              width: 200,
+              child: Slider(
+                value: _bgBlur,
+                min: 0,
+                max: 20,
+                divisions: 20,
+                label: '${_bgBlur.round()}',
+                onChanged: (v) {
+                  ref.read(detailBgBlurProvider.notifier).state = v;
+                  setState(() => _bgBlur = v);
+                },
+                onChangeEnd: (v) =>
+                    AppServices.I.settings.setDouble('detail.bg_blur', v),
+              ),
             ),
           ),
         ]),
@@ -341,6 +412,19 @@ class _AccountSection extends ConsumerStatefulWidget {
   ConsumerState<_AccountSection> createState() => _AccountSectionState();
 }
 
+/// 各平台 Token 获取入口（参考 ReinaManager）。
+const Map<String, String> kTokenUrls = {
+  KisakiSources.bangumi: 'https://next.bgm.tv/demo/access-token/create',
+  KisakiSources.vndb: 'https://vndb.org/u/tokens',
+  KisakiSources.hikarinagi: 'https://www.hikarinagi.org/person/settings',
+};
+
+const Map<String, String> kTokenHints = {
+  KisakiSources.bangumi: '登录后创建 Access Token（勾选 collections 权限）',
+  KisakiSources.vndb: '用户面板 → API Tokens（同步需 list 权限，上传需 listwrite）',
+  KisakiSources.hikarinagi: '登录后在个人设置中生成 Access Token',
+};
+
 class _AccountSectionState extends ConsumerState<_AccountSection> {
   final _tokens = <String, TextEditingController>{
     KisakiSources.bangumi: TextEditingController(),
@@ -348,6 +432,7 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
     KisakiSources.hikarinagi: TextEditingController(),
   };
   final _status = <String, String>{};
+  final _syncing = <String>{};
 
   @override
   void initState() {
@@ -373,6 +458,47 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _sync(String platform) async {
+    final token = _tokens[platform]!.text.trim();
+    if (token.isEmpty) {
+      setState(() => _status[platform] = '请先填入 Token');
+      return;
+    }
+    setState(() => _syncing.add(platform));
+    try {
+      final index = await AppServices.I.repo.sourceIndex();
+      final svc = CloudSyncService(proxy: AppServices.I.fetcher.proxy);
+      final r = await svc.sync(
+        platform: platform,
+        token: token,
+        resolve: (sid) {
+          var key = sid;
+          if (platform == KisakiSources.vndb && key.startsWith('v')) {
+            key = key.substring(1);
+          }
+          return index['$platform:$key'] ?? index['$platform:$sid'];
+        },
+        onSave: (g, _) => AppServices.I.repo.updateGame(g),
+      );
+      ref.read(libraryVersionProvider.notifier).state++;
+      final at = DateTime.now();
+      await AppServices.I.accounts.setToken(platform, token, extra: {
+        'status': r.ok ? '上次同步 ${fmtDateTime(at)}' : r.message,
+        'last_sync': at.toIso8601String(),
+      });
+      if (!mounted) return;
+      setState(() {
+        _status[platform] = r.ok
+            ? '上次同步 ${fmtDateTime(at)}\n${r.message}'
+            : r.message;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(r.ok ? r.message : r.message)));
+    } finally {
+      if (mounted) setState(() => _syncing.remove(platform));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -387,7 +513,9 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
                 platform: platform,
                 controller: _tokens[platform]!,
                 status: _status[platform],
+                syncing: _syncing.contains(platform),
                 onStatus: (msg) => setState(() => _status[platform] = msg),
+                onSync: () => _sync(platform),
               ),
             ],
           ],
@@ -395,9 +523,8 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
         Padding(
           padding: const EdgeInsets.only(left: 6),
           child: Text(
-            'Token 仅保存在本地数据库。'
-            'Bangumi：个人设置 → API 访问令牌；VNDB：用户面板 → API Tokens（需 listwrite 权限）；'
-            'Hikarinagi：个人设置中生成。',
+            'Token 仅保存在本地数据库。点击「获取 Token」前往对应平台生成；'
+            '「同步云端记录」会按平台条目 id 匹配本地游戏并更新游玩状态与评分（不覆盖本地已填评分）。',
             style: TextStyle(
                 fontSize: 11.5,
                 height: 1.6,
@@ -413,51 +540,90 @@ class _AccountRow extends StatelessWidget {
   final String platform;
   final TextEditingController controller;
   final String? status;
+  final bool syncing;
   final ValueChanged<String> onStatus;
+  final VoidCallback onSync;
 
   const _AccountRow({
     required this.platform,
     required this.controller,
     required this.status,
+    required this.syncing,
     required this.onStatus,
+    required this.onSync,
   });
 
   @override
   Widget build(BuildContext context) {
     return SettingRow(
       title: KisakiSources.labels[platform] ?? platform,
-      subtitle: status,
+      subtitle: status ?? kTokenHints[platform],
       trailing: SizedBox(
-        width: 330,
-        child: Row(
+        width: 430,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                obscureText: true,
-                decoration: const InputDecoration(
-                    hintText: '粘贴 Access Token', isDense: true),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                        hintText: '粘贴 Access Token', isDense: true),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // 获取 Token：跳转浏览器
+                IconButton(
+                  tooltip: '获取 Token（打开浏览器）',
+                  onPressed: () async {
+                    final url = Uri.parse(
+                        kTokenUrls[platform] ?? 'https://example.com');
+                    if (!await launchUrl(url,
+                        mode: LaunchMode.externalApplication)) {
+                      onStatus('无法打开浏览器，请手动访问：$url');
+                    }
+                  },
+                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final token = controller.text.trim();
+                    if (token.isEmpty) {
+                      onStatus('请先填入 Token');
+                      return;
+                    }
+                    onStatus('测试中…');
+                    final uploader = ReviewUploader(
+                        proxy: AppServices.I.fetcher.proxy);
+                    final r = await uploader.testAccount(platform, token);
+                    if (r.ok) {
+                      await AppServices.I.accounts
+                          .setToken(platform, token, extra: {'status': r.message});
+                    }
+                    onStatus(r.message);
+                  },
+                  child: const Text('测试'),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            OutlinedButton(
-              onPressed: () async {
-                final token = controller.text.trim();
-                if (token.isEmpty) {
-                  onStatus('请先填入 Token');
-                  return;
-                }
-                onStatus('测试中…');
-                final uploader = ReviewUploader(
-                    proxy: AppServices.I.fetcher.proxy);
-                final r = await uploader.testAccount(platform, token);
-                if (r.ok) {
-                  await AppServices.I.accounts
-                      .setToken(platform, token, extra: {'status': r.message});
-                }
-                onStatus(r.message);
-              },
-              child: const Text('测试'),
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 30,
+              child: syncing
+                  ? const Align(
+                      alignment: Alignment.centerRight,
+                      child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2)))
+                  : OutlinedButton.icon(
+                      onPressed: onSync,
+                      icon: const Icon(Icons.cloud_download_rounded, size: 16),
+                      label: const Text('同步云端记录',
+                          style: TextStyle(fontSize: 12.5)),
+                    ),
             ),
           ],
         ),
@@ -615,6 +781,7 @@ class _DataSection extends ConsumerStatefulWidget {
 class _DataSectionState extends ConsumerState<_DataSection> {
   String _dataDir = '';
   int _backupCount = 0;
+  bool _autoBackup = true;
 
   @override
   void initState() {
@@ -624,6 +791,8 @@ class _DataSectionState extends ConsumerState<_DataSection> {
 
   Future<void> _load() async {
     _dataDir = AppServices.I.paths.root;
+    _autoBackup = await AppServices.I.settings
+        .getBool(SettingsStore.kAutoBackup, def: true);
     final backups = AppServices.I.paths.backups;
     final dir = Directory(backups);
     _backupCount = dir.existsSync()
@@ -662,8 +831,21 @@ class _DataSectionState extends ConsumerState<_DataSection> {
         ]),
         SettingsGroup(title: '备份与恢复', children: [
           SettingRow(
+            title: '每日自动备份',
+            subtitle: '启动时若距上次备份超过 24 小时则自动创建',
+            trailing: Switch(
+              value: _autoBackup,
+              onChanged: (v) async {
+                await AppServices.I.settings
+                    .setBool(SettingsStore.kAutoBackup, v);
+                setState(() => _autoBackup = v);
+              },
+            ),
+          ),
+          const Divider(),
+          SettingRow(
             title: '当前备份',
-            subtitle: '已有 $_backupCount 份备份（插件「自动备份」开启后每日创建）',
+            subtitle: '已有 $_backupCount 份备份',
             trailing: Row(
               children: [
                 OutlinedButton(
@@ -910,8 +1092,8 @@ class _AboutSection extends StatelessWidget {
             subtitle: '当前已是最新版本',
             trailing: OutlinedButton(
               onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('你已经在最新版本 0.1.0')));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('你已经在最新版本 ${AppInfo.version}')));
               },
               child: const Text('检查'),
             ),

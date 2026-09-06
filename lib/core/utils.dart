@@ -11,18 +11,37 @@ double normalizeRating(num raw) {
   return r.clamp(0, 10).toDouble();
 }
 
-/// 搜索候选与查询词的匹配打分：精确=100，前缀=40，包含=20，否则 0。
-/// 比较前去除标点与空白并转小写。
+/// 搜索候选与查询词的匹配打分。
+/// 精确=100，压扁相等=95，压扁包含=55，全词命中=45，多数词命中=25，否则 0。
+/// 比较前先归一化（符号视作分隔、全角转半角、去标点），
+/// 使「pure connect」可匹配「PURE×CONNECT」、「千恋万花」可匹配「千恋＊万花」。
 int bestMatchScore(String query, String candidate) {
-  String norm(String s) =>
-      s.toLowerCase().replaceAll(RegExp(r'[\s\p{P}]', unicode: true), '');
-  final q = norm(query);
-  final c = norm(candidate);
+  final q = normalizeForMatch(query);
+  final c = normalizeForMatch(candidate);
   if (q.isEmpty || c.isEmpty) return 0;
+  final qs = q.replaceAll(' ', '');
+  final cs = c.replaceAll(' ', '');
   if (q == c) return 100;
-  if (c.startsWith(q)) return 40;
-  if (c.contains(q)) return 20;
+  if (qs == cs) return 95;
+  if (cs.contains(qs)) return 55;
+  final qt = q.split(' ').where((s) => s.isNotEmpty).toSet();
+  final ct = c.split(' ').where((s) => s.isNotEmpty).toSet();
+  if (qt.isNotEmpty && ct.containsAll(qt)) return 45;
+  final matched = qt.intersection(ct).length;
+  if (qt.length >= 2 && matched * 2 >= qt.length) return 25;
   return 0;
+}
+
+/// 名称匹配归一化：小写、全角 ASCII 化、符号转空格、压缩空白。
+/// 「PURE×CONNECT」→「pure connect」。
+String normalizeForMatch(String s) {
+  var t = s.toLowerCase();
+  // 全角可见字符 (U+FF01-U+FF5E) → 半角
+  t = t.replaceAllMapped(RegExp(r'[\uFF01-\uFF5E]'),
+      (m) => String.fromCharCode(m[0]!.codeUnitAt(0) - 0xFEE0));
+  // 非字母/数字统一转空格（×、・、-、' 等都视作词边界）
+  t = t.replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ');
+  return t.replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 
 /// 从可执行文件名清洗出用于搜索的游戏名。

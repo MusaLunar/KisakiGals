@@ -6,13 +6,15 @@ import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app_services.dart';
 import '../../core/constants.dart';
+import '../../providers.dart';
 import '../theme.dart';
 
 /// 封面图：本地文件优先 → 网络缓存 → 占位；NSFW 可模糊/占位。
-class CoverImage extends StatelessWidget {
+/// 模糊强度与显示模式来自响应式 provider，设置中切换立即生效。
+class CoverImage extends ConsumerWidget {
   final String path;
   final String? networkUrl;
   final bool nsfw;
@@ -33,17 +35,15 @@ class CoverImage extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final mode = AppServices.I.nsfwMode;
-    final guard = AppServices.I.plugins.byId('nsfw_guard');
-    final pluginBlur = guard != null && guard.enabled;
-    if (!nsfw || (mode == 'show' && !pluginBlur)) {
+    final mode = ref.watch(nsfwModeProvider);
+    final blurStrength = ref.watch(nsfwBlurProvider);
+    if (!nsfw || mode == 'show') {
       return _renderImage(context, dark, blur: false);
     }
-    if (pluginBlur || mode == 'blur') {
-      final strength = ((guard?.config['blur'] ?? 12) as int).toDouble();
-      return _renderImage(context, dark, blur: true, sigma: strength);
+    if (mode == 'blur') {
+      return _renderImage(context, dark, blur: true, sigma: blurStrength);
     }
     // placeholder 占位图
     return _frame(context, child: _placeholder(dark));

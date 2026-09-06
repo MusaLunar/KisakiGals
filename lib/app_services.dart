@@ -18,7 +18,40 @@ import 'services/autostart.dart';
 import 'services/playtime_tracker.dart';
 import 'services/plugin_system.dart';
 
-class AppServices {
+/// 修复历史版本的数据库路径双层嵌套：
+/// 旧版把文件路径再拼一层，得到 `<root>/kisakigals.db/kisakigals.db`。
+/// 若发现该目录，则把其中的库文件（含 WAL）上移到正确位置并删除目录。
+/// 先复制到临时名，全部成功后才删除目录，任何一步失败都保留原状。
+Future<void> _flattenLegacyDbDir(String dbFile) async {
+  final legacyDir = Directory(dbFile);
+  if (!legacyDir.existsSync()) return;
+  final inner = '$dbFile/kisakigals.db';
+  if (!File(inner).existsSync()) {
+    legacyDir.deleteSync(recursive: true);
+    return;
+  }
+  final staged = <String, String>{};
+  try {
+    staged[inner] = '$dbFile.migrating';
+    File(inner).copySync('$dbFile.migrating');
+    for (final suffix in ['-wal', '-shm']) {
+      final f = File('$inner$suffix');
+      if (f.existsSync()) {
+        staged['$inner$suffix'] = '$dbFile$suffix';
+        f.copySync('$dbFile$suffix');
+      }
+    }
+    legacyDir.deleteSync(recursive: true);
+    File('$dbFile.migrating').renameSync(dbFile);
+  } catch (_) {
+    // 失败回滚：移除已落地的副本，目录保持原样
+    for (final target in staged.values) {
+      final f = File(target);
+      if (f.existsSync()) f.deleteSync();
+    }
+    return;
+  }
+}class AppServices {
   static AppServices? _i;
   static AppServices get I => _i!;
 
@@ -38,9 +71,6 @@ class AppServices {
 
   AppServices._();
 
-  /// NSFW 封面显示模式：blur / placeholder / show（封面组件直接读取）。
-  String nsfwMode = 'blur';
-
   static Future<AppServices> init() async {
     if (_i?._ready == true) return _i!;
     // SQLite FFI 初始化（Windows 桌面必需）
@@ -48,6 +78,7 @@ class AppServices {
 
     final s = AppServices._();
     s.paths = await AppPaths.init();
+    await _flattenLegacyDbDir(s.paths.dbFile);
     s.db = await openAppDb(s.paths.dbFile);
     s.repo = GameRepository(s.db);
     s.settings = SettingsStore(s.db);
@@ -75,23 +106,32 @@ class AppServices {
       'hikarinagi': await s.accounts.token('hikarinagi') ?? '',
     });
 
-    // 插件
+    // 插件（精简后仅保留久坐提醒；自动备份/NSFW 已集成为应用功能）
     s.plugins = PluginManager(s.settings, s.paths.plugins);
     await s.plugins.loadImported();
     final ctx = PluginContext(s.settings, s.paths.root, s.tracker.onSessionEnd);
     s.pluginContext = ctx;
-    for (final plugin in [
-      AutoBackupPlugin(),
-      NsfwGuardPlugin(),
-      IdleReminderPlugin(),
-    ]) {
-      await s.plugins.register(plugin, ctx);
+    await s.plugins.register(IdleReminderPlugin(), ctx);
+
+    // 自动备份（每日一次，可在设置-数据中关闭）
+    if (await s.settings.getBool(SettingsStore.kAutoBackup, def: true)) {
+      try {
+        final svc = BackupService(
+            dbFile: s.paths.dbFile, backupsDir: s.paths.backups);
+        final files = svc.list();
+        if (files.isEmpty ||
+            DateTime.now()
+                    .difference(files.first.statSync().modified)
+                    .inHours >=
+                24) {
+          await svc.backup();
+          await svc.prune(
+              await s.settings.getInt(SettingsStore.kBackupKeep, 10));
+        }
+      } catch (_) {}
     }
 
     s.autostart = AutostartService();
-
-    // NSFW 显示模式
-    s.nsfwMode = await s.settings.getString(SettingsStore.kNsfwMode, 'blur');
 
     s._ready = true;
     _i = s;

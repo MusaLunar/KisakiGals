@@ -132,7 +132,13 @@ class MetadataFetcher {
     for (final games in bySource.values) {
       for (final g in games) {
         var score = 0;
-        for (final candidate in [g.displayName, g.name, g.nameCn]) {
+        final candidates = [
+          g.displayName,
+          g.name,
+          g.nameCn,
+          ...g.aliases,
+        ];
+        for (final candidate in candidates) {
           score = bestMatchScore(kw, candidate);
           if (score > 0) break;
         }
@@ -142,6 +148,96 @@ class MetadataFetcher {
     hits.sort((a, b) => b.score.compareTo(a.score));
     return hits;
   }
+
+  /// 以用户选中的条目为主体，合并其它源中同一游戏的数据。
+  ///
+  /// 同一性判断：归一化后的名称/别名词典相交（ReinaManager 式
+  /// 多源整合——摘要、开发商、发售日、标签、截图取各源所长）。
+  /// 返回 [合并后的条目, 各源原始条目...]，调用方可据后者登记
+  /// 每个平台的评分记录（game_sources）。
+  Future<List<ScrapedGame>> mergeAcrossSources(
+    ScrapedGame picked, {
+    String? kw,
+    List<String>? only,
+  }) async {
+    var merged = picked;
+    final matches = <ScrapedGame>[];
+    // 尽量补全主体条目的详情（列表结果通常缺简介/截图）
+    try {
+      final full = await adapter(picked.source)?.fetchById(picked.sourceId);
+      if (full != null) merged = _mergeFull(merged, full);
+    } catch (_) {}
+
+    final bySource = await searchAll(
+        (kw != null && kw.trim().isNotEmpty) ? kw : merged.displayName,
+        only: only);
+    final keys = <String>{
+      normalizeForMatch(merged.displayName),
+      normalizeForMatch(merged.name),
+      ...merged.aliases.map(normalizeForMatch),
+    }..removeWhere((s) => s.isEmpty);
+
+    for (final entry in bySource.entries) {
+      if (entry.key == picked.source) continue;
+      ScrapedGame? match;
+      for (final g in entry.value) {
+        final gKeys = <String>{
+          normalizeForMatch(g.displayName),
+          normalizeForMatch(g.name),
+          ...g.aliases.map(normalizeForMatch),
+        }..removeWhere((s) => s.isEmpty);
+        if (gKeys.intersection(keys).isNotEmpty ||
+            gKeys.any((k) =>
+                keys.any((p) => p.isNotEmpty && (k.contains(p) || p.contains(k))))) {
+          match = g;
+          break;
+        }
+      }
+      if (match == null) continue;
+      merged = _mergeTwo(merged, match);
+      matches.add(match);
+    }
+    return [merged, ...matches];
+  }
+
+  /// 字段级合并：主体优先、空位补全；简介偏好含中文的一方；
+  /// 别名/截图并集、标签按名称合并（保留较大权重）。
+  ScrapedGame _mergeTwo(ScrapedGame a, ScrapedGame b) {
+    String pick(String x, String y) => x.isNotEmpty ? x : y;
+    var summary = a.summary.isNotEmpty ? a.summary : b.summary;
+    if (summary.isNotEmpty && !_looksCjk(summary) && _looksCjk(b.summary)) {
+      summary = b.summary;
+    }
+    final aliases = <String>{...a.aliases, ...b.aliases}.toList();
+    final screenshots = <String>{...a.screenshots, ...b.screenshots}.toList();
+    final tagByName = <String, ScrapedTag>{};
+    for (final t in [...a.tags, ...b.tags]) {
+      final key = normalizeForMatch(t.name);
+      final old = tagByName[key];
+      if (old == null || t.weight > old.weight) tagByName[key] = t;
+    }
+    final tags = tagByName.values.toList()
+      ..sort((x, y) => y.weight.compareTo(x.weight));
+    return ScrapedGame(
+      source: a.source,
+      sourceId: a.sourceId,
+      name: pick(a.name, b.name),
+      nameCn: pick(a.nameCn, b.nameCn),
+      aliases: aliases,
+      coverUrl: pick(a.coverUrl, b.coverUrl),
+      developer: pick(a.developer, b.developer),
+      releaseDate: pick(a.releaseDate, b.releaseDate),
+      summary: summary,
+      rating: a.rating > 0 ? a.rating : b.rating,
+      voteCount: a.voteCount > 0 ? a.voteCount : b.voteCount,
+      tags: tags.take(24).toList(),
+      screenshots: screenshots,
+      nsfw: a.nsfw || b.nsfw,
+    );
+  }
+
+  static bool _looksCjk(String s) =>
+      s.contains(RegExp(r'[\u3400-\u9FFF\u3040-\u30FF\uF900-\uFA6D]'));
 
   /// 取最佳单条结果（自动刮削用）。
   Future<ScrapedGame?> fetchBest(String kw, {List<String>? only}) async {
@@ -190,20 +286,24 @@ class MetadataFetcher {
       );
 
   /// 下载封面到本地，返回本地路径；失败返回空串。
-  Future<String> downloadCover(ScrapedGame g, int gameId) async {
-    if (g.coverUrl.isEmpty) return '';
+  Future<String> downloadCover(ScrapedGame g, int gameId) =>
+      downloadImage(g.coverUrl, 'game_$gameId');
+
+  /// 下载任意图片到 covers 目录；[fileName] 不含扩展名。
+  Future<String> downloadImage(String url, String fileName) async {
+    if (url.isEmpty) return '';
     try {
       final dio = _probeDio ??= Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 30),
-        headers: {'User-Agent': 'MusaLunar/KisakiGals/0.1.0'},
+        headers: {'User-Agent': 'MusaLunar/KisakiGals/0.2.0'},
       ));
       final ext = RegExp(r'\.(jpe?g|png|webp)', caseSensitive: false)
-          .firstMatch(g.coverUrl)
-          ?.group(0) ??
+              .firstMatch(url)
+              ?.group(0) ??
           '.jpg';
-      final path = '$coversDir/game_$gameId$ext';
-      final response = await dio.download(g.coverUrl, path);
+      final path = '$coversDir/$fileName$ext';
+      final response = await dio.download(url, path);
       if (response.statusCode == 200 && File(path).lengthSync() > 1000) {
         return path;
       }

@@ -71,7 +71,7 @@ class ReviewUploader {
       String token, SourceRecord source, double rating, String comment) async {
     final dio = _dio({
       'Authorization': 'Bearer $token',
-      'User-Agent': 'MusaLunar/KisakiGals/0.1.0',
+      'User-Agent': 'MusaLunar/KisakiGals/0.2.0',
       'Content-Type': 'application/json',
     });
     final sid = int.tryParse(source.sourceId);

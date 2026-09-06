@@ -111,11 +111,13 @@ class _EditSheetState extends State<EditSheet> {
             const SizedBox(height: 12),
             TextField(
               controller: _exe,
-              readOnly: true,
-              onTap: _pickExe,
-              decoration: const InputDecoration(
-                  labelText: '游戏可执行文件',
-                  suffixIcon: Icon(Icons.folder_open_rounded, size: 18)),
+              // 允许直接粘贴路径；右侧按钮打开文件选择器
+              decoration: InputDecoration(
+                  labelText: '游戏可执行文件（可粘贴路径）',
+                  suffixIcon: IconButton(
+                      icon: const Icon(Icons.folder_open_rounded, size: 18),
+                      tooltip: '浏览…',
+                      onPressed: _pickExe)),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -183,6 +185,9 @@ class _EditSheetState extends State<EditSheet> {
     g.developer = _developer.text.trim();
     g.releaseDate = _release.text.trim();
     g.exePath = _exe.text.trim();
+    if (g.exePath.isNotEmpty && File(g.exePath).existsSync()) {
+      g.directory = File(g.exePath).parent.path;
+    }
     g.summary = _summary.text.trim();
     g.playStatus = _status;
     g.nsfw = _nsfw;

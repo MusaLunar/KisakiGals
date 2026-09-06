@@ -1,16 +1,17 @@
 /// SQLite 打开与 schema 迁移。
 library;
 
-import 'package:path/path.dart' as p;
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-const int kSchemaVersion = 1;
+const int kSchemaVersion = 2;
 
-Future<Database> openAppDb(String dataDir, {Database? inMemoryForTest}) async {
+/// 打开应用数据库。[dbPath] 为完整文件路径（不做二次拼接）。
+Future<Database> openAppDb(String dbPath, {Database? inMemoryForTest}) async {
   if (inMemoryForTest != null) return inMemoryForTest;
   final factory = databaseFactoryFfi;
   return factory.openDatabase(
-    p.join(dataDir, 'kisakigals.db'),
+    dbPath,
     options: OpenDatabaseOptions(
       version: kSchemaVersion,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
@@ -20,7 +21,13 @@ Future<Database> openAppDb(String dataDir, {Database? inMemoryForTest}) async {
         }
       }),
       onUpgrade: (db, oldV, newV) async {
-        // schema v1：暂无升级路径
+        // v2：详情页背景（截图列表 + 背景图）
+        if (oldV < 2) {
+          await db.execute(
+              "ALTER TABLE games ADD COLUMN screenshots TEXT NOT NULL DEFAULT '[]'");
+          await db.execute(
+              "ALTER TABLE games ADD COLUMN background_url TEXT NOT NULL DEFAULT ''");
+        }
       },
     ),
   );
@@ -49,7 +56,9 @@ const List<String> kCreateTables = [
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     first_played_at TEXT NOT NULL DEFAULT '',
-    last_played_at TEXT NOT NULL DEFAULT ''
+    last_played_at TEXT NOT NULL DEFAULT '',
+    screenshots TEXT NOT NULL DEFAULT '[]',
+    background_url TEXT NOT NULL DEFAULT ''
   )''',
   '''
   CREATE TABLE game_sources (

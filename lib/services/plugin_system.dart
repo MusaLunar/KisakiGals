@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../data/settings_store.dart';
-import 'autostart.dart';
 import 'playtime_tracker.dart';
 
 /// 插件设置项描述。
@@ -138,64 +137,6 @@ class PluginManager {
 }
 
 // ================= 内置插件 =================
-
-/// 自动备份：启动时若距上次备份超过 24h 则备份并按保留数清理。
-class AutoBackupPlugin extends KisakiPlugin {
-  DateTime _lastCheck = DateTime.now();
-
-  @override
-  String get id => 'auto_backup';
-  @override
-  String get name => '自动备份';
-  @override
-  String get description => '每日自动备份数据库，并保留最近若干份';
-  @override
-  String get version => '1.0.0';
-  @override
-  String get author => 'KisakiGals';
-
-  @override
-  List<PluginSetting> get settings => [
-        const PluginSetting('keep', '保留备份数', PluginSettingType.int_, def: 10),
-      ];
-
-  @override
-  Future<void> onInit(PluginContext ctx) async {
-    final dir = '${ctx.dataDir}/backups';
-    final svc = BackupService(
-        dbFile: '${ctx.dataDir}/kisakigals.db', backupsDir: dir);
-    final files = svc.list();
-    if (files.isEmpty ||
-        DateTime.now().difference(files.first.statSync().modified).inHours >= 24) {
-      await svc.backup();
-      await svc.prune((config['keep'] ?? 10) as int);
-    }
-    _lastCheck = DateTime.now();
-  }
-
-  DateTime get lastCheck => _lastCheck;
-}
-
-/// NSFW 封面保护：启用后强制模糊 NSFW 封面（读取此状态于封面组件）。
-class NsfwGuardPlugin extends KisakiPlugin {
-  @override
-  String get id => 'nsfw_guard';
-  @override
-  String get name => 'NSFW 封面保护';
-  @override
-  String get description => '在游戏库与详情页模糊 NSFW 封面，防误触曝光';
-  @override
-  String get version => '1.0.0';
-  @override
-  String get author => 'KisakiGals';
-
-  @override
-  List<PluginSetting> get settings => [
-        const PluginSetting('blur', '模糊强度（0-20）', PluginSettingType.int_, def: 12),
-      ];
-
-  bool get active => enabled;
-}
 
 /// 久坐提醒：单次游玩超过设定分钟数时提醒休息。
 class IdleReminderPlugin extends KisakiPlugin {

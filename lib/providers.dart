@@ -30,6 +30,17 @@ final tabIndexProvider = StateProvider<int>((ref) => 0);
 /// 刷新信号：任何库变更后自增，通知各页重新读取。
 final libraryVersionProvider = StateProvider<int>((ref) => 0);
 
+// ---------- NSFW 与外观（封面组件实时响应） ----------
+
+/// NSFW 封面显示模式：blur / placeholder / show。
+final nsfwModeProvider = StateProvider<String>((ref) => 'blur');
+
+/// NSFW 模糊强度（0-20）。
+final nsfwBlurProvider = StateProvider<double>((ref) => 12);
+
+/// 详情页背景模糊度（0-20）。
+final detailBgBlurProvider = StateProvider<double>((ref) => 14);
+
 // ---------- 游戏库 ----------
 
 class LibraryFilter {

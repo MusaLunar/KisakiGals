@@ -95,6 +95,19 @@ switch ($Cmd) {
     [void][W]::keybd_event($vk, 0, 2, [UIntPtr]::Zero)
     Write-Output "key sent vk=$vk"
   }
+  'paste' {
+    $h = Get-Hwnd
+    Activate-Window $h
+    Start-Sleep -Milliseconds 200
+    [void][W]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+    [void][W]::keybd_event(0x56, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 80
+    [void][W]::keybd_event(0x56, 0, 2, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+    [void][W]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)
+    Write-Output "ctrl+v sent; clipboard=$([System.Windows.Forms.Clipboard]::GetText())"
+  }
   'rect' {
     $h = Get-Hwnd
     $r = New-Object W+RECT

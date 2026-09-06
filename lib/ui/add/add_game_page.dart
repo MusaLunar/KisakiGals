@@ -12,6 +12,7 @@ import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
+import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -25,7 +26,7 @@ class AddGamePage extends ConsumerStatefulWidget {
 
 enum AddMode { scrape, custom }
 
-enum ScrapeStage { pick, searching, choose, confirm }
+enum ScrapeStage { pick, searching, choose, merging, confirm }
 
 class _AddGamePageState extends ConsumerState<AddGamePage> {
   AddMode _mode = AddMode.scrape;
@@ -42,7 +43,8 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
   String _selectedSource = 'auto'; // auto = 全部启用源
   String _exeDir = '';
   List<ScrapeHit> _hits = [];
-  ScrapeHit? _picked;
+  List<ScrapedGame> _mergedAll = const []; // [0]=合并结果, 其余=各源原始条目
+  String _bgChoice = ''; // ''=纯色背景；非空=截图 URL
 
   @override
   void dispose() {
@@ -150,6 +152,16 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
           ),
         ),
       ScrapeStage.choose => _scrapeChoose(scheme),
+      ScrapeStage.merging => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 18),
+              Text('正在整合所有数据源的元数据…', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
       ScrapeStage.confirm => _scrapeConfirm(scheme),
     };
   }
@@ -260,12 +272,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                     for (final hit in _hits)
                       _HitTile(
                         hit: hit,
-                        onPick: () {
-                          setState(() {
-                            _picked = hit;
-                            _stage = ScrapeStage.confirm;
-                          });
-                        },
+                        onPick: () => _mergeAndConfirm(hit),
                       ),
                   ],
                 ),
@@ -274,8 +281,36 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     );
   }
 
+  /// 选中候选 → 整合所有数据源 → 进入确认页。
+  Future<void> _mergeAndConfirm(ScrapeHit hit) async {
+    setState(() {
+      _stage = ScrapeStage.merging;
+      _bgChoice = '';
+    });
+    try {
+      final all = await AppServices.I.fetcher.mergeAcrossSources(
+        hit.game,
+        kw: _nameController.text.trim(),
+        only: _selectedSource == 'auto' ? null : [_selectedSource],
+      );
+      if (!mounted) return;
+      setState(() {
+        _mergedAll = all;
+        _stage = ScrapeStage.confirm;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _mergedAll = [hit.game];
+        _stage = ScrapeStage.confirm;
+      });
+    }
+  }
+
   Widget _scrapeConfirm(ColorScheme scheme) {
-    final game = _picked!.game;
+    final game = _mergedAll.first;
+    final contributors = _mergedAll;
+    final shots = game.screenshots;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: ConstrainedBox(
@@ -313,7 +348,8 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                           spacing: 8,
                           runSpacing: 6,
                           children: [
-                            SourceBadge(source: game.source),
+                            for (final c in contributors)
+                              SourceBadge(source: c.source),
                             if (game.rating > 0)
                               PlatformRatingChip(
                                   label: KisakiSources.labels[game.source] ?? '',
@@ -336,6 +372,17 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                               ),
                           ],
                         ),
+                        if (contributors.length > 1) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            '已整合 ${contributors.length} 个数据源的元数据（简介/标签/评分取各源所长）',
+                            style: TextStyle(
+                                fontSize: 11.5,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant),
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         Text(
                           [
@@ -396,7 +443,49 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
+              // 详情页背景选择：纯色 / 刮削截图
+              Text('详情页背景',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 13.5)),
+              const SizedBox(height: 10),
+              if (shots.isEmpty)
+                Text('该游戏暂无截图，将使用纯色背景；可稍后在详情页更换。',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant))
+              else
+                SizedBox(
+                  height: 92,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _BgOptionTile(
+                        selected: _bgChoice.isEmpty,
+                        onTap: () => setState(() => _bgChoice = ''),
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.format_color_fill_rounded, size: 22),
+                            SizedBox(height: 4),
+                            Text('纯色', style: TextStyle(fontSize: 11.5)),
+                          ],
+                        ),
+                      ),
+                      for (final url in shots.take(8))
+                        _BgOptionTile(
+                          selected: _bgChoice == url,
+                          onTap: () => setState(() => _bgChoice = url),
+                          child: Image.network(url,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.broken_image_rounded,
+                                      size: 18)),
+                        ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
               Row(
                 children: [
                   OutlinedButton(
@@ -588,7 +677,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
   }
 
   Future<void> _addToLibrary() async {
-    final game = _picked!.game;
+    final game = _mergedAll.first;
     final repo = AppServices.I.repo;
     final g = Game(
       name: game.name,
@@ -598,33 +687,18 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       releaseDate: game.releaseDate,
       summary: game.summary,
       nsfw: game.nsfw,
+      screenshots: game.screenshots,
       exePath: _exeController.text,
       directory: _exeDir,
     );
-    final id = await repo.insertGame(g);
-    // 封面下载
-    final coverPath =
-        await AppServices.I.fetcher.downloadCover(game, id);
-    if (coverPath.isNotEmpty) g.coverPath = coverPath;
-    await repo.updateGame(g);
-    await repo.setTags(
-        id,
-        game.tags
-            .map((t) => TagItem(name: t.name, weight: t.weight, source: game.source))
-            .toList());
-    await repo.upsertSource(
-        id,
-        SourceRecord(
-          gameId: id,
-          source: game.source,
-          sourceId: game.sourceId,
-          rating: game.rating,
-          voteCount: game.voteCount,
-          raw: game.toJson(),
-        ));
+    await repo.insertGame(g);
+    // 多源元数据落库（封面下载 + 背景 + 各源评分记录）
+    await ScrapeApplier(repo, AppServices.I.fetcher)
+        .apply(g, _mergedAll, backgroundPick: _bgChoice);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('已添加「${g.displayName}」到游戏库')));
+        content: Text(
+            '已添加「${g.displayName}」到游戏库（${_mergedAll.length} 个数据源）')));
     Navigator.of(context).pop();
   }
 
@@ -657,6 +731,41 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text('已添加「$name」到游戏库')));
     Navigator.of(context).pop();
+  }
+}
+
+/// 背景选择缩略块。
+class _BgOptionTile extends StatelessWidget {
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+  const _BgOptionTile(
+      {required this.selected, required this.onTap, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 148,
+          height: 86,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).dividerColor,
+              width: selected ? 2 : 1,
+            ),
+            color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          ),
+          child: child,
+        ),
+      ),
+    );
   }
 }
 

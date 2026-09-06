@@ -1,6 +1,8 @@
 /// 数据模型（与 SQLite 表一一对应）。
 library;
 
+import 'dart:convert';
+
 import '../core/constants.dart';
 import '../core/utils.dart';
 
@@ -26,6 +28,8 @@ class Game {
   DateTime updatedAt;
   DateTime? firstPlayedAt;
   DateTime? lastPlayedAt;
+  List<String> screenshots; // 刮削得到的截图 URL
+  String backgroundUrl; // 详情页背景（本地路径，空=纯色）
 
   Game({
     this.id,
@@ -49,7 +53,10 @@ class Game {
     DateTime? updatedAt,
     this.firstPlayedAt,
     this.lastPlayedAt,
+    List<String>? screenshots,
+    this.backgroundUrl = '',
   })  : aliases = aliases ?? [],
+        screenshots = screenshots ?? [],
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
@@ -60,6 +67,16 @@ class Game {
     if (raw == null || raw.isEmpty) return const [];
     final decoded = jsonDecodeMap(raw)['list'];
     if (decoded is List) return decoded.map((e) => e.toString()).toList();
+    return const [];
+  }
+
+  static List<String> _parseStringList(String? raw) {
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      if (jsonDecode(raw) is List) {
+        return [for (final e in jsonDecode(raw) as List) e.toString()];
+      }
+    } catch (_) {}
     return const [];
   }
 
@@ -87,6 +104,8 @@ class Game {
             DateTime.now(),
         firstPlayedAt: DateTime.tryParse((r['first_played_at'] ?? '') as String),
         lastPlayedAt: DateTime.tryParse((r['last_played_at'] ?? '') as String),
+        screenshots: _parseStringList(r['screenshots'] as String?),
+        backgroundUrl: (r['background_url'] ?? '') as String,
       );
 
   Map<String, dynamic> toRow() => {
@@ -111,6 +130,8 @@ class Game {
         'updated_at': updatedAt.toIso8601String(),
         'first_played_at': firstPlayedAt?.toIso8601String() ?? '',
         'last_played_at': lastPlayedAt?.toIso8601String() ?? '',
+        'screenshots': jsonEncode(screenshots),
+        'background_url': backgroundUrl,
       };
 }
 

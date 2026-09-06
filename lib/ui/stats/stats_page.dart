@@ -265,13 +265,7 @@ class _InfoTab extends ConsumerWidget {
                 toY: byHour[h].toDouble(),
                 width: 9,
                 borderRadius: BorderRadius.circular(4),
-                gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      KisakiColors.pink.withValues(alpha: 0.55),
-                      KisakiColors.lavender,
-                    ]),
+                color: KisakiColors.pink.withValues(alpha: 0.75),
               ),
             ]),
         ],
@@ -322,13 +316,7 @@ class _InfoTab extends ConsumerWidget {
                 toY: byWeekday[d].toDouble(),
                 width: 22,
                 borderRadius: BorderRadius.circular(6),
-                gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      KisakiColors.lavender.withValues(alpha: 0.5),
-                      KisakiColors.pink,
-                    ]),
+                color: KisakiColors.lavender.withValues(alpha: 0.8),
               ),
             ]),
         ],

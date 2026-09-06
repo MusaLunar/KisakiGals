@@ -159,6 +159,24 @@ class GameRepository {
     return rows.map(SourceRecord.fromRow).toList();
   }
 
+  /// 平台 id → 本地游戏 索引（云端同步匹配用）。
+  /// key 形如「vndb:v123」「bgm:45678」，VNDB 的「v」前缀已归一。
+  Future<Map<String, Game>> sourceIndex() async {
+    final rows = await db.rawQuery(
+        'SELECT gs.source AS src, gs.source_id AS sid, g.* '
+        'FROM game_sources gs JOIN games g ON g.id = gs.game_id');
+    final map = <String, Game>{};
+    for (final r in rows) {
+      final source = (r['src'] ?? '') as String;
+      var sid = ((r['sid'] ?? '') as String).trim();
+      if (sid.isEmpty) continue;
+      if (source == 'vndb' && sid.startsWith('v')) sid = sid.substring(1);
+      final g = Game.fromRow(r);
+      map['$source:$sid'] ??= g;
+    }
+    return map;
+  }
+
   /// 库内开发商列表（筛选栏用）。
   Future<List<String>> developers() async {
     final rows = await db.query('games',

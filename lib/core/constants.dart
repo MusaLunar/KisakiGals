@@ -90,7 +90,7 @@ class KisakiSources {
 /// 应用信息。
 class AppInfo {
   static const name = 'KisakiGals';
-  static const version = '0.1.0';
+  static const version = '0.2.0';
   static const author = 'MusaLunar';
   static const repository = '（筹备中）';
 }
