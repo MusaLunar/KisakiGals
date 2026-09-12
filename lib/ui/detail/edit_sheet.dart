@@ -13,6 +13,7 @@ import '../../data/models.dart';
 import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../../scraping/apply.dart';
+import '../../services/game_launcher.dart';
 import '../../services/save_backup.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -211,11 +212,23 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                         controller: _exe,
                         decoration: InputDecoration(
                             labelText: '游戏可执行文件（可粘贴路径）',
-                            suffixIcon: IconButton(
-                                icon: const Icon(Icons.folder_open_rounded,
-                                    size: 18),
-                                tooltip: '浏览…',
-                                onPressed: _pickExe)),
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                    icon: const Icon(
+                                        Icons.auto_fix_high_rounded,
+                                        size: 18),
+                                    tooltip: '从游戏目录自动识别',
+                                    onPressed: _detectExe),
+                                IconButton(
+                                    icon: const Icon(
+                                        Icons.folder_open_rounded,
+                                        size: 18),
+                                    tooltip: '浏览…',
+                                    onPressed: _pickExe),
+                              ],
+                            )),
                       ),
                       const SizedBox(height: 12),
                       TextField(
@@ -545,6 +558,25 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     if (result?.files.single.path != null) {
       setState(() => _exe.text = result!.files.single.path!);
     }
+  }
+
+  /// 从游戏目录自动识别可执行文件（汉化补丁 → 体积 → 同名 → 最新）。
+  Future<void> _detectExe() async {
+    var dir = widget.game.directory;
+    if (dir.isEmpty || !Directory(dir).existsSync()) {
+      final picked =
+          await FilePicker.platform.getDirectoryPath(dialogTitle: '选择游戏目录');
+      if (picked == null || picked.isEmpty) return;
+      dir = picked;
+    }
+    final found = GameLauncher.detectExecutable(dir);
+    if (found.isEmpty) {
+      showNotice('未在目录中找到可执行文件', error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _exe.text = found);
+    showNotice('已识别：${found.split(Platform.pathSeparator).last}');
   }
 
   Future<void> _pickCover() async {

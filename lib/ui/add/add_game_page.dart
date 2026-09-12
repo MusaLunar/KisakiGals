@@ -14,6 +14,7 @@ import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
 import '../../scraping/apply.dart';
+import '../../services/game_launcher.dart';
 import '../../scraping/scraped_game.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -94,9 +95,19 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
             : KisakiColors.cream.withValues(alpha: 0.96),
         child: DragDropRegion(
           onFileDrop: (paths) {
-            final exe =
-                paths.where((p) => p.toLowerCase().endsWith('.exe')).firstOrNull ??
-                    paths.whereType<String>().firstOrNull;
+            // 拖入的可能是 exe，也可能是游戏目录 → 目录则自动识别 exe
+            var exe = paths
+                .where((p) => p.toLowerCase().endsWith('.exe'))
+                .firstOrNull;
+            if (exe == null) {
+              final dir = paths.firstWhere(
+                  (p) => Directory(p).existsSync(),
+                  orElse: () => '');
+              if (dir.isNotEmpty) {
+                final found = GameLauncher.detectExecutable(dir);
+                if (found.isNotEmpty) exe = found;
+              }
+            }
             if (exe != null) _useExe(exe);
           },
           child: Padding(
