@@ -2,7 +2,7 @@
 
 # 🌸 KisakiGals
 
-**Galgame 收藏与游玩时长管理器** · Flutter Windows 桌面应用
+**Galgame 收藏与游玩时长管理器** · Flutter Windows 桌面应用 · Vibe Coding
 
 > 「无论何时，都想与她们再次相见。」
 
@@ -111,11 +111,11 @@ dart test              # 13 项单元测试
 
 | 项目 | 作者 | 参考内容 |
 | --- | --- | --- |
-| [ChronoTide](https://github.com/ChronoTide-Project/ChronoTide) | ChronoTide 团队 | 多源元数据刮削架构、VNDB 标签中文化资源（MIT，见下）、Hikarinagi 凭据流程、限流策略 |
-| [ReinaManager](https://github.com/ReinaS-64892/ReinaManager) | ReinaS-64892 | 数据源适配层与 OAuth 账号体系、Token 获取入口、多源元数据整合思路、界面视觉风格启发 |
-| [LunaBox](https://github.com/lunabox/lunabox) | LunaBox 团队 | Go 侧元数据服务实现对照（元数据调度、代理解析） |
+| [ChronoTide] (https://github.com/hardman1314/-Chrono.Tide-) | hardman1314 | 多源元数据刮削架构、VNDB 标签中文化资源（MIT，见下）、Hikarinagi 凭据流程、限流策略 |
+| [ReinaManager] (https://github.com/huoshen80/ReinaManager) | huoshen80 | 数据源适配层与 OAuth 账号体系、Token 获取入口、多源元数据整合思路、界面视觉风格启发 |
+| [LunaBox] (https://github.com/Saramanda9988/LunaBox) | Saramanda9988 | Go 侧元数据服务实现对照（元数据调度、代理解析） |
 
-**特别说明**：`assets/data/vndb_tags_zh_cn.json`（VNDB 标签英→中翻译表，约 3000 条）来自 ChronoTide 项目（MIT 许可），原仓库：[ChronoTide](https://github.com/ChronoTide-Project/ChronoTide)。
+**特别说明**：`assets/data/vndb_tags_zh_cn.json`（VNDB 标签英→中翻译表，约 3000 条）来自 ChronoTide 项目
 
 元数据与搜索能力来自以下社区 API / 站点（各站点数据版权归其自身与投稿者所有）：Bangumi、VNDB、月幕GAL、Hikarinagi、Steam、KunGal、TouchGal、DLsite、CnGal。
 
@@ -125,7 +125,6 @@ dart test              # 13 项单元测试
 
 - 应用源码：本项目以 **GNU Affero General Public License v3.0（AGPL-3.0）** 发布（见 LICENSE）。
 - `assets/data/vndb_tags_zh_cn.json`（第三方内置资源）：MIT © ChronoTide 项目，按 MIT 条款使用。
-- 应用图标与界面为原创设计（樱花粉 × 藤紫 × 奶油）。
 
 **本项目与任何商业 galgame 发行商无关，仅供学习与个人管理使用；请在尊重各作品版权的前提下使用。**
 
