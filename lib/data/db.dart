@@ -4,7 +4,7 @@ library;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-const int kSchemaVersion = 3;
+const int kSchemaVersion = 4;
 
 /// 打开应用数据库。[dbPath] 为完整文件路径（不做二次拼接）。
 Future<Database> openAppDb(String dbPath, {Database? inMemoryForTest}) async {
@@ -27,6 +27,15 @@ Future<Database> openAppDb(String dbPath, {Database? inMemoryForTest}) async {
               "ALTER TABLE games ADD COLUMN screenshots TEXT NOT NULL DEFAULT '[]'");
           await db.execute(
               "ALTER TABLE games ADD COLUMN background_url TEXT NOT NULL DEFAULT ''");
+        }
+        // v4：设备识别与可移植路径（换设备导入数据库时自动重定位游戏目录）
+        if (oldV < 4) {
+          await db.execute(
+              "ALTER TABLE games ADD COLUMN device_id TEXT NOT NULL DEFAULT ''");
+          await db.execute(
+              "ALTER TABLE games ADD COLUMN rel_path TEXT NOT NULL DEFAULT ''");
+          await db.execute(
+              "ALTER TABLE games ADD COLUMN dir_name TEXT NOT NULL DEFAULT ''");
         }
         // v3：Locale Emulator 转区启动 + 存档目录
         if (oldV < 3) {
@@ -67,7 +76,10 @@ const List<String> kCreateTables = [
     screenshots TEXT NOT NULL DEFAULT '[]',
     background_url TEXT NOT NULL DEFAULT '',
     locale_mode TEXT NOT NULL DEFAULT 'none',
-    save_path TEXT NOT NULL DEFAULT ''
+    save_path TEXT NOT NULL DEFAULT '',
+    device_id TEXT NOT NULL DEFAULT '',
+    rel_path TEXT NOT NULL DEFAULT '',
+    dir_name TEXT NOT NULL DEFAULT ''
   )''',
   '''
   CREATE TABLE game_sources (

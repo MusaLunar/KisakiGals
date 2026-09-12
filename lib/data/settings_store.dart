@@ -86,6 +86,12 @@ class SettingsStore {
   /// Locale Emulator 的 LEProc.exe 路径（日文游戏转区启动用）
   static const kLePath = 'runtime.le_path';
 
+  /// 本机设备标识（无法读取 MachineGuid 时的兜底）
+  static const kDeviceId = 'device.id';
+
+  /// 已知库根目录（JSON 数组），换机后据此重定位游戏路径
+  static const kLibraryRoots = 'library.roots';
+
   /// 存档备份保留份数 / 自动备份阈值（分钟）
   static const kSaveBackupKeep = 'save.backup_keep';
   static const kSaveAutoMinutes = 'save.auto_minutes';

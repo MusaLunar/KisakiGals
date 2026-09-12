@@ -32,6 +32,9 @@ class Game {
   String backgroundUrl; // 详情页背景（本地路径，空=纯色）
   String localeMode; // none | japanese（japanese 走 Locale Emulator 转区启动）
   String savePath; // 存档目录（用于备份/恢复）
+  String deviceId; // 添加时的设备标识（换机导入时用于判断路径是否需要重定位）
+  String relPath; // 相对某个库根目录的路径（换机后可据此还原）
+  String dirName; // 游戏目录名（按名搜索定位的兜底依据）
 
   Game({
     this.id,
@@ -59,6 +62,9 @@ class Game {
     this.backgroundUrl = '',
     this.localeMode = 'none',
     this.savePath = '',
+    this.deviceId = '',
+    this.relPath = '',
+    this.dirName = '',
   })  : aliases = aliases ?? [],
         screenshots = screenshots ?? [],
         createdAt = createdAt ?? DateTime.now(),
@@ -115,6 +121,9 @@ class Game {
         backgroundUrl: (r['background_url'] ?? '') as String,
         localeMode: (r['locale_mode'] ?? 'none') as String,
         savePath: (r['save_path'] ?? '') as String,
+        deviceId: (r['device_id'] ?? '') as String,
+        relPath: (r['rel_path'] ?? '') as String,
+        dirName: (r['dir_name'] ?? '') as String,
       );
 
   Map<String, dynamic> toRow() => {
@@ -143,6 +152,9 @@ class Game {
         'background_url': backgroundUrl,
         'locale_mode': localeMode,
         'save_path': savePath,
+        'device_id': deviceId,
+        'rel_path': relPath,
+        'dir_name': dirName,
       };
 }
 

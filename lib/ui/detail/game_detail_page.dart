@@ -427,12 +427,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
 
   Future<void> _openRateDialog(
       Game game, List<SourceRecord> sources) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => RateDialog(game: game, sources: sources),
-    );
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RateDialog(game: game, sources: sources)));
     // 延迟刷新，避免关闭动画期间整页闪烁
     Future.delayed(const Duration(milliseconds: 450), () {
       if (mounted) ref.read(libraryVersionProvider.notifier).state++;
@@ -440,12 +436,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   }
 
   Future<void> _openEditSheet(Game game) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => EditSheet(game: game),
-    );
+    await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => EditSheet(game: game)));
     Future.delayed(const Duration(milliseconds: 450), () {
       if (mounted) ref.read(libraryVersionProvider.notifier).state++;
     });

@@ -16,6 +16,7 @@ import 'data/settings_store.dart';
 import 'scraping/metadata_fetcher.dart';
 import 'scraping/tag_translator.dart';
 import 'services/autostart.dart';
+import 'services/device.dart';
 import 'services/ai_service.dart';
 import 'services/playtime_tracker.dart';
 import 'services/plugin_system.dart';
@@ -55,6 +56,9 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
   }
 }
 
+/// 最近一次启动时的重定位结果（UI 提示用）。
+RelocateResult? lastRelocateResult;
+
 class AppServices {
   static AppServices? _i;
   static AppServices get I => _i!;
@@ -69,6 +73,7 @@ class AppServices {
   late PluginManager plugins;
   late AutostartService autostart;
   late AiService ai;
+  late PathRelocator relocator;
   PluginContext? pluginContext;
 
   bool get ready => _ready;
@@ -160,8 +165,16 @@ class AppServices {
       } catch (_) {}
     }
 
+    // 设备识别与路径重定位（换机/换盘导入数据库后自动找回游戏目录）
+    s.relocator = PathRelocator(s.settings, s.repo);
     s.autostart = AutostartService();
     s.ai = AiService(proxy: s.fetcher.proxy);
+
+    // 启动时尝试重定位缺失的游戏路径（失败静默，由 UI 侧另行提示）
+    try {
+      final r = await s.relocator.relocateMissing();
+      lastRelocateResult = r;
+    } catch (_) {}
 
     s._ready = true;
     _i = s;

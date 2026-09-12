@@ -23,8 +23,13 @@ import 'sources/ymgal.dart';
 import 'sources/vndb.dart';
 
 /// 三级代理：应用设置 > Windows 系统代理（注册表）> 环境变量。
+/// **附带 TCP 存活探测**：系统代理常常是残留配置（Clash 已退出但注册表仍在），
+/// 死代理会让全部刮削请求失败并被静默吞掉，表现为「搜不到任何游戏」。
 Future<String?> detectProxy({String? appProxy}) async {
-  if (appProxy != null && appProxy.trim().isNotEmpty) return appProxy.trim();
+  if (appProxy != null && appProxy.trim().isNotEmpty) {
+    return appProxy.trim();
+  }
+  String? candidate;
   try {
     final result = Process.runSync('reg', [
       'query',
@@ -33,16 +38,50 @@ Future<String?> detectProxy({String? appProxy}) async {
       'ProxyServer',
     ]);
     if (result.exitCode == 0) {
-      final m = RegExp(r'ProxyServer\s+REG_SZ\s+(\S+)').firstMatch(result.stdout.toString());
+      final m = RegExp(r'ProxyServer\s+REG_SZ\s+(\S+)')
+          .firstMatch(result.stdout.toString());
       if (m != null) {
         var server = m.group(1)!;
         if (!server.contains('://')) server = 'http://$server';
-        return server;
+        candidate = server;
       }
     }
   } catch (_) {}
-  return Platform.environment['HTTPS_PROXY'] ??
+  candidate ??= Platform.environment['HTTPS_PROXY'] ??
       Platform.environment['HTTP_PROXY'];
+  if (candidate == null || candidate.trim().isEmpty) return null;
+  // 存活探测：连不上就当作没有代理（直连），避免整站刮削静默失败
+  final alive = await _proxyAlive(candidate);
+  if (!alive) {
+    // 记录一次，便于用户从设置页看到「系统代理不可用，已自动直连」
+    lastProxyProbeResult = '$candidate 不可用（已自动改为直连）';
+    return null;
+  }
+  lastProxyProbeResult = '$candidate 可用';
+  return candidate;
+}
+
+/// 最近一次代理探测结果（设置页展示用）。
+String lastProxyProbeResult = '';
+
+/// TCP 连接探测（2 秒超时）。
+Future<bool> _proxyAlive(String proxy) async {
+  try {
+    var host = proxy.replaceFirst(RegExp(r'^https?://'), '');
+    host = host.split('/').first;
+    var port = 80;
+    final idx = host.lastIndexOf(':');
+    if (idx > 0) {
+      port = int.tryParse(host.substring(idx + 1)) ?? 80;
+      host = host.substring(0, idx);
+    }
+    final socket = await Socket.connect(host, port,
+        timeout: const Duration(seconds: 2));
+    socket.destroy();
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 class MetadataFetcher {
@@ -51,6 +90,9 @@ class MetadataFetcher {
   final String coversDir;
   Dio? _probeDio;
   String? _proxy;
+
+  /// 运行中检测到代理失效后置为 true（后续请求直连）。
+  bool _proxyDisabled = false;
 
   /// 已配置的平台凭据（vndb/bgm），init 时未显式传入则沿用。
   Map<String, String> _tokens = const {};
@@ -75,6 +117,7 @@ class MetadataFetcher {
       };
     }
     _proxy = await detectProxy(appProxy: appProxy);
+    _proxyDisabled = false;
     Dio buildDio() {
       final dio = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 10),
@@ -85,7 +128,11 @@ class MetadataFetcher {
         dio.httpClientAdapter = IOHttpClientAdapter()
           ..createHttpClient = () {
             final client = HttpClient();
-            client.findProxy = (uri) => 'PROXY ${_proxy!.replaceFirst(RegExp(r'^https?://'), '')}';
+            client.findProxy = (uri) {
+              // 代理中途失效时自动直连，避免整站刮削静默失败
+              if (_proxyDisabled) return 'DIRECT';
+              return 'PROXY ${_proxy!.replaceFirst(RegExp(r'^https?://'), '')}';
+            };
             return client;
           };
       }
@@ -128,13 +175,24 @@ class MetadataFetcher {
         .where((id) => _adapters.containsKey(id))
         .toList();
     final results = <String, List<ScrapedGame>>{};
+    var failures = 0;
     await Future.wait(ids.map((id) async {
       try {
         results[id] = await _adapters[id]!.search(kw);
       } catch (_) {
         results[id] = const [];
+        failures++;
       }
     }));
+    // 全部源都失败且当前在用代理 → 判定代理失效，改直连重试一次
+    if (ids.isNotEmpty &&
+        failures == ids.length &&
+        _proxy != null &&
+        !_proxyDisabled) {
+      _proxyDisabled = true;
+      lastProxyProbeResult = '$_proxy 已失效，自动改为直连';
+      return searchAll(kw, only: only);
+    }
     return results;
   }
 

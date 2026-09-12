@@ -150,28 +150,24 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Container(
-        constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.88),
-        decoration: BoxDecoration(
-          color: dark ? KisakiColors.nightCard : Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-        ),
+    // 全屏页面（不再是底部抽屉）：编辑区域更大，各分区可充分展开
+    return Scaffold(
+      backgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
+      body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(2),
-                color: dark ? Colors.white24 : Colors.black12,
-              ),
-            ),
-            Padding(
+            // 顶部拖动条：横跨整宽，空白处即可拖动窗口
+            const WindowDragBar(height: 24),
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                decoration: BoxDecoration(
+                  color: dark ? KisakiColors.nightCard : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 12, 4),
               child: Row(
                 children: [
@@ -437,8 +433,13 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
           ],
         ),
       ),
+    ),
+      ],
+    ),
+    ),
     );
   }
+
 
   Widget _section(
       BuildContext context, String title, List<Widget> children) {
@@ -680,6 +681,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     }
     g.coverPath = _coverPath;
     g.localeMode = _localeMode;
+    await AppServices.I.relocator.stamp(g);
     g.savePath = _savePathCtrl.text.trim();
     await AppServices.I.repo.updateGame(g);
     await AppServices.I.settings

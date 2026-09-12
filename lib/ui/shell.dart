@@ -43,6 +43,19 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
     windowManager.addListener(this);
     // F10：应用内截图（保存到 docs/screens/，用于视觉验收）
     HardwareKeyboard.instance.addHandler(_onKey);
+    // 启动时的路径重定位提示（换机/换盘导入数据库后）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final r = lastRelocateResult;
+      if (r == null) return;
+      if (r.relocated.isNotEmpty) {
+        showNotice('已自动重新定位 ${r.relocated.length} 部游戏的路径：'
+            '${r.relocated.take(3).join("、")}${r.relocated.length > 3 ? " 等" : ""}');
+      }
+      if (r.missing.isNotEmpty) {
+        showNotice('${r.missing.length} 部游戏的可执行文件未找到，'
+            '请在编辑信息中重新设置', error: true);
+      }
+    });
     // 会话结束 → 落库 + 自动备份存档 + 刷新统计
     _sessionSub = AppServices.I.tracker.onSessionEnd.listen((event) async {
       if (event.session != null) {

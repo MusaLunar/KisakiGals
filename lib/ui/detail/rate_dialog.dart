@@ -53,37 +53,45 @@ class _RateDialogState extends ConsumerState<RateDialog> {
       (KisakiSources.hikarinagi, 'Hikarinagi', _sourceFor(KisakiSources.hikarinagi)),
     ].where((t) => t.$3 != null).toList();
 
-    return Container(
-      margin: const EdgeInsets.only(top: 60),
-      decoration: BoxDecoration(
-        color: dark ? KisakiColors.nightCard : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      padding: EdgeInsets.only(
-          left: 28, right: 28, top: 24,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24),
-      child: SingleChildScrollView(
+    // 全屏页面：评分/评价输入区域更大（不再是底部抽屉）
+    return Scaffold(
+      backgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
+      body: SafeArea(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
+            const WindowDragBar(height: 24),
+            Expanded(
               child: Container(
-                width: 42,
-                height: 4,
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(2),
-                  color: scheme.surfaceContainerHighest,
+                  color: dark ? KisakiColors.nightCard : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
                 ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text('评价「${widget.game.displayName}」',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 14),
+                padding: EdgeInsets.only(
+                    left: 28,
+                    right: 28,
+                    top: 20,
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text('评价「${widget.game.displayName}」',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                                overflow: TextOverflow.ellipsis),
+                          ),
+                          IconButton(
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.close_rounded)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
             Center(
               child: Column(
                 children: [
@@ -196,6 +204,11 @@ class _RateDialogState extends ConsumerState<RateDialog> {
             ),
           ],
         ),
+              ),
+            ),
+          ),
+        ],
+      ),
       ),
     );
   }

@@ -81,7 +81,8 @@ class _GameCardState extends ConsumerState<GameCard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
+              AspectRatio(
+                aspectRatio: kCoverAspect,
                 child: Stack(
                   children: [
                     Positioned.fill(

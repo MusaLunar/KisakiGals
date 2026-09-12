@@ -888,6 +888,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       exePath: _exeController.text,
       directory: _exeDir,
     );
+    await AppServices.I.relocator.stamp(g);
     await repo.insertGame(g);
     // 多源元数据落库（封面下载 + 背景 + 各源评分记录）
     await ScrapeApplier(repo, AppServices.I.fetcher)

@@ -175,14 +175,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         ? const Center(child: Text('没有符合条件的游戏'))
                         : LayoutBuilder(builder: (context, constraints) {
                             const spacing = 18.0;
-                            final count = (constraints.maxWidth / 172)
+                            final count = (constraints.maxWidth / 190)
                                 .floor()
                                 .clamp(2, 10);
                             // 封面严格 2:3：单元高 = 封面高 + 标题/开发商文字区 + 内边距
                             final cellW =
                                 (constraints.maxWidth - spacing * (count - 1)) /
                                     count;
-                            final cellH = cellW / kCoverAspect + 52;
+                            final cellH = cellW / kCoverAspect + 56;
                             // 平台评分角标数据（一次查询，避免每张卡各查一次）
                             final ratings =
                                 ref.watch(platformRatingsProvider).valueOrNull ??

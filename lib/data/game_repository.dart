@@ -5,9 +5,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../core/constants.dart';
 import '../core/utils.dart';
+import '../services/device.dart';
 import 'models.dart';
 
-class GameRepository {
+class GameRepository implements GameRepositoryLike {
   final Database db;
   GameRepository(this.db);
 
@@ -19,6 +20,7 @@ class GameRepository {
     return id;
   }
 
+  @override
   Future<void> updateGame(Game g) async {
     g.updatedAt = DateTime.now();
     await db.update('games', g.toRow(), where: 'id = ?', whereArgs: [g.id]);
@@ -26,6 +28,13 @@ class GameRepository {
 
   Future<void> deleteGame(int id) async {
     await db.delete('games', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 全部游戏（重定位/统计等内部用途，不带筛选）
+  @override
+  Future<List<Game>> allGames() async {
+    final rows = await db.query('games', orderBy: 'id');
+    return rows.map(Game.fromRow).toList();
   }
 
   Future<Game?> getGame(int id) async {
