@@ -75,46 +75,55 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                         ? KisakiColors.nightBg.withValues(alpha: 0.68)
                         : KisakiColors.cream.withValues(alpha: 0.72)),
               SafeArea(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _topBar(game, tracking),
-                      const SizedBox(height: 14),
-                      _header(game, sources, tracking),
-                      const SizedBox(height: 20),
-                      if (tags.isNotEmpty) ...[
-                        _tags(tags, dark),
-                        const SizedBox(height: 20),
-                      ],
-                      // 左简介 / 右趋势 双栏
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: game.summary.isEmpty
-                                ? SoftCard(
-                                    child: Text('暂无简介',
-                                        style: TextStyle(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onSurfaceVariant)))
-                                : SoftCard(
-                                    child: Text(game.summary,
-                                        style: const TextStyle(
-                                            height: 1.7, fontSize: 13.5))),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            flex: 2,
-                            child: _DailyTrendCard(gameId: widget.gameId),
-                          ),
-                        ],
+                child: Column(
+                  children: [
+                    // 顶部拖动条：横跨整宽，空白处即可拖动窗口
+                    const WindowDragBar(height: 24),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _topBar(game, tracking),
+                            const SizedBox(height: 14),
+                            _header(game, sources, tracking),
+                            const SizedBox(height: 20),
+                            if (tags.isNotEmpty) ...[
+                              _tags(tags, dark),
+                              const SizedBox(height: 20),
+                            ],
+                            // 左简介 / 右趋势 双栏
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: game.summary.isEmpty
+                                      ? SoftCard(
+                                          child: Text('暂无简介',
+                                              style: TextStyle(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant)))
+                                      : SoftCard(
+                                          child: Text(game.summary,
+                                              style: const TextStyle(
+                                                  height: 1.7,
+                                                  fontSize: 13.5))),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  flex: 2,
+                                  child: _DailyTrendCard(gameId: widget.gameId),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ],

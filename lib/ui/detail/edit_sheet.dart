@@ -13,6 +13,7 @@ import '../../data/models.dart';
 import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../../scraping/apply.dart';
+import '../../scraping/cover_candidates.dart';
 import '../../services/game_launcher.dart';
 import '../../services/save_backup.dart';
 import '../theme.dart';
@@ -49,6 +50,13 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   late String _localeMode = widget.game.localeMode;
   bool _autoSave = false;
   bool _leConfigured = false;
+  /// 用户选中的平台封面 URL（null = 保持当前封面）
+  String? _coverPickUrl;
+  /// 用户选择的本地封面路径
+  String _coverLocal = '';
+  List<CoverCandidate> _covers = const [];
+  final _coverCtrl = ScrollController();
+  final _bgCtrl = ScrollController();
 
   List<SourceRecord> _sources = [];
   final _idControllers = <String, TextEditingController>{};
@@ -60,6 +68,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   void initState() {
     super.initState();
     _loadSources();
+    _loadCovers();
     _loadLaunchSettings();
   }
 
@@ -108,10 +117,21 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
       _summary,
       _savePathCtrl,
       ..._idControllers.values,
+      _coverCtrl,
+      _bgCtrl,
     ]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _loadCovers() async {
+    try {
+      final sources = await AppServices.I.repo.sourcesOf(widget.game.id!);
+      final covers = CoverCandidates.fromSources(sources);
+      if (!mounted) return;
+      setState(() => _covers = covers);
+    } catch (_) {}
   }
 
   Future<void> _loadSources() async {
@@ -306,15 +326,16 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                         onChanged: (v) => setState(() {}),
                       ),
                     ]),
+                    // 封面：当前封面 + 各平台封面候选（带滚动条）+ 本地选择
                     _section(context, '封面', [
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CoverImage(
                             path: _coverPath,
                             nsfw: _nsfw,
                             width: 90,
-                            height: 127,
+                            height: 135,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           const SizedBox(width: 16),
@@ -322,27 +343,63 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                OutlinedButton.icon(
-                                  onPressed: _pickCover,
-                                  icon: const Icon(Icons.image_rounded, size: 18),
-                                  label: const Text('选择本地封面'),
-                                ),
+                                Text(
+                                    _covers.isEmpty
+                                        ? '未找到平台封面；可重新刮削或选择本地图片'
+                                        : '点击下方缩略图切换为对应平台的封面（按 2:3 展示）',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 8),
-                                if (_coverPath.isNotEmpty)
-                                  TextButton.icon(
-                                    onPressed: () =>
-                                        setState(() => _coverPath = ''),
-                                    icon: const Icon(Icons.delete_outline_rounded,
+                                if (_covers.isNotEmpty)
+                                  _PickerRow(
+                                    controller: _coverCtrl,
+                                    height: 84,
+                                    children: [
+                                      for (final c in _covers)
+                                        _CoverTile(
+                                          label: c.label,
+                                          url: c.url,
+                                          selected: _coverPickUrl == c.url,
+                                          onTap: () => setState(() {
+                                            _coverPickUrl = c.url;
+                                            _coverLocal = '';
+                                          }),
+                                        ),
+                                      _CoverTile(
+                                        label: '本地文件',
+                                        url: _coverLocal,
+                                        localPath: _coverLocal,
+                                        selected: _coverPickUrl == '' &&
+                                            _coverLocal.isNotEmpty,
+                                        onTap: _pickCover,
+                                        icon: Icons.image_rounded,
+                                      ),
+                                    ],
+                                  ),
+                                const SizedBox(height: 8),
+                                Wrap(spacing: 8, children: [
+                                  OutlinedButton.icon(
+                                    onPressed: _pickCover,
+                                    icon: const Icon(Icons.image_rounded,
                                         size: 18),
-                                    label: const Text('清除封面'),
-                                  )
-                                else
-                                  Text('当前无本地封面；重新刮削可自动下载',
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant)),
+                                    label: const Text('选择本地封面'),
+                                  ),
+                                  if (_coverPath.isNotEmpty ||
+                                      _coverPickUrl != null)
+                                    TextButton.icon(
+                                      onPressed: () => setState(() {
+                                        _coverPath = '';
+                                        _coverPickUrl = null;
+                                      }),
+                                      icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18),
+                                      label: const Text('清除封面'),
+                                    ),
+                                ]),
                               ],
                             ),
                           ),
@@ -423,11 +480,10 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.onSurfaceVariant))
       else
-        SizedBox(
+        _PickerRow(
+          controller: _bgCtrl,
           height: 92,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
+          children: [
               _bgTile(
                 selected: _bgPick == '' || (_bgPick == null && widget.game.backgroundUrl.isEmpty),
                 onTap: () => setState(() => _bgPick = ''),
@@ -449,8 +505,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                   onTap: () => setState(() => _bgPick = url),
                   child: _bgImage(url),
                 ),
-            ],
-          ),
+          ],
         ),
     ];
   }
@@ -581,9 +636,13 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
 
   Future<void> _pickCover() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result?.files.single.path != null) {
-      setState(() => _coverPath = result!.files.single.path!);
-    }
+    final path = result?.files.single.path;
+    if (path == null || path.isEmpty) return;
+    setState(() {
+      _coverLocal = path;
+      _coverPickUrl = '';
+      _coverPath = path;
+    });
   }
 
   /// 重新刮削：搜索 → 选择 → 多源合并 → 应用（与添加页同一流程）。
@@ -614,6 +673,11 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     g.summary = _summary.text.trim();
     g.playStatus = _status;
     g.nsfw = _nsfw;
+    if (_coverPickUrl != null && _coverPickUrl!.isNotEmpty) {
+      final local = await AppServices.I.fetcher
+          .downloadImage(_coverPickUrl!, 'game_${g.id}');
+      if (local.isNotEmpty) _coverPath = local;
+    }
     g.coverPath = _coverPath;
     g.localeMode = _localeMode;
     g.savePath = _savePathCtrl.text.trim();
@@ -647,5 +711,93 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     ref.read(libraryVersionProvider.notifier).state++;
     if (!mounted) return;
     Navigator.pop(context);
+  }
+}
+
+/// 横向选择行：自带滚动条（鼠标滚轮与拖拽滚动条都可用）。
+class _PickerRow extends StatelessWidget {
+  final ScrollController controller;
+  final double height;
+  final List<Widget> children;
+  const _PickerRow({
+    required this.controller,
+    required this.height,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: height + 10,
+      child: Scrollbar(
+        controller: controller,
+        thumbVisibility: true,
+        scrollbarOrientation: ScrollbarOrientation.bottom,
+        child: ListView(
+          controller: controller,
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(bottom: 10),
+          children: children,
+        ),
+      ),
+    );
+  }
+}
+
+/// 封面缩略块：2:3 比例，可选平台标签。
+class _CoverTile extends StatelessWidget {
+  final String label;
+  final String url;
+  final String? localPath;
+  final bool selected;
+  final VoidCallback onTap;
+  final IconData? icon;
+  const _CoverTile({
+    required this.label,
+    required this.url,
+    required this.selected,
+    required this.onTap,
+    this.localPath,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const w = 56.0;
+    const h = w / kCoverAspect;
+    final path = localPath ?? '';
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: w,
+            height: h,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).dividerColor,
+                width: selected ? 2 : 1,
+              ),
+              color: Theme.of(context).colorScheme.surfaceContainerHigh,
+            ),
+            child: path.isNotEmpty
+                ? Image.file(File(path), fit: BoxFit.cover)
+                : (url.isNotEmpty
+                    ? Image.network(url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                            Icons.broken_image_rounded,
+                            size: 16))
+                    : Icon(icon ?? Icons.local_florist_rounded, size: 18)),
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -12,6 +12,7 @@ import '../../data/models.dart';
 import '../../providers.dart';
 import '../add/add_game_page.dart';
 import '../theme.dart';
+import '../widgets/common.dart';
 import '../widgets/notifications.dart';
 import 'game_card.dart';
 
@@ -177,6 +178,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                             final count = (constraints.maxWidth / 172)
                                 .floor()
                                 .clamp(2, 10);
+                            // 封面严格 2:3：单元高 = 封面高 + 标题/开发商文字区 + 内边距
+                            final cellW =
+                                (constraints.maxWidth - spacing * (count - 1)) /
+                                    count;
+                            final cellH = cellW / kCoverAspect + 52;
                             // 平台评分角标数据（一次查询，避免每张卡各查一次）
                             final ratings =
                                 ref.watch(platformRatingsProvider).valueOrNull ??
@@ -189,7 +195,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                 crossAxisCount: count,
                                 mainAxisSpacing: spacing,
                                 crossAxisSpacing: spacing,
-                                childAspectRatio: 0.52,
+                                childAspectRatio: cellW / cellH,
                               ),
                               itemCount: list.length,
                               itemBuilder: (context, i) {

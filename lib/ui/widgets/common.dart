@@ -13,22 +13,31 @@ import '../../core/constants.dart';
 import '../../providers.dart';
 import '../theme.dart';
 
-/// 可拖动窗口区域：包住全屏路由（添加/详情页）的顶栏空白处。
+/// 封面宽高比：Galgame 封面标准 **2:3**（宽:高）。
+const double kCoverAspect = 2 / 3;
+
+/// 按 2:3 由宽度算高度（宽 220 → 高 330）。
+double coverHeight(double width) => width / kCoverAspect;
+
+/// 可拖动窗口区域。
+/// 用法：作为全屏路由最顶部**横跨整宽**的一条拖动条（高度 24-32）。
+/// 旧实现把它包在标题行外层，只有按钮之间的缝隙可拖动，几乎点不中。
 class WindowDragBar extends StatelessWidget {
-  final Widget child;
-  const WindowDragBar({super.key, required this.child});
+  final Widget? child;
+  final double height;
+  const WindowDragBar({super.key, this.child, this.height = 26});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      behavior: HitTestBehavior.translucent,
+      behavior: HitTestBehavior.opaque,
       onPanStart: (_) => windowManager.startDragging(),
       onDoubleTap: () async {
         await windowManager.isMaximized()
             ? windowManager.unmaximize()
             : windowManager.maximize();
       },
-      child: child,
+      child: SizedBox(height: height, width: double.infinity, child: child),
     );
   }
 }

@@ -281,12 +281,12 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
           const Divider(),
           SettingRow(
             title: '启动游戏后',
-            subtitle: '游戏开始运行时主窗口的行为',
+            subtitle: '游戏开始运行时主窗口的行为（最小化到托盘不会占用任务栏）',
             trailing: SegmentedButton<String>(
               showSelectedIcon: false,
               segments: const [
                 ButtonSegment(value: 'none', label: Text('保持前台')),
-                ButtonSegment(value: 'minimize', label: Text('最小化')),
+                ButtonSegment(value: 'minimize', label: Text('最小化到托盘')),
               ],
               selected: {_afterLaunch},
               onSelectionChanged: (v) async {
@@ -299,7 +299,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
           const Divider(),
           SettingRow(
             title: '关闭应用时',
-            subtitle: '最小化到托盘后可从托盘图标恢复或退出',
+            subtitle: '托盘图标始终存在，可随时恢复窗口；此项决定点 × 时是退出还是隐藏',
             trailing: SegmentedButton<String>(
               showSelectedIcon: false,
               segments: const [

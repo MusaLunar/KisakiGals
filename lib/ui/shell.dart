@@ -3,7 +3,7 @@ library;
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show ImageByteFormat;
+import 'dart:ui' show ImageByteFormat, FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
@@ -17,6 +17,8 @@ import '../data/settings_store.dart';
 import '../providers.dart';
 import '../services/playtime_tracker.dart';
 import '../services/save_backup.dart';
+import '../data/models.dart';
+import 'detail/game_detail_page.dart';
 import 'home/home_page.dart';
 import 'library/library_page.dart';
 import 'ai/ai_page.dart';
@@ -212,6 +214,9 @@ class _TitleBar extends StatelessWidget {
               ),
             ),
             const Spacer(),
+            // 运行中游戏 + 实时时长（参考 ReinaManager 的运行态显示）
+            const _LivePlaytimeChip(),
+            const SizedBox(width: 10),
             _WindowButton(
               icon: Icons.horizontal_rule_rounded,
               onTap: () => windowManager.minimize(),
@@ -337,6 +342,92 @@ class _NavRail extends StatelessWidget {
             ),
           );
         }),
+      ),
+    );
+  }
+}
+
+/// 标题栏的「运行中」指示：显示当前游戏名与本局已记录时长。
+/// 每秒刷新（与计时器同源），点击进入该游戏详情页。
+class _LivePlaytimeChip extends ConsumerStatefulWidget {
+  const _LivePlaytimeChip();
+
+  @override
+  ConsumerState<_LivePlaytimeChip> createState() => _LivePlaytimeChipState();
+}
+
+class _LivePlaytimeChipState extends ConsumerState<_LivePlaytimeChip> {
+  Timer? _ticker;
+  int _seconds = 0;
+  Game? _game;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) async {
+      final id = ref.read(trackingGameProvider);
+      if (id == null) {
+        if (mounted && _game != null) setState(() => _game = null);
+        return;
+      }
+      final seconds = AppServices.I.tracker.liveSeconds;
+      final needLoad = _game?.id != id;
+      final game = needLoad ? await AppServices.I.repo.getGame(id) : _game;
+      if (!mounted) return;
+      setState(() {
+        _game = game;
+        _seconds = seconds;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final game = _game;
+    if (game == null) return const SizedBox.shrink();
+    final h = _seconds ~/ 3600;
+    final m = (_seconds % 3600) ~/ 60;
+    final s = _seconds % 60;
+    final text = h > 0
+        ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
+        : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => GameDetailPage(gameId: game.id!))),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          color: KisakiColors.pink.withValues(alpha: 0.14),
+          border: Border.all(color: KisakiColors.pink.withValues(alpha: 0.35)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.videogame_asset_rounded,
+              size: 13, color: KisakiColors.pink),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(game.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 6),
+          Text(text,
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                  color: KisakiColors.pink)),
+        ]),
       ),
     );
   }

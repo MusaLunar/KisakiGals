@@ -72,18 +72,19 @@ Future<void> _setupTray() async {
 }
 
 /// 应用「关闭行为」设置：exit=直接退出；tray=隐藏到托盘。
+/// 托盘图标**始终存在**（与关闭行为无关），关闭行为只决定点 × 的动作。
 /// 设置页切换后调用以实时生效。
 Future<void> applyCloseBehavior() async {
   final behavior = await AppServices.I.settings
       .getString(SettingsStore.kCloseBehavior, 'exit');
-  final toTray = behavior == 'tray';
-  await windowManager.setPreventClose(toTray);
-  if (toTray) {
-    await _setupTray();
-  } else if (_trayReady) {
-    await trayManager.destroy();
-    _trayReady = false;
-  }
+  await windowManager.setPreventClose(behavior == 'tray');
+  await _setupTray();
+}
+
+/// 最小化到托盘（隐藏窗口，托盘图标保留）。
+Future<void> minimizeToTray() async {
+  await _setupTray();
+  await windowManager.hide();
 }
 
 /// 应用根：主题切换 + 外壳 + 托盘/关闭行为。
@@ -125,7 +126,7 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
     final behavior = await AppServices.I.settings
         .getString(SettingsStore.kCloseBehavior, 'exit');
     if (behavior == 'tray') {
-      await windowManager.hide();
+      await minimizeToTray();
     } else {
       // 退出前收尾：把进行中的游玩会话落库（否则这段时长永久丢失）、
       // 关闭数据库（触发 WAL checkpoint）与网络客户端

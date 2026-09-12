@@ -8,7 +8,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
+import '../main.dart' show minimizeToTray;
 
 import '../app_services.dart';
 import '../core/constants.dart';
@@ -64,7 +64,8 @@ class GameLaunchService {
     // 启动后动作：最小化主窗口
     final after = await settings.getString(SettingsStore.kAfterLaunch, 'none');
     if (after == 'minimize') {
-      await WindowManager.instance.minimize();
+      // 启动游戏后最小化到托盘（而不是任务栏），避免挡在游戏前面
+      await minimizeToTray();
     }
 
     // 想玩 → 在玩

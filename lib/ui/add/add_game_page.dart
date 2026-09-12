@@ -115,8 +115,8 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                WindowDragBar(
-                  child: Row(
+                const WindowDragBar(height: 22),
+                Row(
                     children: [
                       IconButton(
                         onPressed: () {
@@ -154,7 +154,6 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                           : (s) => setState(() => _mode = s.first),
                     ),
                   ],
-                  ),
                 ),
                 const SizedBox(height: 22),
                 Expanded(
