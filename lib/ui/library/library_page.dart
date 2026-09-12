@@ -26,15 +26,27 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   bool _sidebarVisible = true;
   bool _batchMode = false;
   final _selected = <int>{};
+  Timer? _searchTimer;
+
+  /// 搜索框控制器：必须由 State 持有（放在 build 里会造成泄漏与光标跳动）
+  late final TextEditingController _searchCtrl =
+      TextEditingController(text: ref.read(libraryFilterProvider).query);
 
   @override
   void initState() {
     super.initState();
     AppServices.I.settings
-        .getBool('library.sidebar', def: false)
+        .getBool('library.sidebar', def: true)
         .then((v) {
       if (mounted) setState(() => _sidebarVisible = v);
     });
+  }
+
+  @override
+  void dispose() {
+    _searchTimer?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _toggleSidebar() async {
@@ -48,6 +60,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final filter = ref.watch(libraryFilterProvider);
     final games = ref.watch(gamesProvider);
     final dark = Theme.of(context).brightness == Brightness.dark;
+
+    // 外部重置筛选（如「清除全部筛选」）时同步输入框
+    if (_searchCtrl.text != filter.query) {
+      _searchCtrl.value = TextEditingValue(
+        text: filter.query,
+        selection: TextSelection.collapsed(offset: filter.query.length),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -83,8 +103,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               SizedBox(
                 width: 280,
                 child: TextField(
-                  controller: TextEditingController(text: filter.query)
-                    ..selection = TextSelection.collapsed(offset: filter.query.length),
+                  controller: _searchCtrl,
                   decoration: const InputDecoration(
                     hintText: '搜索 名称 / 别名 / 开发商 / 标签',
                     prefixIcon: Icon(Icons.search_rounded, size: 20),
@@ -92,7 +111,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                   ),
                   onChanged: (v) {
                     ref.read(libraryFilterProvider).query = v;
-                    _debouncedRefresh(ref);
+                    _debouncedRefresh();
                   },
                 ),
               ),
@@ -149,6 +168,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                   children: [
                     Expanded(
                       child: games.when(
+                    skipLoadingOnReload: true,
+                    skipLoadingOnRefresh: true,
                     data: (list) => list.isEmpty
                         ? const Center(child: Text('没有符合条件的游戏'))
                         : LayoutBuilder(builder: (context, constraints) {
@@ -156,7 +177,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                             final count = (constraints.maxWidth / 172)
                                 .floor()
                                 .clamp(2, 10);
-                            return GridView(
+                            // 平台评分角标数据（一次查询，避免每张卡各查一次）
+                            final ratings =
+                                ref.watch(platformRatingsProvider).valueOrNull ??
+                                    const <int, double>{};
+                            return GridView.builder(
                               padding:
                                   const EdgeInsets.only(bottom: 20, top: 4),
                               gridDelegate:
@@ -166,23 +191,25 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                 crossAxisSpacing: spacing,
                                 childAspectRatio: 0.52,
                               ),
-                              children: [
-                                for (final g in list)
-                                  GameCard(
-                                    game: g,
-                                    selectionMode: _batchMode,
-                                    selected: _selected.contains(g.id),
-                                    onSelectionChanged: (sel) {
-                                      setState(() {
-                                        if (sel) {
-                                          _selected.add(g.id!);
-                                        } else {
-                                          _selected.remove(g.id);
-                                        }
-                                      });
-                                    },
-                                  ),
-                              ],
+                              itemCount: list.length,
+                              itemBuilder: (context, i) {
+                                final g = list[i];
+                                return GameCard(
+                                  game: g,
+                                  bestPlatformRating: ratings[g.id],
+                                  selectionMode: _batchMode,
+                                  selected: _selected.contains(g.id),
+                                  onSelectionChanged: (sel) {
+                                    setState(() {
+                                      if (sel) {
+                                        _selected.add(g.id!);
+                                      } else {
+                                        _selected.remove(g.id);
+                                      }
+                                    });
+                                  },
+                                );
+                              },
                             );
                           }),
                     loading: () =>
@@ -224,15 +251,15 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     );
   }
 
-  static void _debouncedRefresh(WidgetRef ref) {
+  void _debouncedRefresh() {
     _searchTimer?.cancel();
     _searchTimer = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
       ref.read(libraryVersionProvider.notifier).state++;
     });
   }
 }
 
-Timer? _searchTimer;
 
 /// 右侧筛选边栏：按类别整理全部筛选/排序项，外观统一。
 class _FilterSidebar extends ConsumerWidget {
@@ -542,7 +569,7 @@ class _BatchBar extends ConsumerWidget {
                 }
               }
               ref.read(libraryVersionProvider.notifier).state++;
-              showNotice(ref, '已将 $n 部游戏状态设为「${s.label}」');
+              showNotice('已将 $n 部游戏状态设为「${s.label}」');
             },
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -565,7 +592,7 @@ class _BatchBar extends ConsumerWidget {
                   }
                 }
                 ref.read(libraryVersionProvider.notifier).state++;
-                showNotice(ref, '已收藏 $n 部游戏');
+                showNotice('已收藏 $n 部游戏');
               },
               child: const Text('收藏')),
           const SizedBox(width: 8),
@@ -595,7 +622,7 @@ class _BatchBar extends ConsumerWidget {
                 await repo.deleteGame(id);
               }
               ref.read(libraryVersionProvider.notifier).state++;
-              showNotice(ref, '已删除 $n 部游戏');
+              showNotice('已删除 $n 部游戏');
               onDone();
             },
             child: const Text('删除'),

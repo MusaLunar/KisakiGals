@@ -30,6 +30,8 @@ class Game {
   DateTime? lastPlayedAt;
   List<String> screenshots; // 刮削得到的截图 URL
   String backgroundUrl; // 详情页背景（本地路径，空=纯色）
+  String localeMode; // none | japanese（japanese 走 Locale Emulator 转区启动）
+  String savePath; // 存档目录（用于备份/恢复）
 
   Game({
     this.id,
@@ -55,10 +57,15 @@ class Game {
     this.lastPlayedAt,
     List<String>? screenshots,
     this.backgroundUrl = '',
+    this.localeMode = 'none',
+    this.savePath = '',
   })  : aliases = aliases ?? [],
         screenshots = screenshots ?? [],
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
+
+  /// 是否使用 Locale Emulator 转区启动。
+  bool get useLocaleEmulator => localeMode == 'japanese';
 
   /// 显示名：中文名优先。
   String get displayName => nameCn.isNotEmpty ? nameCn : name;
@@ -106,6 +113,8 @@ class Game {
         lastPlayedAt: DateTime.tryParse((r['last_played_at'] ?? '') as String),
         screenshots: _parseStringList(r['screenshots'] as String?),
         backgroundUrl: (r['background_url'] ?? '') as String,
+        localeMode: (r['locale_mode'] ?? 'none') as String,
+        savePath: (r['save_path'] ?? '') as String,
       );
 
   Map<String, dynamic> toRow() => {
@@ -132,6 +141,8 @@ class Game {
         'last_played_at': lastPlayedAt?.toIso8601String() ?? '',
         'screenshots': jsonEncode(screenshots),
         'background_url': backgroundUrl,
+        'locale_mode': localeMode,
+        'save_path': savePath,
       };
 }
 

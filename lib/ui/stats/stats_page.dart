@@ -411,12 +411,12 @@ class _RatingsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final games = ref.watch(gamesProvider);
-    return games.when(
+    final rated0 = ref.watch(ratedGamesProvider);
+    return rated0.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('$e')),
       data: (list) {
-        final rated = list.where((g) => g.userRating > 0).toList()
+        final rated = list.toList()
           ..sort((a, b) => b.userRating.compareTo(a.userRating));
         if (rated.isEmpty) {
           return const EmptyState(

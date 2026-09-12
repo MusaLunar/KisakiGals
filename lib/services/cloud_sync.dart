@@ -39,7 +39,6 @@ class CloudSyncService {
           final client = HttpClient();
           client.findProxy =
               (uri) => 'PROXY ${proxy!.replaceFirst(RegExp(r'^https?://'), '')}';
-          client.badCertificateCallback = (_, __, ___) => true;
           return client;
         };
     }

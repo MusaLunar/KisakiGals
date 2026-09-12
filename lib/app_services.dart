@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/paths.dart';
@@ -52,7 +53,9 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
     }
     return;
   }
-}class AppServices {
+}
+
+class AppServices {
   static AppServices? _i;
   static AppServices get I => _i!;
 
@@ -82,7 +85,6 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
     s.paths = await AppPaths.init();
     await _flattenLegacyDbDir(s.paths.dbFile);
     s.db = await openAppDb(s.paths.dbFile);
-    s.repo = GameRepository(s.db);
     s.settings = SettingsStore(s.db);
     s.accounts = AccountStore(s.db);
     s.tracker = PlaytimeTracker();
@@ -90,8 +92,33 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
     // 用户自定义数据目录（影响 covers/cache/backups 位置）
     final customDir = await s.settings.getString(SettingsStore.kDataDir, '');
     if (customDir.isNotEmpty && Directory(customDir).existsSync()) {
-      s.paths = await AppPaths.init(customRoot: customDir);
+      final targetDb = p.join(customDir, 'kisakigals.db');
+      final currentRoot = p.normalize(s.paths.root);
+      final targetRoot = p.normalize(customDir);
+      if (targetRoot != currentRoot) {
+        // 数据库也一并迁移，避免「库在一处、封面缓存在另一处」
+        if (!File(targetDb).existsSync() && File(s.paths.dbFile).existsSync()) {
+          try {
+            await s.db.close(); // 关闭前 sqflite 会把 WAL 合并回主库
+            File(s.paths.dbFile).copySync(targetDb);
+            for (final suffix in ['-wal', '-shm']) {
+              final src = File('${s.paths.dbFile}$suffix');
+              if (src.existsSync()) src.copySync('$targetDb$suffix');
+            }
+            // 旧库改名留档，避免下次启动又被当作主库
+            File(s.paths.dbFile).renameSync('${s.paths.dbFile}.moved');
+          } catch (_) {
+            // 迁移失败则继续使用原位置
+          }
+        }
+        s.paths = await AppPaths.init(customRoot: customDir);
+        s.db = await openAppDb(s.paths.dbFile);
+      }
     }
+    s.repo = GameRepository(s.db);
+    s.settings = SettingsStore(s.db);
+    s.accounts = AccountStore(s.db);
+    s.tracker = PlaytimeTracker();
 
     // 标签翻译资源
     try {

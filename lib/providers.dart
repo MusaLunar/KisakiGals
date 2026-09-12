@@ -115,10 +115,10 @@ void bumpLibrary(WidgetRef ref) =>
     ref.read(libraryVersionProvider.notifier).state++;
 
 /// 筛选栏数据：全部标签/开发商/已用来源。
-final allTagsProvider = FutureProvider<List<TagItem>>(
-    (ref) async => ref.watch(libraryVersionProvider) >= 0
-        ? AppServices.I.repo.allTags()
-        : []);
+final allTagsProvider = FutureProvider<List<TagItem>>((ref) async {
+  ref.watch(libraryVersionProvider);
+  return AppServices.I.repo.allTags();
+});
 
 /// 跳转到游戏库并应用筛选（详情页点开发商/标签时调用）。
 void jumpToLibraryFiltered(
@@ -138,14 +138,34 @@ void jumpToLibraryFiltered(
   ref.read(libraryVersionProvider.notifier).state++;
 }
 
-final developersProvider = FutureProvider<List<String>>(
-    (ref) async => AppServices.I.repo.developers());
+final developersProvider = FutureProvider<List<String>>((ref) async {
+  ref.watch(libraryVersionProvider);
+  return AppServices.I.repo.developers();
+});
 
-final usedSourcesProvider = FutureProvider<List<String>>(
-    (ref) async => AppServices.I.repo.usedSources());
+final usedSourcesProvider = FutureProvider<List<String>>((ref) async {
+  ref.watch(libraryVersionProvider);
+  return AppServices.I.repo.usedSources();
+});
 
-final gameCountProvider =
-    FutureProvider<int>((ref) => AppServices.I.repo.gameCount());
+final gameCountProvider = FutureProvider<int>((ref) {
+  ref.watch(libraryVersionProvider);
+  return AppServices.I.repo.gameCount();
+});
+
+/// 已评分游戏（**不受游戏库筛选影响**，统计页评分墙专用）。
+final ratedGamesProvider = FutureProvider<List<Game>>((ref) async {
+  ref.watch(libraryVersionProvider);
+  final all = await AppServices.I.repo.listGames(
+      sort: GameSort.userRatingDesc);
+  return all.where((g) => g.userRating > 0).toList();
+});
+
+/// 各游戏的最佳平台评分（卡片角标用，一次查询供全网格共享）。
+final platformRatingsProvider = FutureProvider<Map<int, double>>((ref) async {
+  ref.watch(libraryVersionProvider);
+  return AppServices.I.repo.bestPlatformRatings();
+});
 
 // ---------- 单个游戏 ----------
 

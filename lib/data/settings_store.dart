@@ -83,6 +83,13 @@ class SettingsStore {
   static const kAiApiKey = 'ai.apiKey';
   static const kAiModel = 'ai.model';
 
+  /// Locale Emulator 的 LEProc.exe 路径（日文游戏转区启动用）
+  static const kLePath = 'runtime.le_path';
+
+  /// 存档备份保留份数 / 自动备份阈值（分钟）
+  static const kSaveBackupKeep = 'save.backup_keep';
+  static const kSaveAutoMinutes = 'save.auto_minutes';
+
   Future<ThemeModePref> themeMode() async {
     final s = await getString(kThemeMode, 'system');
     return ThemeModePref.values.firstWhere((e) => e.id == s,

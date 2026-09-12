@@ -224,6 +224,9 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
   double _nsfwBlur = 12;
   double _bgBlur = 14;
   String _theme = 'system';
+  String _lePath = '';
+  bool _leValid = false;
+  final _leController = TextEditingController();
 
   @override
   void initState() {
@@ -241,6 +244,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
     final nsfwBlur = await s.getDouble('nsfw.blur', 12);
     final bgBlur = await s.getDouble('detail.bg_blur', 14);
     final theme = await s.getString(SettingsStore.kThemeMode, 'system');
+    final lePath = await s.getString(SettingsStore.kLePath, '');
     if (!mounted) return;
     setState(() {
       _autostart = autostart;
@@ -251,6 +255,9 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
       _nsfwBlur = nsfwBlur;
       _bgBlur = bgBlur;
       _theme = theme;
+      _lePath = lePath;
+      _leValid = lePath.isNotEmpty && File(lePath).existsSync();
+      _leController.text = lePath;
     });
   }
 
@@ -307,6 +314,49 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                 await applyCloseBehavior();
               },
             ),
+          ),
+        ]),
+        SettingsGroup(title: '转区启动（Locale Emulator）', children: [
+          SettingRow(
+            title: 'LEProc.exe 路径',
+            subtitle: _lePath.isEmpty
+                ? '未配置。日文原版游戏可在「编辑信息 → 启动与存档」中开启转区启动以避免乱码'
+                : (_leValid ? '已配置：$_lePath' : '路径无效（文件不存在），请重新选择'),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              SizedBox(
+                width: 260,
+                child: TextField(
+                  controller: _leController,
+                  decoration: const InputDecoration(
+                      hintText: r'例：D:\LocaleEmulator\LEProc.exe', isDense: true),
+                  onChanged: (v) async {
+                    setState(() => _lePath = v.trim());
+                    await AppServices.I.settings
+                        .setString(SettingsStore.kLePath, v.trim());
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: () async {
+                  final r = await FilePicker.platform.pickFiles(
+                    type: FileType.any,
+                    dialogTitle: '选择 Locale Emulator 的 LEProc.exe',
+                  );
+                  final path = r?.files.single.path;
+                  if (path == null || path.isEmpty) return;
+                  await AppServices.I.settings
+                      .setString(SettingsStore.kLePath, path);
+                  if (!mounted) return;
+                  setState(() {
+                    _lePath = path;
+                    _leController.text = path;
+                  });
+                  showNotice('已保存 Locale Emulator 路径');
+                },
+                child: const Text('浏览…'),
+              ),
+            ]),
           ),
         ]),
         SettingsGroup(title: '游玩记录', children: [
@@ -716,9 +766,11 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                       onPressed: () async {
                         await AppServices.I.settings.setString(
                             'sources.proxy', _proxyController.text.trim());
-                        await AppServices.I.fetcher.init(tokens: {});
+                        // 不传 tokens：保留已配置的 VNDB / Bangumi 凭据
+                        await AppServices.I.fetcher
+                            .init(appProxy: _proxyController.text.trim());
                         if (context.mounted) {
-                          showNotice(ref, '代理设置已保存并重新加载');
+                          showNotice('代理设置已保存并重新加载');
                         }
                       },
                       child: const Text('保存'),
@@ -750,8 +802,7 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                               final ok =
                                   await AppServices.I.fetcher.testSource(id);
                               if (!context.mounted) return;
-                              showNotice(ref,
-                                  '${KisakiSources.labels[id]}：${ok ? '连接正常' : '连接失败'}',
+                              showNotice('${KisakiSources.labels[id]}：${ok ? '连接正常' : '连接失败'}',
                                   error: !ok);
                               if (context.mounted) {
                                 setState(() => _testing[id] = false);
@@ -1042,7 +1093,7 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                     if (path == null || path.isEmpty) return;
                     if (!BackupService.looksLikeSqlite(path)) {
                       if (context.mounted) {
-                        showNotice(ref, '所选文件不是有效的数据库备份', error: true);
+                        showNotice('所选文件不是有效的数据库备份', error: true);
                       }
                       return;
                     }
@@ -1079,8 +1130,7 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                           .restore(path);
                     } catch (e) {
                       if (context.mounted) {
-                        showNotice(ref,
-                            '恢复失败：$e（可手动将备份复制到数据目录覆盖 kisakigals.db）',
+                        showNotice('恢复失败：$e（可手动将备份复制到数据目录覆盖 kisakigals.db）',
                             error: true);
                       }
                       return;
@@ -1222,7 +1272,7 @@ class _PluginSection extends ConsumerWidget {
                     final err = await AppServices.I.plugins
                         .importManifest(result!.files.single.path!);
                     if (context.mounted) {
-                      showNotice(ref, err ?? '导入成功（元数据展示模式）', error: err != null);
+                      showNotice(err ?? '导入成功（元数据展示模式）', error: err != null);
                     }
                   }
                 },
@@ -1281,7 +1331,7 @@ class _AboutSection extends ConsumerWidget {
                   if (!await launchUrl(url,
                       mode: LaunchMode.externalApplication)) {
                     if (context.mounted) {
-                      showNotice(ref, '无法打开浏览器：${AppInfo.repository}', error: true);
+                      showNotice('无法打开浏览器：${AppInfo.repository}', error: true);
                     }
                   }
                 },

@@ -127,8 +127,18 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
     if (behavior == 'tray') {
       await windowManager.hide();
     } else {
+      // 退出前收尾：把进行中的游玩会话落库（否则这段时长永久丢失）、
+      // 关闭数据库（触发 WAL checkpoint）与网络客户端
+      await _shutdown();
       await windowManager.destroy();
     }
+  }
+
+  /// 应用退出前的资源收尾（幂等）。
+  Future<void> _shutdown() async {
+    try {
+      await AppServices.I.dispose();
+    } catch (_) {}
   }
 
   @override
@@ -143,13 +153,14 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
   }
 
   @override
-  void onTrayMenuItemClick(MenuItem menuItem) {
+  void onTrayMenuItemClick(MenuItem menuItem) async {
     switch (menuItem.key) {
       case 'show':
         windowManager.show();
         windowManager.focus();
       case 'quit':
-        trayManager.destroy();
+        await _shutdown();
+        await trayManager.destroy();
         exit(0);
     }
   }

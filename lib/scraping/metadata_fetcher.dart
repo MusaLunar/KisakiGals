@@ -52,27 +52,40 @@ class MetadataFetcher {
   Dio? _probeDio;
   String? _proxy;
 
+  /// 已配置的平台凭据（vndb/bgm），init 时未显式传入则沿用。
+  Map<String, String> _tokens = const {};
+
+  /// 当前生效的凭据（诊断/展示用）。
+  Map<String, String> get tokens => Map.unmodifiable(_tokens);
+
   MetadataFetcher({required this.cache, required this.coversDir});
 
   /// 初始化：构建 Dio（带代理）并注册适配器。
-  /// [tokens]: vndb/bgm 用户 token；[enabledSources]: 启用源 id 列表。
+  /// [tokens]: vndb/bgm 用户 token；传 null 表示沿用上一次的 token
+  /// （例如仅修改代理时不应丢失已配置的凭据）。
   Future<void> init({
     String? appProxy,
-    Map<String, String> tokens = const {},
+    Map<String, String>? tokens,
   }) async {
+    // 仅当显式传入时更新凭据，避免「保存代理」把 token 清空
+    if (tokens != null) {
+      _tokens = {
+        for (final e in tokens.entries)
+          if (e.value.trim().isNotEmpty) e.key: e.value.trim(),
+      };
+    }
     _proxy = await detectProxy(appProxy: appProxy);
     Dio buildDio() {
       final dio = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 10),
         receiveTimeout: const Duration(seconds: 20),
-        headers: {'User-Agent': 'MusaLunar/KisakiGals/0.1.0 (Metadata Scraper)'},
+        headers: {'User-Agent': 'MusaLunar/${AppInfo.name}/${AppInfo.version} (Metadata Scraper)'},
       ));
       if (_proxy != null) {
         dio.httpClientAdapter = IOHttpClientAdapter()
           ..createHttpClient = () {
             final client = HttpClient();
             client.findProxy = (uri) => 'PROXY ${_proxy!.replaceFirst(RegExp(r'^https?://'), '')}';
-            client.badCertificateCallback = (_, __, ___) => true;
             return client;
           };
       }
@@ -92,9 +105,9 @@ class MetadataFetcher {
     });
 
     _adapters[KisakiSources.vndb] =
-        VndbAdapter(buildDio(), limiters, token: tokens[KisakiSources.vndb]);
+        VndbAdapter(buildDio(), limiters, token: _tokens[KisakiSources.vndb]);
     _adapters[KisakiSources.bangumi] =
-        BangumiAdapter(buildDio(), limiters, token: tokens[KisakiSources.bangumi]);
+        BangumiAdapter(buildDio(), limiters, token: _tokens[KisakiSources.bangumi]);
     _adapters[KisakiSources.ymgal] = YmgalAdapter(buildDio(), limiters);
     _adapters[KisakiSources.hikarinagi] = HikarinagiAdapter(buildDio(), limiters);
     _adapters[KisakiSources.steam] = SteamAdapter(buildDio(), limiters);

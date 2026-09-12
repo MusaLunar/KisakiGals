@@ -1,10 +1,13 @@
 /// 右上角通知卡片：可滚动、可手动关闭、自动消失。
+///
+/// 设计要点：通知中心**不依赖 Riverpod / WidgetRef**。
+/// 早先的实现把 `WidgetRef` 捕获进 `Timer`，4.5 秒后回调时页面可能已销毁
+/// （「提示后立刻 pop」的调用点很多），会抛 StateError 且通知卡永久残留。
 library;
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme.dart';
 
@@ -12,46 +15,70 @@ class AppNotice {
   final int id;
   final String message;
   final bool error;
-  AppNotice({required this.id, required this.message, this.error = false});
+  const AppNotice({required this.id, required this.message, this.error = false});
 }
 
-final appNoticesProvider = StateProvider<List<AppNotice>>((ref) => []);
+/// 全局通知中心（ChangeNotifier，无 Widget 依赖）。
+class NoticeCenter extends ChangeNotifier {
+  NoticeCenter._();
+  static final NoticeCenter instance = NoticeCenter._();
 
-int _nextId = 1;
+  final List<AppNotice> _items = [];
+  final Map<int, Timer> _timers = {};
+  int _nextId = 1;
 
-/// 弹出右上角通知卡片（自动 4.5s 消失，可手动关闭）。
-void showNotice(WidgetRef ref, String message, {bool error = false}) {
-  final id = _nextId++;
-  ref.read(appNoticesProvider.notifier).state = [
-    ...ref.read(appNoticesProvider),
-    AppNotice(id: id, message: message, error: error),
-  ];
-  Timer(const Duration(milliseconds: 4500), () => _remove(ref, id));
+  List<AppNotice> get items => List.unmodifiable(_items);
+
+  void show(String message, {bool error = false, Duration? duration}) {
+    final id = _nextId++;
+    _items.add(AppNotice(id: id, message: message, error: error));
+    _timers[id]?.cancel();
+    _timers[id] = Timer(duration ?? const Duration(milliseconds: 4500), () {
+      dismiss(id);
+    });
+    notifyListeners();
+  }
+
+  void dismiss(int id) {
+    _timers.remove(id)?.cancel();
+    final before = _items.length;
+    _items.removeWhere((n) => n.id == id);
+    if (_items.length != before) notifyListeners();
+  }
+
+  void clear() {
+    for (final t in _timers.values) {
+      t.cancel();
+    }
+    _timers.clear();
+    _items.clear();
+    notifyListeners();
+  }
 }
 
-void _remove(WidgetRef ref, int id) {
-  ref.read(appNoticesProvider.notifier).state =
-      ref.read(appNoticesProvider).where((n) => n.id != id).toList();
-}
+/// 弹出右上角通知（可在任意位置调用：await 之后、页面 pop 之前都安全）。
+void showNotice(String message, {bool error = false}) =>
+    NoticeCenter.instance.show(message, error: error);
 
 /// 挂在 MaterialApp builder 顶层：右上角堆叠通知卡。
-class NoticeOverlay extends ConsumerWidget {
+class NoticeOverlay extends StatelessWidget {
   final Widget child;
   const NoticeOverlay({super.key, required this.child});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final notices = ref.watch(appNoticesProvider);
+  Widget build(BuildContext context) {
     return Stack(
       children: [
         child,
-        if (notices.isNotEmpty)
-          Positioned(
-            top: 56,
-            right: 16,
-            width: 340,
-            child: Material(
-              color: Colors.transparent,
+        AnimatedBuilder(
+          animation: NoticeCenter.instance,
+          builder: (context, _) {
+            final notices = NoticeCenter.instance.items;
+            if (notices.isEmpty) return const SizedBox.shrink();
+            return Positioned(
+              top: 56,
+              right: 16,
+              width: 340,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 420),
                 child: SingleChildScrollView(
@@ -61,15 +88,17 @@ class NoticeOverlay extends ConsumerWidget {
                         Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: _NoticeCard(
-                              notice: n,
-                              onClose: () => _remove(ref, n.id)),
+                            notice: n,
+                            onClose: () => NoticeCenter.instance.dismiss(n.id),
+                          ),
                         ),
                     ],
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
+        ),
       ],
     );
   }
@@ -130,9 +159,8 @@ class _NoticeCard extends StatelessWidget {
               padding: EdgeInsets.zero,
               iconSize: 16,
               icon: Icon(Icons.close_rounded,
-                  color: dark
-                      ? KisakiColors.nightInkSoft
-                      : KisakiColors.inkSoft),
+                  color:
+                      dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
               onPressed: onClose,
             ),
           ),

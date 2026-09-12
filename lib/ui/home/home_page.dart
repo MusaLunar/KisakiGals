@@ -2,17 +2,14 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:window_manager/window_manager.dart';
 
-import '../../services/game_launcher.dart';
+import '../../services/game_launch_service.dart';
 
 import '../../app_services.dart';
-import '../../data/settings_store.dart';
 import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
@@ -21,7 +18,6 @@ import '../../scraping/scraped_game.dart';
 import '../add/add_game_page.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
-import '../widgets/notifications.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -185,30 +181,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Future<void> _continueGame(Game g) async {
-    if (g.exePath.isEmpty || !File(g.exePath).existsSync()) {
-      showNotice(ref, '未找到可执行文件，请到详情页设置', error: true);
-      return;
-    }
-    final mode = await AppServices.I.settings.trackingMode();
-    unawaited(GameLauncher.launch(g.exePath, g.directory));
-    AppServices.I.tracker.startTracking(
-      gameId: g.id!,
-      exePath: g.exePath,
-      directory: g.directory,
-      mode: mode,
-    );
-    ref.read(trackingGameProvider.notifier).state = g.id!;
-    await AppServices.I.settings.setString('runtime.last_game', '${g.id}');
-    final after = await AppServices.I.settings
-        .getString(SettingsStore.kAfterLaunch, 'none');
-    if (after == 'minimize') {
-      await WindowManager.instance.minimize();
-    }
-    if (g.playStatus == PlayStatus.wish) {
-      g.playStatus = PlayStatus.playing;
-      await AppServices.I.repo.updateGame(g);
-    }
-    ref.read(libraryVersionProvider.notifier).state++;
+    await GameLaunchService.launchAndTrack(g, ref);
     if (mounted) setState(() {});
   }
 

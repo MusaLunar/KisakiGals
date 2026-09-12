@@ -10,8 +10,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart' as riverpod;
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
+import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../../scraping/apply.dart';
+import '../../services/save_backup.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/notifications.dart';
@@ -38,9 +40,14 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
       TextEditingController(text: widget.game.exePath);
   late final TextEditingController _summary =
       TextEditingController(text: widget.game.summary);
+  late final TextEditingController _savePathCtrl =
+      TextEditingController(text: widget.game.savePath);
   late bool _nsfw = widget.game.nsfw;
   late PlayStatus _status = widget.game.playStatus;
   late String _coverPath = widget.game.coverPath;
+  late String _localeMode = widget.game.localeMode;
+  bool _autoSave = false;
+  bool _leConfigured = false;
 
   List<SourceRecord> _sources = [];
   final _idControllers = <String, TextEditingController>{};
@@ -52,6 +59,41 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   void initState() {
     super.initState();
     _loadSources();
+    _loadLaunchSettings();
+  }
+
+  Future<void> _loadLaunchSettings() async {
+    final s = AppServices.I.settings;
+    final lePath = await s.getString(SettingsStore.kLePath, '');
+    final auto = await s.getBool('save.autosave_${widget.game.id}', def: false);
+    if (!mounted) return;
+    setState(() {
+      _leConfigured = lePath.isNotEmpty && File(lePath).existsSync();
+      _autoSave = auto;
+    });
+  }
+
+  /// 自动识别存档目录（参考 ChronoTide 的关键词扫描思路）。
+  Future<void> _detectSavePath() async {
+    final dir = widget.game.directory;
+    if (dir.isEmpty || !Directory(dir).existsSync()) {
+      showNotice('请先设置游戏目录', error: true);
+      return;
+    }
+    final found = SaveScanner.detectSaveDir(dir, widget.game.displayName);
+    if (found.isEmpty) {
+      showNotice('未在游戏目录中找到 savedata / save / セーブ 之类的存档文件夹', error: true);
+      return;
+    }
+    setState(() => _savePathCtrl.text = found);
+  }
+
+  Future<void> _pickSavePath() async {
+    final dir = await FilePicker.platform
+        .getDirectoryPath(dialogTitle: '选择存档目录');
+    if (dir != null && dir.isNotEmpty) {
+      setState(() => _savePathCtrl.text = dir);
+    }
   }
 
   @override
@@ -63,6 +105,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
       _release,
       _exe,
       _summary,
+      _savePathCtrl,
       ..._idControllers.values,
     ]) {
       c.dispose();
@@ -76,6 +119,8 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     setState(() {
       _sources = sources;
       for (final s in sources) {
+        // 重新加载时释放旧控制器，避免重复调用造成泄漏
+        _idControllers[s.source]?.dispose();
         _idControllers[s.source] = TextEditingController(text: s.sourceId);
       }
     });
@@ -199,6 +244,53 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                         subtitle: const Text('启用后封面按设置模糊或替换'),
                         value: _nsfw,
                         onChanged: (v) => setState(() => _nsfw = v),
+                      ),
+                    ]),
+                    // 启动方式与存档（参考 ChronoTide / ReinaManager 的每游戏启动设置）
+                    _section(context, '启动与存档', [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Locale Emulator 转区启动'),
+                        subtitle: Text(_leConfigured
+                            ? '日文原版游戏可避免乱码；LE 路径已配置'
+                            : '需要先在「设置 → 系统」配置 LEProc.exe 路径'),
+                        value: _localeMode == 'japanese',
+                        onChanged: (v) => setState(
+                            () => _localeMode = v ? 'japanese' : 'none'),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('退出游戏后自动备份存档'),
+                        subtitle: const Text('需要在下方指定存档目录'),
+                        value: _autoSave,
+                        onChanged: _savePathCtrl.text.trim().isEmpty
+                            ? null
+                            : (v) => setState(() => _autoSave = v),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _savePathCtrl,
+                        decoration: InputDecoration(
+                            labelText: '存档目录（用于备份/恢复）',
+                            hintText: r'例：游戏目录下的 savedata 文件夹',
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                    icon: const Icon(
+                                        Icons.auto_fix_high_rounded,
+                                        size: 18),
+                                    tooltip: '自动识别存档目录',
+                                    onPressed: _detectSavePath),
+                                IconButton(
+                                    icon: const Icon(
+                                        Icons.folder_open_rounded,
+                                        size: 18),
+                                    tooltip: '浏览…',
+                                    onPressed: _pickSavePath),
+                              ],
+                            )),
+                        onChanged: (v) => setState(() {}),
                       ),
                     ]),
                     _section(context, '封面', [
@@ -473,8 +565,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
         .apply(widget.game, all, backgroundPick: _bgPick);
     ref.read(libraryVersionProvider.notifier).state++;
     if (!mounted) return;
-    showNotice(ref,
-        '已重新刮削：${all.first.displayName}（${all.length} 个数据源）');
+    showNotice('已重新刮削：${all.first.displayName}（${all.length} 个数据源）');
     Navigator.pop(context);
   }
 
@@ -492,7 +583,11 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     g.playStatus = _status;
     g.nsfw = _nsfw;
     g.coverPath = _coverPath;
+    g.localeMode = _localeMode;
+    g.savePath = _savePathCtrl.text.trim();
     await AppServices.I.repo.updateGame(g);
+    await AppServices.I.settings
+        .setBool('save.autosave_${g.id}', _autoSave && g.savePath.isNotEmpty);
 
     // 平台条目 id 更新
     for (final s in _sources) {

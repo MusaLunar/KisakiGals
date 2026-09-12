@@ -1,6 +1,7 @@
 /// 应用外壳：自绘标题栏 + 左侧导航栏 + 页面切换。
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageByteFormat;
 
@@ -12,13 +13,17 @@ import 'package:window_manager/window_manager.dart';
 
 import '../app_services.dart';
 import '../main.dart' show shotBoundaryKey;
+import '../data/settings_store.dart';
 import '../providers.dart';
+import '../services/playtime_tracker.dart';
+import '../services/save_backup.dart';
 import 'home/home_page.dart';
 import 'library/library_page.dart';
 import 'ai/ai_page.dart';
 import 'stats/stats_page.dart';
 import 'settings/settings_page.dart';
 import 'theme.dart';
+import 'widgets/notifications.dart';
 
 class ShellPage extends ConsumerStatefulWidget {
   const ShellPage({super.key});
@@ -28,6 +33,7 @@ class ShellPage extends ConsumerStatefulWidget {
 }
 
 class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
+  StreamSubscription<PlaySessionEnd>? _sessionSub;
 
   @override
   void initState() {
@@ -35,10 +41,11 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
     windowManager.addListener(this);
     // F10：应用内截图（保存到 docs/screens/，用于视觉验收）
     HardwareKeyboard.instance.addHandler(_onKey);
-    // 会话结束 → 落库 + 刷新统计
-    AppServices.I.tracker.onSessionEnd.listen((event) async {
+    // 会话结束 → 落库 + 自动备份存档 + 刷新统计
+    _sessionSub = AppServices.I.tracker.onSessionEnd.listen((event) async {
       if (event.session != null) {
         await AppServices.I.repo.addSession(event.session!);
+        await _maybeAutoBackupSave(event.gameId);
       }
       if (mounted) {
         if (event.session != null) {
@@ -52,9 +59,32 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
     });
   }
 
+  /// 退出游戏后自动备份存档（需在「编辑信息 → 启动与存档」中开启并指定目录）。
+  Future<void> _maybeAutoBackupSave(int gameId) async {
+    try {
+      final settings = AppServices.I.settings;
+      if (!await settings.getBool('save.autosave_$gameId', def: false)) return;
+      final game = await AppServices.I.repo.getGame(gameId);
+      if (game == null || game.savePath.isEmpty) return;
+      if (!Directory(game.savePath).existsSync()) return;
+      final keep = await settings.getInt(SettingsStore.kSaveBackupKeep, 10);
+      final name = await SaveBackupService(AppServices.I.paths.root).backup(
+        gameId,
+        game.savePath,
+        auto: true,
+        keep: keep,
+      );
+      showNotice('已自动备份「${game.displayName}」的存档（$name）');
+    } catch (e) {
+      showNotice('自动备份存档失败：$e', error: true);
+    }
+  }
+
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onKey);
+    _sessionSub?.cancel();
+    windowManager.removeListener(this);
     super.dispose();
   }
 

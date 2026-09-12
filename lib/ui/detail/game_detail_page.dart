@@ -1,25 +1,23 @@
 /// 游戏详情页：背景图（可换/可调模糊）、信息、左简介右趋势、评分评价上传。
 library;
 
-import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
-import '../../data/settings_store.dart';
 import '../../providers.dart';
+import '../../services/game_launch_service.dart';
 import '../../services/game_launcher.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
-import '../widgets/notifications.dart';
+import '../widgets/save_backup_dialog.dart';
 import 'edit_sheet.dart';
 import 'rate_dialog.dart';
 
@@ -321,11 +319,15 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                         borderRadius: BorderRadius.circular(16)),
                     icon: const Icon(Icons.more_horiz_rounded),
                     onSelected: (v) async {
-                      if (v == 'delete') {
+                      if (v == 'save') {
+                        await SaveBackupDialog.show(context, game);
+                      } else if (v == 'delete') {
                         await _confirmDelete(game);
                       }
                     },
                     itemBuilder: (_) => [
+                      const PopupMenuItem(
+                          value: 'save', child: Text('存档备份')),
                       const PopupMenuItem(
                           value: 'delete',
                           child: Text('删除游戏',
@@ -384,37 +386,10 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   // ---------- 动作 ----------
 
   Future<void> _launch(Game game) async {
-    if (game.exePath.isEmpty || !File(game.exePath).existsSync()) {
-      if (!mounted) return;
-      showNotice(ref, '未找到游戏可执行文件，请先在编辑中设置', error: true);
-      return;
-    }
-    final mode = await AppServices.I.settings.trackingMode();
-    unawaited(GameLauncher.launch(game.exePath, game.directory));
-    AppServices.I.tracker.startTracking(
-      gameId: game.id!,
-      exePath: game.exePath,
-      directory: game.directory,
-      mode: mode,
-    );
-    ref.read(trackingGameProvider.notifier).state = game.id!;
-    // 记录 runtime 以便崩溃恢复
-    await AppServices.I.settings.setString('runtime.last_game', '${game.id}');
-    // 启动后动作
-    final after = await AppServices.I.settings
-        .getString(SettingsStore.kAfterLaunch, 'none');
-    if (after == 'minimize') await WindowManager.instance.minimize();
-
-    if (game.playStatus == PlayStatus.wish) {
-      game.playStatus = PlayStatus.playing;
-      await AppServices.I.repo.updateGame(game);
-      ref.read(libraryVersionProvider.notifier).state++;
-    }
-    if (game.firstPlayedAt == null) {
-      game.firstPlayedAt = DateTime.now();
-      await AppServices.I.repo.updateGame(game);
-    }
-    if (mounted) setState(() {});
+    // 统一走 GameLaunchService（含转区启动判定、启动失败提示、计时与会话落库）
+    await GameLaunchService.launchAndTrack(game, ref);
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _confirmDelete(Game game) async {

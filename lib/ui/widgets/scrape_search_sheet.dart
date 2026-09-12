@@ -34,6 +34,12 @@ class _ScrapeSearchSheet extends StatefulWidget {
 }
 
 class _ScrapeSearchSheetState extends State<_ScrapeSearchSheet> {
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
   late final TextEditingController _query =
       TextEditingController(text: widget.initialQuery);
   _Stage _stage = _Stage.input;

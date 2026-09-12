@@ -310,6 +310,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       _stage = ScrapeStage.merging;
       _bgChoice = '';
       _coverLocal = '';
+      for (final c in _memberIds.values) { c.dispose(); }
       _memberIds.clear();
     });
     try {
@@ -322,6 +323,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
         _editName.text = merged.name;
         _editCover.text = merged.coverUrl;
         for (final m in all) {
+          _memberIds[m.source]?.dispose();
           _memberIds[m.source] = TextEditingController(text: m.sourceId);
         }
         _stage = ScrapeStage.confirm;
@@ -849,8 +851,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     final existing = await repo.findGameByTitle(game.displayName);
     if (existing != null) {
       if (!mounted) return;
-      showNotice(ref,
-          '「${existing.displayName}」已在游戏库中，未重复添加');
+      showNotice('「${existing.displayName}」已在游戏库中，未重复添加');
       Navigator.of(context).pop();
       return;
     }
@@ -859,7 +860,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       for (final g in await repo.listGames()) {
         if (g.exePath.toLowerCase() == exe) {
           if (!mounted) return;
-          showNotice(ref, '该可执行文件已对应「${g.displayName}」，未重复添加');
+          showNotice('该可执行文件已对应「${g.displayName}」，未重复添加');
           Navigator.of(context).pop();
           return;
         }
@@ -918,8 +919,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     }
     await repo.updateGame(g);
     if (!mounted) return;
-    showNotice(ref,
-        '已添加「${g.displayName}」到游戏库（${_mergedAll.length} 个数据源）');
+    showNotice('已添加「${g.displayName}」到游戏库（${_mergedAll.length} 个数据源）');
     Navigator.of(context).pop();
   }
 
@@ -949,7 +949,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
           sourceId: _customId.text.trim(),
         ));
     if (!mounted) return;
-    showNotice(ref, '已添加「$name」到游戏库');
+    showNotice('已添加「$name」到游戏库');
     Navigator.of(context).pop();
   }
 }
