@@ -6,3 +6,8 @@ build/
 fsdk/
 .testdata/
 dist/
+# --- 仅本地使用的开发/打包脚本与生成物（不上传仓库）---
+tool/
+docs/superpowers/
+tools_sqlite3.dll
+.flutter-plugins-dependencies
