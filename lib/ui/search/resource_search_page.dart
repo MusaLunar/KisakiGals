@@ -89,6 +89,7 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
           }
         }
         if (u.done) _busy = false;
+        _resort();
       });
     }, onError: (e) {
       if (!mounted) return;
@@ -96,6 +97,19 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
         _busy = false;
         _errors['搜索'] = '$e';
       });
+    });
+  }
+
+  /// 按相关度重排（不再按站点分组；同分时短标题优先）
+  void _resort() {
+    _items.sort((a, b) {
+      final ra = ResourceSearcher.relevance(a.title, _keyword);
+      final rb = ResourceSearcher.relevance(b.title, _keyword);
+      if (ra != rb) return rb.compareTo(ra);
+      if (a.title.length != b.title.length) {
+        return a.title.length.compareTo(b.title.length);
+      }
+      return a.site.compareTo(b.site);
     });
   }
 
@@ -141,7 +155,10 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
                     fontWeight: FontWeight.w800,
                     color: dark ? KisakiColors.nightInk : KisakiColors.ink)),
             const SizedBox(width: 10),
-            Text('聚合资源站发布页',
+            Text(
+                _items.isEmpty
+                    ? '聚合资源站发布页'
+                    : '共 ${_items.length} 条 · 按相关度排序',
                 style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
             const Spacer(),
             if (_busy)
@@ -253,6 +270,32 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(children: [
+                Flexible(
+                  child: Text(it.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w600)),
+                ),
+                if (ResourceSearcher.relevance(it.title, _keyword) >= 850) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7EC8C3).withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: const Text('高度相关',
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF3F9E97))),
+                  ),
+                ],
+              ]),
+              const SizedBox(height: 4),
               Text(it.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

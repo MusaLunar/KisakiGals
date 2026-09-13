@@ -159,6 +159,88 @@ class GalLibraryAdapter implements ResourceAdapter {
   }
 }
 
+/// TouchGal（官方元数据 API，需 Bearer token；主站有 Cloudflare 质询，
+/// 因此搜索走 developer.touchgal.com，链接仍指向主站条目页）
+class TouchGalResourceAdapter implements ResourceAdapter {
+  static const _base = 'https://developer.touchgal.com/api/v1';
+  // 与元数据刮削共用同一把官方 token（内置，免配置）
+  static const _token = 'tgal_live_nmnc-ZLyGctzGYQS7160Ruzff7UvaTcKen47wU8phkw';
+
+  @override
+  String get site => 'TouchGal';
+  @override
+  List<String> get tags => const [ResourceTag.noLogin];
+
+  @override
+  Future<List<ResourceItem>> search(Dio dio, String keyword) async {
+    final kw = keyword.trim();
+    // 官方接口限制关键词 3-100 字符
+    if (kw.length < 3 || kw.length > 100) return const [];
+    final r = await dio.get('$_base/games/search',
+        queryParameters: {
+          'keyword': kw,
+          'page': 1,
+          'limit': 20,
+          'allowNsfw': 'true',
+        },
+        options: Options(headers: {
+          'Authorization': 'Bearer $_token',
+          'Accept': 'application/json',
+        }));
+    final data = r.data is Map ? Map<String, dynamic>.from(r.data as Map) : null;
+    final items = (data?['data'] is Map)
+        ? ((data!['data'] as Map)['items'] as List? ?? [])
+        : <dynamic>[];
+    final out = <ResourceItem>[];
+    for (final it in items) {
+      final m = Map<String, dynamic>.from(it as Map);
+      final uid = (m['uniqueId'] ?? '').toString();
+      if (uid.isEmpty) continue;
+      out.add(ResourceItem(
+        site: site,
+        title: (m['name'] ?? '').toString(),
+        url: 'https://www.touchgal.ink/$uid',
+        tags: tags,
+      ));
+    }
+    return out;
+  }
+}
+
+/// 量子ACG（HTML 搜索页解析）
+class LiangZiAcgAdapter implements ResourceAdapter {
+  @override
+  String get site => '量子ACG';
+  @override
+  List<String> get tags => const [ResourceTag.noLogin, '自建盘'];
+
+  @override
+  Future<List<ResourceItem>> search(Dio dio, String keyword) async {
+    final r = await dio.get('https://lzacg.org/',
+        queryParameters: {'s': keyword},
+        options: Options(responseType: ResponseType.plain));
+    final html = r.data.toString();
+    final re = RegExp(
+        r'<h2 class="item-heading"><a[^>]*href="([^"]+)"[^>]*>(.*?)</a></h2>',
+        dotAll: true,
+        caseSensitive: false);
+    final out = <ResourceItem>[];
+    for (final m in re.allMatches(html)) {
+      final url = m.group(1)!.trim();
+      final name = m
+          .group(2)!
+          .replaceAll(RegExp(r'<[^>]*>'), '')
+          .replaceAll('&amp;', '&')
+          .replaceAll('&#8211;', '–')
+          .trim();
+      if (url.isEmpty || name.isEmpty) continue;
+      out.add(ResourceItem(site: site, title: name, url: url, tags: tags));
+      if (out.length >= 30) break;
+    }
+    return out;
+  }
+}
+
 /// 真红小站（部分网络不可达，失败会以错误形式显示）
 class ShinnkuAdapter implements ResourceAdapter {
   @override
@@ -216,8 +298,63 @@ class ResourceSearcher {
   List<ResourceAdapter> get builtinAdapters => [
         KunResourceAdapter(),
         GalLibraryAdapter(),
+        TouchGalResourceAdapter(),
+        LiangZiAcgAdapter(),
         ShinnkuAdapter(),
       ];
+
+  /// 相关度评分（0-1000）：与关键词越接近越高。
+  /// 归一化会去掉空格/全角符号（Senren＊Banka 与 senren banka 视为同一串），
+  /// 并支持「标题包含关键词但更短者优先」——资源站的标题常带一堆后缀。
+  static double relevance(String title, String keyword) {
+    final t = _norm(title);
+    final k = _norm(keyword);
+    if (t.isEmpty || k.isEmpty) return 0;
+    if (t == k) return 1000;
+    if (t.startsWith(k)) {
+      // 前缀命中：越短越精确
+      return 900 - (t.length - k.length).clamp(0, 200) * 1.0;
+    }
+    final idx = t.indexOf(k);
+    if (idx >= 0) {
+      return 800 - idx * 2.0 - (t.length - k.length).clamp(0, 200) * 0.5;
+    }
+    // 关键词被空格/符号切成多段时，按命中段数给分
+    final parts = keyword
+        .split(RegExp(r'[\s　\-–—:：・,，。!！?？~～＊*]+'))
+        .map(_norm)
+        .where((p) => p.length >= 2)
+        .toList();
+    if (parts.isEmpty) return 0;
+    var hit = 0;
+    for (final p in parts) {
+      if (t.contains(p)) hit++;
+    }
+    if (hit == 0) return 0;
+    return 400.0 * hit / parts.length - (t.length - k.length).clamp(0, 200) * 0.3;
+  }
+
+  /// 归一化：小写、去空白与装饰符号、全角转半角。
+  static const _punct =
+      " \t\r\n-_–—_・,，。.:：;；!！?？~～＊*★☆「」『』[]()（）'\"“”";
+
+  static String _norm(String s) {
+    final buf = StringBuffer();
+    for (final r in s.toLowerCase().runes) {
+      // 全角字母数字 → 半角
+      if (r >= 0xFF01 && r <= 0xFF5E) {
+        final half = r - 0xFEE0;
+        final c = String.fromCharCode(half);
+        if (!_punct.contains(c)) buf.write(c);
+        continue;
+      }
+      if (r == 0x3000) continue; // 全角空格
+      final c = String.fromCharCode(r);
+      if (_punct.contains(c)) continue;
+      buf.write(c);
+    }
+    return buf.toString();
+  }
 
   /// 并发搜索全部来源，流式返回每个来源的结果。
   Stream<ResourceSearchUpdate> search(
