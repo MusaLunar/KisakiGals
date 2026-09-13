@@ -315,7 +315,9 @@ class GameRepository implements GameRepositoryLike {
         .toList();
 
     final top = await db.rawQuery(
-        'SELECT ds.game_id, COALESCE(NULLIF(g.name_cn, ""), g.name) AS name, SUM(ds.seconds) AS s '
+        // 字符串字面量必须用单引号：部分 SQLite 构建关闭了双引号字符串
+        // （SQLITE_DQS=0），写 "" 会直接报「no such column」（打包版实测踩到）
+        "SELECT ds.game_id, COALESCE(NULLIF(g.name_cn, ''), g.name) AS name, SUM(ds.seconds) AS s "
         'FROM daily_stats ds LEFT JOIN games g ON g.id = ds.game_id '
         'WHERE ds.date >= ? GROUP BY ds.game_id ORDER BY s DESC LIMIT 10',
         [fromDate]);
