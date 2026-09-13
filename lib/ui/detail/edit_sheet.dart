@@ -18,6 +18,7 @@ import '../../services/game_launcher.dart';
 import '../../services/save_backup.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/image_picker.dart';
 import '../widgets/notifications.dart';
 import '../widgets/scrape_search_sheet.dart';
 
@@ -328,7 +329,13 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CoverImage(
-                            path: _coverPath,
+                            path: _coverLocal.isNotEmpty
+                                ? _coverLocal
+                                : _coverPath,
+                            networkUrl: (_coverPickUrl != null &&
+                                    _coverPickUrl!.isNotEmpty)
+                                ? _coverPickUrl
+                                : null,
                             nsfw: _nsfw,
                             width: 90,
                             height: 135,
@@ -350,30 +357,30 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                                             .onSurfaceVariant)),
                                 const SizedBox(height: 8),
                                 if (_covers.isNotEmpty)
-                                  _PickerRow(
-                                    controller: _coverCtrl,
-                                    height: 84,
-                                    children: [
+                                  ImagePickerRow(
+                                    title: '平台封面',
+                                    subtitle: '点击选用；候选多时点右侧「查看全部」',
+                                    options: [
                                       for (final c in _covers)
-                                        _CoverTile(
-                                          label: c.label,
-                                          url: c.url,
-                                          selected: _coverPickUrl == c.url,
-                                          onTap: () => setState(() {
-                                            _coverPickUrl = c.url;
-                                            _coverLocal = '';
-                                          }),
-                                        ),
-                                      _CoverTile(
-                                        label: '本地文件',
-                                        url: _coverLocal,
-                                        localPath: _coverLocal,
-                                        selected: _coverPickUrl == '' &&
-                                            _coverLocal.isNotEmpty,
-                                        onTap: _pickCover,
-                                        icon: Icons.image_rounded,
-                                      ),
+                                        ImageOption(
+                                            label: c.label, url: c.url),
+                                      ImageOption(
+                                          label: '本地文件',
+                                          localPath: _coverLocal),
                                     ],
+                                    selectedUrl: _coverPickUrl,
+                                    selectedLocal: _coverLocal,
+                                    onPick: (o) {
+                                      if (o.localPath.isNotEmpty &&
+                                          !File(o.localPath).existsSync()) {
+                                        _pickCover();
+                                        return;
+                                      }
+                                      setState(() {
+                                        _coverPickUrl = o.url;
+                                        _coverLocal = o.localPath;
+                                      });
+                                    },
                                   ),
                                 const SizedBox(height: 8),
                                 Wrap(spacing: 8, children: [
@@ -475,82 +482,33 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   List<Widget> _buildBackgroundPicker(bool dark) {
     final shots = widget.game.screenshots;
     return [
-      if (shots.isEmpty)
-        Text('暂无刮削截图；使用「重新刮削」获取截图后可在此选择背景。',
-            style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant))
-      else
-        _PickerRow(
-          controller: _bgCtrl,
-          height: 92,
-          children: [
-              _bgTile(
-                selected: _bgPick == '' || (_bgPick == null && widget.game.backgroundUrl.isEmpty),
-                onTap: () => setState(() => _bgPick = ''),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.format_color_fill_rounded, size: 22),
-                    SizedBox(height: 4),
-                    Text('纯色', style: TextStyle(fontSize: 11.5)),
-                  ],
-                ),
-              ),
-              for (final url in shots.take(8))
-                _bgTile(
-                  selected: _bgPick == url ||
-                      (_bgPick == null &&
-                          widget.game.backgroundUrl.isNotEmpty &&
-                          _isCurrentBg(url)),
-                  onTap: () => setState(() => _bgPick = url),
-                  child: _bgImage(url),
-                ),
-          ],
-        ),
+      ImagePickerRow(
+        title: '背景图',
+        subtitle: shots.isEmpty
+            ? '暂无刮削截图；重新刮削后可在此选择背景图'
+            : '点击选用；候选多时点右侧「查看全部」',
+        options: [
+          const ImageOption(label: '纯色', isSolid: true),
+          for (final url in shots) ImageOption(label: '截图', url: url),
+        ],
+        // null = 未改动：按当前背景高亮
+        selectedUrl: _bgPick ??
+            (widget.game.backgroundUrl.isEmpty ? '' : _currentBgUrl(shots)),
+        onPick: (o) => setState(() => _bgPick = o.url),
+      ),
     ];
+  }
+
+  /// 当前背景对应的截图 URL（用于高亮）。
+  String _currentBgUrl(List<String> shots) {
+    for (final u in shots) {
+      if (_isCurrentBg(u)) return u;
+    }
+    return '';
   }
 
   bool _isCurrentBg(String url) =>
       widget.game.backgroundUrl.endsWith(url.split('/').last);
-
-  Widget _bgTile(
-      {required bool selected,
-      required VoidCallback onTap,
-      required Widget child}) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 148,
-          height: 86,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).dividerColor,
-              width: selected ? 2 : 1,
-            ),
-            color: Theme.of(context).colorScheme.surfaceContainerHigh,
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  Widget _bgImage(String url) {
-    if (url.startsWith('http')) {
-      return Image.network(url,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded,
-              size: 18));
-    }
-    return Image.file(File(url), fit: BoxFit.cover);
-  }
 
   List<Widget> _buildSources(bool dark) {
     if (_sources.isEmpty) {
@@ -677,7 +635,12 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     if (_coverPickUrl != null && _coverPickUrl!.isNotEmpty) {
       final local = await AppServices.I.fetcher
           .downloadImage(_coverPickUrl!, 'game_${g.id}');
-      if (local.isNotEmpty) _coverPath = local;
+      if (local.isNotEmpty) {
+        _coverPath = local;
+      } else {
+        showNotice('封面图片下载失败，请检查网络或代理设置（已保留原封面）',
+            error: true);
+      }
     }
     g.coverPath = _coverPath;
     g.localeMode = _localeMode;
@@ -716,90 +679,3 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   }
 }
 
-/// 横向选择行：自带滚动条（鼠标滚轮与拖拽滚动条都可用）。
-class _PickerRow extends StatelessWidget {
-  final ScrollController controller;
-  final double height;
-  final List<Widget> children;
-  const _PickerRow({
-    required this.controller,
-    required this.height,
-    required this.children,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: height + 10,
-      child: Scrollbar(
-        controller: controller,
-        thumbVisibility: true,
-        scrollbarOrientation: ScrollbarOrientation.bottom,
-        child: ListView(
-          controller: controller,
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(bottom: 10),
-          children: children,
-        ),
-      ),
-    );
-  }
-}
-
-/// 封面缩略块：2:3 比例，可选平台标签。
-class _CoverTile extends StatelessWidget {
-  final String label;
-  final String url;
-  final String? localPath;
-  final bool selected;
-  final VoidCallback onTap;
-  final IconData? icon;
-  const _CoverTile({
-    required this.label,
-    required this.url,
-    required this.selected,
-    required this.onTap,
-    this.localPath,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const w = 56.0;
-    const h = w / kCoverAspect;
-    final path = localPath ?? '';
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: Tooltip(
-        message: label,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: w,
-            height: h,
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selected
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).dividerColor,
-                width: selected ? 2 : 1,
-              ),
-              color: Theme.of(context).colorScheme.surfaceContainerHigh,
-            ),
-            child: path.isNotEmpty
-                ? Image.file(File(path), fit: BoxFit.cover)
-                : (url.isNotEmpty
-                    ? Image.network(url,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(
-                            Icons.broken_image_rounded,
-                            size: 16))
-                    : Icon(icon ?? Icons.local_florist_rounded, size: 18)),
-          ),
-        ),
-      ),
-    );
-  }
-}

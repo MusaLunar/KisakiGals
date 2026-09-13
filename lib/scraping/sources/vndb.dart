@@ -60,14 +60,21 @@ class VndbAdapter extends SourceAdapter {
     String title = (m['title'] ?? '') as String;
     String nameCn = '';
     final titles = (m['titles'] as List?) ?? [];
+    // 收集全部标题变体（日文/英文/罗马音/其它语言）作为别名，
+    // 这样跨源搜索时「Shiny Sisters」与「シャイニー・シスターズ」能被认成同一部作品
+    final aliases = <String>{};
     for (final t in titles) {
       final tm = Map<String, dynamic>.from(t as Map);
       final lang = (tm['lang'] ?? '') as String;
+      final tTitle = (tm['title'] ?? '').toString().trim();
+      final latin = (tm['latin'] ?? '').toString().trim();
       if (lang == 'zh-Hans' && nameCn.isEmpty) {
-        nameCn = (tm['title'] ?? '') as String;
+        nameCn = tTitle;
       } else if (lang == 'zh-Hant' && nameCn.isEmpty) {
-        nameCn = (tm['title'] ?? '') as String;
+        nameCn = tTitle;
       }
+      if (tTitle.isNotEmpty) aliases.add(tTitle);
+      if (latin.isNotEmpty) aliases.add(latin);
     }
     if (nameCn.isEmpty) {
       for (final t in titles) {
@@ -113,6 +120,10 @@ class VndbAdapter extends SourceAdapter {
       sourceId: (m['id'] ?? '').toString(),
       name: title,
       nameCn: nameCn,
+      aliases: aliases
+          .where((a) => a != title && a != nameCn)
+          .take(12)
+          .toList(),
       coverUrl: cover,
       developer: developers.join(', '),
       releaseDate: SourceAdapter.date(m['released']?.toString()),

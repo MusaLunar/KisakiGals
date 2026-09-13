@@ -291,6 +291,25 @@ class _FilterSidebar extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
           children: [
+            // 清除筛选放在最上方（有筛选时才显示）
+            if (filter.hasActive) ...[
+              OutlinedButton.icon(
+                onPressed: () {
+                  final f = ref.read(libraryFilterProvider);
+                  f.status = null;
+                  f.tag = null;
+                  f.developer = null;
+                  f.source = null;
+                  f.favoriteOnly = false;
+                  f.query = '';
+                  apply();
+                },
+                icon: const Icon(Icons.filter_alt_off_rounded, size: 16),
+                label: const Text('清除全部筛选'),
+              ),
+              const SizedBox(height: 10),
+              const Divider(height: 10),
+            ],
             _sectionLabel(context, '排序'),
             for (final s in GameSort.values)
               _sortRow(context, s, apply),
@@ -407,23 +426,7 @@ class _FilterSidebar extends ConsumerWidget {
                 ],
               ),
             ],
-            if (filter.hasActive) ...[
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: () {
-                  final f = ref.read(libraryFilterProvider);
-                  f.status = null;
-                  f.tag = null;
-                  f.developer = null;
-                  f.source = null;
-                  f.favoriteOnly = false;
-                  f.query = '';
-                  apply();
-                },
-                icon: const Icon(Icons.filter_alt_off_rounded, size: 16),
-                label: const Text('清除全部筛选'),
-              ),
-            ],
+
           ],
         ),
       ),

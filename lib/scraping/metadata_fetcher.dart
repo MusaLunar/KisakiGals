@@ -88,7 +88,6 @@ class MetadataFetcher {
   final Map<String, SourceAdapter> _adapters = {};
   final MetadataCache cache;
   final String coversDir;
-  Dio? _probeDio;
   String? _proxy;
 
   /// 运行中检测到代理失效后置为 true（后续请求直连）。
@@ -414,27 +413,55 @@ class MetadataFetcher {
       downloadImage(g.coverUrl, 'game_$gameId');
 
   /// 下载任意图片到 covers 目录；[fileName] 不含扩展名。
+  /// 与刮削请求**共用同一套代理策略**（含失效降级直连）——旧实现用的是
+  /// 无代理的独立 Dio，需要代理时图片必然下载失败且被静默吞掉，
+  /// 表现为「改了封面/背景但保存后没变化」。
   Future<String> downloadImage(String url, String fileName) async {
     if (url.isEmpty) return '';
-    try {
-      final dio = _probeDio ??= Dio(BaseOptions(
+    final ext = RegExp(r'\.(jpe?g|png|webp)', caseSensitive: false)
+            .firstMatch(url)
+            ?.group(0) ??
+        '.jpg';
+    final path = '$coversDir/$fileName$ext';
+
+    Future<bool> attempt({required bool useProxy}) async {
+      final dio = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 30),
-        headers: {'User-Agent': 'MusaLunar/KisakiGals/0.2.0'},
+        headers: {
+          'User-Agent': 'MusaLunar/${AppInfo.name}/${AppInfo.version}',
+        },
       ));
-      final ext = RegExp(r'\.(jpe?g|png|webp)', caseSensitive: false)
-              .firstMatch(url)
-              ?.group(0) ??
-          '.jpg';
-      final path = '$coversDir/$fileName$ext';
-      final response = await dio.download(url, path);
-      if (response.statusCode == 200 && File(path).lengthSync() > 1000) {
-        return path;
+      if (useProxy && _proxy != null) {
+        dio.httpClientAdapter = IOHttpClientAdapter()
+          ..createHttpClient = () {
+            final client = HttpClient();
+            client.findProxy = (uri) =>
+                'PROXY ${_proxy!.replaceFirst(RegExp(r'^https?://'), '')}';
+            return client;
+          };
       }
-      return '';
-    } catch (_) {
-      return '';
+      try {
+        final r = await dio.download(url, path);
+        return r.statusCode == 200 &&
+            File(path).existsSync() &&
+            File(path).lengthSync() > 1000;
+      } catch (_) {
+        return false;
+      } finally {
+        dio.close(force: true);
+      }
     }
+
+    final useProxy = _proxy != null && !_proxyDisabled;
+    if (await attempt(useProxy: useProxy)) return path;
+    if (useProxy) {
+      // 代理下下载失败：判定代理对图片不可用，改直连重试一次
+      _proxyDisabled = true;
+      lastProxyProbeResult = '$_proxy 下载图片失败，已自动改为直连';
+      if (await attempt(useProxy: false)) return path;
+    }
+    return '';
   }
 
   /// 连通性测试（设置页「测试连接」）。

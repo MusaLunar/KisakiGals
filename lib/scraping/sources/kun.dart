@@ -59,6 +59,13 @@ class KunAdapter extends SourceAdapter {
 
   /// 详情条目：name 标量 + name_original，introduction 为多语言数组。
   ScrapedGame _parseDetail(Map<String, dynamic> m) {
+    // all_titles 含各语言/罗马音标题，作为别名以便跨源识别同一作品
+    final titleAliases = <String>[
+      for (final t in (m['all_titles'] as List?) ?? [])
+        if (t.toString().trim().isNotEmpty) t.toString().trim(),
+      if ((m['name_original'] ?? '').toString().trim().isNotEmpty)
+        (m['name_original'] as String).trim(),
+    ];
     String summary = '';
     for (final lang in (m['introduction'] as List?) ?? []) {
       if (lang is! Map) continue;
@@ -80,10 +87,7 @@ class KunAdapter extends SourceAdapter {
       sourceId: (m['id'] ?? 0).toString(),
       name: ((m['name_original'] ?? m['name']) ?? '') as String,
       nameCn: (m['name'] ?? '') as String,
-      aliases: [
-        if ((m['vndb_id'] ?? '') is String && (m['vndb_id'] ?? '') != '')
-          (m['vndb_id'] ?? '').toString(),
-      ],
+      aliases: titleAliases.take(12).toList(),
       coverUrl: (m['effective_portrait_url'] ??
               m['effective_banner_url'] ??
               '') as String,

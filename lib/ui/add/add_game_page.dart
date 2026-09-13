@@ -18,6 +18,7 @@ import '../../services/game_launcher.dart';
 import '../../scraping/scraped_game.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/image_picker.dart';
 import '../widgets/notifications.dart';
 import '../widgets/scrape_search_sheet.dart';
 
@@ -314,6 +315,21 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     );
   }
 
+  /// 封面候选：各平台自己的封面图（不是 VNDB 的截图）
+  List<ImageOption> get _coverOptions {
+    final out = <ImageOption>[];
+    final seen = <String>{};
+    for (final m in _mergedAll) {
+      final url = m.coverUrl;
+      if (url.isEmpty || !seen.add(url)) continue;
+      out.add(ImageOption(
+        label: KisakiSources.labels[m.source] ?? m.source,
+        url: url,
+      ));
+    }
+    return out;
+  }
+
   /// 选中分组 → 组内多源合并（含各源详情补全）→ 进入确认页。
   Future<void> _mergeAndConfirm(ScrapeHitGroup group) async {
     setState(() {
@@ -365,9 +381,9 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                   CoverImage(
                     path: _coverLocal,
                     networkUrl: _coverLocal.isEmpty
-                        ? (_coverChoice == null
+                        ? (_coverChoice == null || _coverChoice!.isEmpty
                             ? game.coverUrl
-                            : (_coverChoice!.isEmpty ? '' : _coverChoice!))
+                            : _coverChoice)
                         : '',
                     nsfw: game.nsfw,
                     width: 160,
@@ -510,54 +526,44 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                   ),
                 ),
               ]),
-              const SizedBox(height: 10),
-              Text('封面',
+              const SizedBox(height: 16),
+              // 图片：封面（各平台封面 + 本地）与详情页背景（纯色 + 截图）放在一起
+              Text('图片',
                   style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 13.5)),
-              const SizedBox(height: 8),
-              _HorizontalWheelScroll(
-                  controller: _coverCtrl,
-                  child: SizedBox(
-                    height: 92,
-                    child: ListView(
-                      controller: _coverCtrl,
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        _BgOptionTile(
-                          selected: _coverChoice == null,
-                          onTap: () => setState(() {
-                            _coverChoice = null;
-                            _coverLocal = '';
-                          }),
-                          child: _coverPreview(game.coverUrl),
-                        ),
-                        for (final url in game.screenshots.take(8))
-                          _BgOptionTile(
-                            selected: _coverChoice == url,
-                            onTap: () => setState(() {
-                              _coverChoice = url;
-                              _coverLocal = '';
-                            }),
-                            child: _coverPreview(url),
-                          ),
-                        _BgOptionTile(
-                          selected: _coverChoice == '',
-                          onTap: _pickLocalCover,
-                          child: _coverLocal.isNotEmpty
-                              ? Image.file(File(_coverLocal), fit: BoxFit.cover)
-                              : const Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.image_rounded, size: 22),
-                                    SizedBox(height: 4),
-                                    Text('本地文件', style: TextStyle(fontSize: 11.5)),
-                                  ],
-                                ),
-                        ),
-                      ],
-                    ),
-                  )),
+                      fontWeight: FontWeight.w800, fontSize: 14)),
               const SizedBox(height: 10),
+              ImagePickerRow(
+                title: '封面',
+                subtitle: '来自各平台的封面图，点击选用（悬停可看平台名）',
+                options: [
+                  for (final c in _coverOptions) c,
+                  ImageOption(label: '本地文件', localPath: _coverLocal),
+                ],
+                selectedUrl: _coverChoice,
+                selectedLocal: _coverLocal,
+                onPick: (o) => setState(() {
+                  if (o.localPath.isNotEmpty && !File(o.localPath).existsSync()) {
+                    _pickLocalCover();
+                    return;
+                  }
+                  _coverChoice = o.url;
+                  _coverLocal = o.localPath;
+                }),
+              ),
+              const SizedBox(height: 14),
+              ImagePickerRow(
+                title: '详情页背景',
+                subtitle: shots.isEmpty
+                    ? '该游戏暂无可选截图，将使用纯色背景'
+                    : '刮削得到的截图（详情页可随时更换）',
+                options: [
+                  const ImageOption(label: '纯色', isSolid: true),
+                  for (final url in shots) ImageOption(label: '截图', url: url),
+                ],
+                selectedUrl: _bgChoice,
+                onPick: (o) => setState(() => _bgChoice = o.url),
+              ),
+              const SizedBox(height: 14),
               for (final m in _mergedAll)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -572,52 +578,6 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                       ),
                     ),
                   ]),
-                ),
-              const SizedBox(height: 16),
-              // 详情页背景选择：纯色 / 刮削截图
-              Text('详情页背景',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 13.5)),
-              const SizedBox(height: 10),
-              if (shots.isEmpty)
-                Text('该游戏暂无截图，将使用纯色背景；可稍后在详情页更换。',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant))
-              else
-                _HorizontalWheelScroll(
-                  controller: _bgCtrl,
-                  child: SizedBox(
-                    height: 92,
-                    child: ListView(
-                      controller: _bgCtrl,
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        _BgOptionTile(
-                          selected: _bgChoice.isEmpty,
-                          onTap: () => setState(() => _bgChoice = ''),
-                          child: const Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.format_color_fill_rounded, size: 22),
-                              SizedBox(height: 4),
-                              Text('纯色', style: TextStyle(fontSize: 11.5)),
-                            ],
-                          ),
-                        ),
-                        for (final url in shots.take(8))
-                          _BgOptionTile(
-                            selected: _bgChoice == url,
-                            onTap: () => setState(() => _bgChoice = url),
-                            child: Image.network(url,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    const Icon(Icons.broken_image_rounded,
-                                        size: 18)),
-                          ),
-                      ],
-                    ),
-                  ),
                 ),
               const SizedBox(height: 20),
               Row(
@@ -827,23 +787,6 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     }
   }
 
-  Widget _coverPreview(String url) {
-    if (url.isEmpty) {
-      return const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.local_florist_rounded, size: 22),
-          SizedBox(height: 4),
-          Text('搜刮封面', style: TextStyle(fontSize: 11.5)),
-        ],
-      );
-    }
-    return Image.network(url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) =>
-            const Icon(Icons.broken_image_rounded, size: 18));
-  }
-
   Future<void> _addToLibrary() async {
     if (_adding) return; // 防重复点击/重复入库
     setState(() => _adding = true);
@@ -1010,40 +953,6 @@ Future<String> _cacheLocalCover(String localPath, int gameId) async {
   }
 }
 
-/// 背景选择缩略块。
-class _BgOptionTile extends StatelessWidget {
-  final bool selected;
-  final VoidCallback onTap;
-  final Widget child;
-  const _BgOptionTile(
-      {required this.selected, required this.onTap, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 148,
-          height: 86,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).dividerColor,
-              width: selected ? 2 : 1,
-            ),
-            color: Theme.of(context).colorScheme.surfaceContainerHigh,
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
 
 
 /// 拖拽接收区域包装。

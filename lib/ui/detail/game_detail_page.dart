@@ -1,6 +1,7 @@
 /// 游戏详情页：背景图（可换/可调模糊）、信息、左简介右趋势、评分评价上传。
 library;
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
@@ -148,24 +149,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                 ?.copyWith(fontWeight: FontWeight.w700)),
         const Spacer(),
         if (tracking)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: KisakiColors.pink,
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.play_arrow_rounded,
-                    size: 16, color: Colors.white),
-                Text(' ${fmtDuration(AppServices.I.tracker.liveSeconds)}',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
+          const _LiveSessionChip(),
         const SizedBox(width: 8),
         // 收藏（心形，直接切换）
         IconButton(
@@ -612,4 +596,56 @@ class _DailyTrendCard extends ConsumerWidget {
 
   static String _fmt(DateTime t) =>
       '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+}
+
+/// 本次游玩实时时长（每秒自刷新）。
+class _LiveSessionChip extends StatefulWidget {
+  const _LiveSessionChip();
+
+  @override
+  State<_LiveSessionChip> createState() => _LiveSessionChipState();
+}
+
+class _LiveSessionChipState extends State<_LiveSessionChip> {
+  Timer? _t;
+  int _seconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _seconds = AppServices.I.tracker.liveSeconds;
+    _t = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _seconds = AppServices.I.tracker.liveSeconds);
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: KisakiColors.pink,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.play_arrow_rounded, size: 16, color: Colors.white),
+          const SizedBox(width: 4),
+          Text('本次 ${fmtDuration(_seconds)}',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
 }
