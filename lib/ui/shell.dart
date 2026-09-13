@@ -65,6 +65,7 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
       }
       if (mounted) {
         if (event.session != null) {
+          invalidateDailyTrend(event.gameId);
           ref.read(libraryVersionProvider.notifier).state++;
         }
         final gid = ref.read(trackingGameProvider);

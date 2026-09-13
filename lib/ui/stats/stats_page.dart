@@ -449,7 +449,7 @@ class _RatingTile extends StatelessWidget {
     return SoftCard(
       padding: const EdgeInsets.all(10),
       onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => GameDetailPage(gameId: game.id!))),
+          MaterialPageRoute(builder: (_) => GameDetailPage(gameId: game.id!, initial: game))),
       child: Row(
         children: [
           CoverImage(

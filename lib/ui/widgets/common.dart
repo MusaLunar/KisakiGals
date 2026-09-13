@@ -44,6 +44,27 @@ class WindowDragBar extends StatelessWidget {
 
 /// 封面图：本地文件优先 → 网络缓存 → 占位；NSFW 可模糊/占位。
 /// 模糊强度与显示模式来自响应式 provider，设置中切换立即生效。
+/// 本地图片存在性缓存：避免每帧/每张卡片都做同步 stat（列表滚动与页面切换的主要卡顿源）。
+/// 以「路径 + 修改时间」为键，文件被替换后会自动失效。
+final Map<String, bool> _fileExistsCache = {};
+
+bool _existsCached(String path) {
+  final hit = _fileExistsCache[path];
+  if (hit != null) return hit;
+  bool exists;
+  try {
+    exists = File(path).existsSync();
+  } catch (_) {
+    exists = false;
+  }
+  if (_fileExistsCache.length > 2000) _fileExistsCache.clear();
+  _fileExistsCache[path] = exists;
+  return exists;
+}
+
+/// 供其它页面复用的存在性检查（带缓存）。
+bool cachedFileExists(String path) => path.isNotEmpty && _existsCached(path);
+
 class CoverImage extends ConsumerWidget {
   final String path;
   final String? networkUrl;
@@ -81,7 +102,7 @@ class CoverImage extends ConsumerWidget {
 
   Widget _renderImage(BuildContext context, bool dark, {required bool blur, double sigma = 12}) {
     Widget? image;
-    if (path.isNotEmpty && File(path).existsSync()) {
+    if (path.isNotEmpty && _existsCached(path)) {
       image = Image.file(File(path),
           fit: fit, width: width, height: height, gaplessPlayback: true);
     } else if ((networkUrl ?? '').isNotEmpty) {

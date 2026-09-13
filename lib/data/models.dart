@@ -24,6 +24,8 @@ class Game {
   String launchType; // local
   bool isFavorite;
   int totalSeconds;
+  /// 游玩次数（非持久化列，getGame 时由 game_sessions 统计填充）
+  int sessionCount = 0;
   DateTime createdAt;
   DateTime updatedAt;
   DateTime? firstPlayedAt;

@@ -56,7 +56,7 @@ class _GameCardState extends ConsumerState<GameCard> {
             return;
           }
           await Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => GameDetailPage(gameId: game.id!)));
+              builder: (_) => GameDetailPage(gameId: game.id!, initial: game)));
           ref.read(libraryVersionProvider.notifier).state++;
         },
         onSecondaryTapUp: (details) =>
@@ -278,7 +278,7 @@ class _GameCardState extends ConsumerState<GameCard> {
     switch (action) {
       case 'open':
         await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => GameDetailPage(gameId: game.id!)));
+            builder: (_) => GameDetailPage(gameId: game.id!, initial: game)));
         ref.read(libraryVersionProvider.notifier).state++;
         break;
       case 'dir':

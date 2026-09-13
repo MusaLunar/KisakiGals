@@ -24,7 +24,9 @@ import 'rate_dialog.dart';
 
 class GameDetailPage extends ConsumerStatefulWidget {
   final int gameId;
-  const GameDetailPage({super.key, required this.gameId});
+  /// 调用方（游戏库/主页/搜索）已有的数据：传入后立即渲染，避免先闪一下加载态
+  final Game? initial;
+  const GameDetailPage({super.key, required this.gameId, this.initial});
 
   @override
   ConsumerState<GameDetailPage> createState() => _GameDetailPageState();
@@ -34,21 +36,35 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   @override
   Widget build(BuildContext context) {
     final gameAsync = ref.watch(gameProvider(widget.gameId));
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final tracking = ref.watch(trackingGameProvider) == widget.gameId;
 
     return gameAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (e, _) => Scaffold(body: Center(child: Text('$e'))),
+      skipLoadingOnRefresh: true,
+      // 有 initial（列表里已加载过的数据）时不显示加载态，直接渲染已知数据
+      skipLoadingOnReload: true,
+      loading: () => widget.initial != null
+          ? _buildDetail(context, widget.initial!, ref)
+          : const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => widget.initial != null
+          ? _buildDetail(context, widget.initial!, ref)
+          : Scaffold(body: Center(child: Text('$e'))),
       data: (game) {
         if (game == null) {
           return const Scaffold(body: Center(child: Text('游戏不存在')));
         }
+        return _buildDetail(context, game, ref);
+      },
+    );
+  }
+
+  /// 实际页面内容（供 loading/error/data 三个分支复用，避免首帧闪加载态）。
+  Widget _buildDetail(BuildContext context, Game game, WidgetRef ref) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final tracking = ref.watch(trackingGameProvider) == widget.gameId;
+    {
         final sources = ref.watch(gameSourcesProvider(widget.gameId)).valueOrNull ?? [];
         final tags = ref.watch(gameTagsProvider(widget.gameId)).valueOrNull ?? [];
         final bgBlur = ref.watch(detailBgBlurProvider);
-        final bgFile = game.backgroundUrl.isNotEmpty &&
-            File(game.backgroundUrl).existsSync();
+        final bgFile = cachedFileExists(game.backgroundUrl);
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -130,8 +146,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
             ],
           ),
         );
-      },
-    );
+    }
   }
 
   Widget _topBar(Game game, bool tracking) {
@@ -249,6 +264,9 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                 ],
               ),
               const SizedBox(height: 14),
+              // 游玩记录：与主页一致的统计卡片（总时长 / 本次 / 次数 / 日均）
+              _PlaytimeCards(game: game, tracking: tracking),
+              const SizedBox(height: 16),
               _InfoRow(
                   icon: Icons.business_rounded,
                   label: '开发商',
@@ -261,10 +279,6 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                   label: '发售日期',
                   value:
                       game.releaseDate.isEmpty ? '未知' : game.releaseDate),
-              _InfoRow(
-                  icon: Icons.timer_outlined,
-                  label: '总时长',
-                  value: fmtDuration(game.totalSeconds)),
               _InfoRow(
                   icon: Icons.history_rounded,
                   label: '上次游玩',
@@ -574,9 +588,13 @@ class _DailyTrendCard extends ConsumerWidget {
     );
   }
 
-  Future<List<DailyPoint>> _dailyPoints() async {
-    final game = await AppServices.I.repo.getGame(gameId);
-    if (game == null) return [];
+  /// 30 天趋势缓存：按 gameId 复用，避免每次重建都查库（页面切换卡顿的主要来源）
+  static final Map<int, Future<List<DailyPoint>>> _trendCache = {};
+
+  Future<List<DailyPoint>> _dailyPoints() =>
+      _trendCache.putIfAbsent(gameId, () => _loadDailyPoints());
+
+  Future<List<DailyPoint>> _loadDailyPoints() async {
     final now = DateTime.now();
     final days = <DailyPoint>[];
     final rows = await AppServices.I.db.query('game_sessions',
@@ -597,6 +615,9 @@ class _DailyTrendCard extends ConsumerWidget {
   static String _fmt(DateTime t) =>
       '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
 }
+
+/// 游玩数据变化后让详情页趋势缓存失效（会话结束/删除记录时调用）。
+void invalidateDailyTrend(int gameId) => _DailyTrendCard._trendCache.remove(gameId);
 
 /// 本次游玩实时时长（每秒自刷新）。
 class _LiveSessionChip extends StatefulWidget {
@@ -646,6 +667,165 @@ class _LiveSessionChipState extends State<_LiveSessionChip> {
                   fontWeight: FontWeight.w600)),
         ],
       ),
+    );
+  }
+}
+/// 详情页的游玩记录卡片：与主页 _StatCard 同一套视觉语言。
+/// 「本次」在计时进行中每秒跳动（主页显示的是聚合统计，这里是单机数据）。
+class _PlaytimeCards extends StatefulWidget {
+  final Game game;
+  final bool tracking;
+  const _PlaytimeCards({required this.game, required this.tracking});
+
+  @override
+  State<_PlaytimeCards> createState() => _PlaytimeCardsState();
+}
+
+class _PlaytimeCardsState extends State<_PlaytimeCards> {
+  Timer? _t;
+  int _live = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _live = AppServices.I.tracker.liveSeconds;
+    if (widget.tracking) _startTicker();
+  }
+
+  @override
+  void didUpdateWidget(_PlaytimeCards old) {
+    super.didUpdateWidget(old);
+    if (widget.tracking && !old.tracking) {
+      _startTicker();
+    } else if (!widget.tracking && old.tracking) {
+      _t?.cancel();
+      _t = null;
+      setState(() => _live = 0);
+    }
+  }
+
+  void _startTicker() {
+    _t?.cancel();
+    _t = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _live = AppServices.I.tracker.liveSeconds);
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final g = widget.game;
+    final sessions = g.sessionCount;
+    final avg = sessions > 0 ? g.totalSeconds ~/ sessions : 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          for (final c in [
+            (
+              '总时长',
+              Icons.timer_outlined,
+              KisakiColors.pink,
+              fmtDuration(g.totalSeconds),
+              g.lastPlayedAt == null
+                  ? '尚未游玩'
+                  : '上次 ${fmtDate(g.lastPlayedAt!)}'
+            ),
+            (
+              widget.tracking ? '本次游玩' : '本次',
+              Icons.play_circle_outline_rounded,
+              const Color(0xFF7EC8C3),
+              widget.tracking
+                  ? fmtDuration(_live)
+                  : fmtDuration(AppServices.I.tracker.liveSeconds),
+              widget.tracking ? '计时中…' : (sessions > 0 ? '共 $sessions 次' : '未开始')
+            ),
+            (
+              '平均单次',
+              Icons.insights_rounded,
+              KisakiColors.lavender,
+              avg > 0 ? fmtDuration(avg) : '—',
+              sessions > 0 ? '$sessions 次游玩' : '暂无记录'
+            ),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(right: 12, bottom: 12),
+              child: _StatTile(
+                title: c.$1,
+                icon: c.$2,
+                color: c.$3,
+                value: c.$4,
+                subtitle: c.$5,
+              ),
+            ),
+        ].expand((w) => [Expanded(child: w)]).toList()),
+      ],
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final String value;
+  final String subtitle;
+  const _StatTile({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.value,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return SoftCard(
+      child: Row(children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(13),
+            color: color.withValues(alpha: dark ? 0.22 : 0.14),
+          ),
+          child: Icon(icon, color: color, size: 21),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 2),
+              Text(value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: dark ? KisakiColors.nightInk : KisakiColors.ink)),
+              const SizedBox(height: 2),
+              Text(subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
+          ),
+        ),
+      ]),
     );
   }
 }
