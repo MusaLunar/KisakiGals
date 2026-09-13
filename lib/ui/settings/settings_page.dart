@@ -227,6 +227,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
   String _lePath = '';
   bool _leValid = false;
   final _leController = TextEditingController();
+  final _searchGalController = TextEditingController();
 
   @override
   void initState() {
@@ -245,6 +246,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
     final bgBlur = await s.getDouble('detail.bg_blur', 14);
     final theme = await s.getString(SettingsStore.kThemeMode, 'system');
     final lePath = await s.getString(SettingsStore.kLePath, '');
+    final searchGalApi = await s.getString(SettingsStore.kSearchGalApi, '');
     if (!mounted) return;
     setState(() {
       _autostart = autostart;
@@ -258,6 +260,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
       _lePath = lePath;
       _leValid = lePath.isNotEmpty && File(lePath).existsSync();
       _leController.text = lePath;
+      _searchGalController.text = searchGalApi;
     });
   }
 
@@ -313,6 +316,24 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                 setState(() => _close = v.first);
                 await applyCloseBehavior();
               },
+            ),
+          ),
+        ]),
+        SettingsGroup(title: '资源搜索', children: [
+          SettingRow(
+            title: 'SearchGal 兼容聚合接口',
+            subtitle: '可留空：仅用内置源（鲲Galgame / GAL图书馆 / 真红小站）。'
+                '填入自建的 SearchGal 地址（如 https://your-app.workers.dev/gal）'
+                '可聚合 27+ 站点',
+            trailing: SizedBox(
+              width: 320,
+              child: TextField(
+                controller: _searchGalController,
+                decoration: const InputDecoration(
+                    hintText: 'https://your-app.workers.dev/gal', isDense: true),
+                onChanged: (v) => AppServices.I.settings
+                    .setString(SettingsStore.kSearchGalApi, v.trim()),
+              ),
             ),
           ),
         ]),

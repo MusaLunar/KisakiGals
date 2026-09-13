@@ -22,6 +22,7 @@ import 'detail/game_detail_page.dart';
 import 'home/home_page.dart';
 import 'library/library_page.dart';
 import 'ai/ai_page.dart';
+import 'search/resource_search_page.dart';
 import 'stats/stats_page.dart';
 import 'settings/settings_page.dart';
 import 'theme.dart';
@@ -166,9 +167,10 @@ class _ShellPageState extends ConsumerState<ShellPage> with WindowListener {
                           child: switch (tab) {
                             0 => const HomePage(key: ValueKey(0)),
                             1 => const LibraryPage(key: ValueKey(1)),
-                            2 => const StatsPage(key: ValueKey(2)),
-                            3 => const AiPage(key: ValueKey(3)),
-                            _ => const SettingsPage(key: ValueKey(4)),
+                            2 => const ResourceSearchPage(key: ValueKey(2)),
+                            3 => const StatsPage(key: ValueKey(3)),
+                            4 => const AiPage(key: ValueKey(4)),
+                            _ => const SettingsPage(key: ValueKey(5)),
                           },
                         ),
                       ),
@@ -287,6 +289,7 @@ class _NavRail extends StatelessWidget {
   static const _items = [
     (Icons.home_rounded, '主页'),
     (Icons.videogame_asset_rounded, '游戏库'),
+    (Icons.travel_explore_rounded, '资源搜索'),
     (Icons.insights_rounded, '统计'),
     (Icons.auto_awesome_rounded, 'AI'),
     (Icons.settings_rounded, '设置'),

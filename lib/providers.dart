@@ -79,6 +79,9 @@ class LibraryFilter {
     ..sort = sort;
 }
 
+/// 资源搜索页的查询词（供跨页跳转预填）
+final resourceQueryProvider = StateProvider<String>((ref) => '');
+
 final libraryFilterProvider =
     StateProvider<LibraryFilter>((ref) => LibraryFilter());
 

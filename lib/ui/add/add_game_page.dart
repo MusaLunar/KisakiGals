@@ -23,7 +23,9 @@ import '../widgets/notifications.dart';
 import '../widgets/scrape_search_sheet.dart';
 
 class AddGamePage extends ConsumerStatefulWidget {
-  const AddGamePage({super.key});
+  /// 进入页面时预填的搜索关键词（例如从资源搜索「入库」跳转而来）
+  final String initialQuery;
+  const AddGamePage({super.key, this.initialQuery = ''});
 
   @override
   ConsumerState<AddGamePage> createState() => _AddGamePageState();
@@ -751,6 +753,18 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     final result = await FilePicker.platform.pickFiles(type: FileType.image);
     if (result?.files.single.path != null) {
       setState(() => _customCover.text = result!.files.single.path!);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialQuery.isNotEmpty) {
+      _nameController.text = widget.initialQuery;
+      // 从资源搜索「入库」跳转而来：自动发起一次跨源搜索
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startSearch();
+      });
     }
   }
 

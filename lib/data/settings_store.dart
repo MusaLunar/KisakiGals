@@ -86,6 +86,9 @@ class SettingsStore {
   /// Locale Emulator 的 LEProc.exe 路径（日文游戏转区启动用）
   static const kLePath = 'runtime.le_path';
 
+  /// SearchGal 兼容聚合接口地址（可留空只用内置源）
+  static const kSearchGalApi = 'search.searchgal_api';
+
   /// 本机设备标识（无法读取 MachineGuid 时的兜底）
   static const kDeviceId = 'device.id';
 
