@@ -2,7 +2,7 @@
 
 # 🌸 KisakiGals
 
-**Galgame 收藏、游玩时长与资源搜索管理器** · Flutter Windows 桌面应用
+**Galgame 收藏、游玩时长与资源搜索管理器** · Flutter Windows 桌面应用 · VIBE CODING
 
 > 「无论何时，都想与她们再次相见。」
 
