@@ -9,8 +9,8 @@ import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
 import '../../providers.dart';
-import '../../services/game_launcher.dart';
 import '../detail/game_detail_page.dart';
+import 'game_card_actions.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -60,7 +60,8 @@ class _GameCardState extends ConsumerState<GameCard> {
           ref.read(libraryVersionProvider.notifier).state++;
         },
         onSecondaryTapUp: (details) =>
-            _showContextMenu(context, game, details.globalPosition),
+            GameCardActions.showContextMenu(
+                context, ref, game, details.globalPosition),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
           decoration: BoxDecoration(
@@ -246,101 +247,6 @@ class _GameCardState extends ConsumerState<GameCard> {
   }
 
   /// 右键菜单：打开游戏 / 打开目录 / 更改状态 / 删除游戏。
-  Future<void> _showContextMenu(
-      BuildContext context, Game game, Offset position) async {
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
-    final action = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy,
-        overlay.size.width - position.dx,
-        overlay.size.height - position.dy,
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      items: [
-        const PopupMenuItem(value: 'open', child: Text('打开游戏')),
-        if (game.directory.isNotEmpty)
-          const PopupMenuItem(value: 'dir', child: Text('打开目录')),
-        const PopupMenuItem(value: 'status', child: Text('更改状态')),
-        PopupMenuItem(
-            value: 'fav',
-            child: Text(game.isFavorite ? '取消收藏' : '加入收藏')),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-            value: 'delete',
-            child: Text('删除游戏', style: TextStyle(color: Colors.red))),
-      ],
-    );
-    if (action == null || !context.mounted) return;
-    final repo = AppServices.I.repo;
-    switch (action) {
-      case 'open':
-        await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => GameDetailPage(gameId: game.id!, initial: game)));
-        ref.read(libraryVersionProvider.notifier).state++;
-        break;
-      case 'dir':
-        GameLauncher.openDirectory(game.directory);
-        break;
-      case 'status':
-        if (!context.mounted) return;
-        final status = await showMenu<PlayStatus>(
-          context: context,
-          position: RelativeRect.fromLTRB(position.dx, position.dy,
-              overlay.size.width - position.dx, overlay.size.height - position.dy),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          items: [
-            for (final s in PlayStatus.values)
-              PopupMenuItem(
-                  value: s,
-                  child: Row(children: [
-                    if (game.playStatus == s)
-                      const Icon(Icons.check_rounded, size: 16)
-                    else
-                      const SizedBox(width: 16),
-                    const SizedBox(width: 6),
-                    Text(s.label),
-                  ])),
-          ],
-        );
-        if (status != null) {
-          game.playStatus = status;
-          await repo.updateGame(game);
-          ref.read(libraryVersionProvider.notifier).state++;
-        }
-        break;
-      case 'fav':
-        game.isFavorite = !game.isFavorite;
-        await repo.updateGame(game);
-        ref.read(libraryVersionProvider.notifier).state++;
-        break;
-      case 'delete':
-        if (!context.mounted) return;
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('删除游戏'),
-            content: Text('确定要删除「${game.displayName}」吗？\n游玩记录与统计将一并删除。'),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('取消')),
-              FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('删除')),
-            ],
-          ),
-        );
-        if (ok == true) {
-          await repo.deleteGame(game.id!);
-          ref.read(libraryVersionProvider.notifier).state++;
-        }
-        break;
-    }
-  }
 }
 
 class _StatusBadge extends StatelessWidget {

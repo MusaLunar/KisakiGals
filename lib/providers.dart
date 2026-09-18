@@ -79,6 +79,9 @@ class LibraryFilter {
     ..sort = sort;
 }
 
+/// 游戏库排版：`grid` = 大封面网格；`list` = 紧凑列表（左封面右名称，一页看更多）
+final libraryLayoutProvider = StateProvider<String>((ref) => 'grid');
+
 /// 资源搜索页的查询词（供跨页跳转预填）
 final resourceQueryProvider = StateProvider<String>((ref) => '');
 

@@ -110,6 +110,8 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
           await s.getDouble('nsfw.blur', 12);
       ref.read(detailBgBlurProvider.notifier).state =
           await s.getDouble('detail.bg_blur', 14);
+      ref.read(libraryLayoutProvider.notifier).state =
+          await s.getString(SettingsStore.kLibraryLayout, 'grid');
       await applyCloseBehavior();
     });
   }

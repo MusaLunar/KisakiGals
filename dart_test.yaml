@@ -1,0 +1,9 @@
+# 测试运行配置
+#
+# concurrency: 1 —— 必须串行执行。
+# 原因：多个测试文件会并发以独立 isolate 加载**随包发布的 sqlite3.dll**
+# （fresh_db_test / library_layout_test 通过 sqlite3/open.dart 显式加载它，
+# 以便与安装后运行的环境完全一致），并发时该原生库会触发崩溃
+# （RtlEnterCriticalSection 栈错）或 close 时的 API misuse 报错。
+# 串行执行可复现、稳定，整套测试约 15 秒。
+concurrency: 1

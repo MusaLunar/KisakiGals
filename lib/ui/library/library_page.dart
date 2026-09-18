@@ -9,12 +9,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
+import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../add/add_game_page.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/notifications.dart';
 import 'game_card.dart';
+import 'game_list_tile.dart';
 
 class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key});
@@ -131,6 +133,27 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 ),
               ),
               const SizedBox(width: 8),
+              // 排版切换：大封面网格 / 紧凑列表
+              IconButton(
+                tooltip: ref.watch(libraryLayoutProvider) == 'list'
+                    ? '切换为大封面网格'
+                    : '切换为紧凑列表',
+                onPressed: () async {
+                  final next = ref.read(libraryLayoutProvider) == 'list'
+                      ? 'grid'
+                      : 'list';
+                  ref.read(libraryLayoutProvider.notifier).state = next;
+                  await AppServices.I.settings
+                      .setString(SettingsStore.kLibraryLayout, next);
+                },
+                icon: Icon(
+                  ref.watch(libraryLayoutProvider) == 'list'
+                      ? Icons.grid_view_rounded
+                      : Icons.view_list_rounded,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 8),
               IconButton(
                 tooltip: '批量管理',
                 onPressed: () {
@@ -174,6 +197,49 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                     data: (list) => list.isEmpty
                         ? const Center(child: Text('没有符合条件的游戏'))
                         : LayoutBuilder(builder: (context, constraints) {
+                            // 平台评分角标数据（一次查询，避免每张卡各查一次）
+                            final ratings =
+                                ref.watch(platformRatingsProvider).valueOrNull ??
+                                    const <int, double>{};
+                            final layout = ref.watch(libraryLayoutProvider);
+                            if (layout == 'list') {
+                              // 紧凑列表：左封面 + 右名称，一页可容纳多个
+                              const gap = 10.0;
+                              const tileW = 320.0;
+                              final cols = (constraints.maxWidth / tileW)
+                                  .floor()
+                                  .clamp(1, 6);
+                              return GridView.builder(
+                                padding:
+                                    const EdgeInsets.only(bottom: 20, top: 4),
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: cols,
+                                  mainAxisSpacing: gap,
+                                  crossAxisSpacing: gap,
+                                  mainAxisExtent: 82,
+                                ),
+                                itemCount: list.length,
+                                itemBuilder: (context, i) {
+                                  final g = list[i];
+                                  return GameListTile(
+                                    game: g,
+                                    bestPlatformRating: ratings[g.id],
+                                    selectionMode: _batchMode,
+                                    selected: _selected.contains(g.id),
+                                    onSelectionChanged: (sel) {
+                                      setState(() {
+                                        if (sel) {
+                                          _selected.add(g.id!);
+                                        } else {
+                                          _selected.remove(g.id);
+                                        }
+                                      });
+                                    },
+                                  );
+                                },
+                              );
+                            }
                             const spacing = 18.0;
                             final count = (constraints.maxWidth / 190)
                                 .floor()
@@ -183,10 +249,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                 (constraints.maxWidth - spacing * (count - 1)) /
                                     count;
                             final cellH = cellW / kCoverAspect + 56;
-                            // 平台评分角标数据（一次查询，避免每张卡各查一次）
-                            final ratings =
-                                ref.watch(platformRatingsProvider).valueOrNull ??
-                                    const <int, double>{};
                             return GridView.builder(
                               padding:
                                   const EdgeInsets.only(bottom: 20, top: 4),
