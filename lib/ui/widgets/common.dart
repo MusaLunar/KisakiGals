@@ -12,6 +12,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../core/constants.dart';
 import '../../providers.dart';
 import '../../core/paths.dart';
+import '../design.dart';
 import '../theme.dart';
 
 /// 封面宽高比：Galgame 封面标准 **2:3**（宽:高）。
@@ -222,13 +223,87 @@ class SoftCard extends StatelessWidget {
       );
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Material(
-      color: color ?? (dark ? KisakiColors.nightCard : Colors.white),
-      borderRadius: borderRadius,
-      child: InkWell(
+    final scheme = Theme.of(context).colorScheme;
+    // 可点击卡片：常态硬阴影 → hover 柔光 + 微上浮（ChronoTide 式微交互）
+    if (onTap != null) {
+      return InteractiveSurface(
         onTap: onTap,
         borderRadius: borderRadius,
-        child: Padding(padding: padding, child: child),
+        color: color ?? (dark ? KisakiColors.nightCard : Colors.white),
+        outline: scheme.primary,
+        padding: padding,
+        child: child,
+      );
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color ?? (dark ? KisakiColors.nightCard : Colors.white),
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: dark
+              ? Colors.white.withValues(alpha: 0.07)
+              : Colors.black.withValues(alpha: 0.05),
+        ),
+        boxShadow: Elev.card(dark, scheme.primary),
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+  }
+}
+
+/// 空状态：图标 + 标题 + 说明 +（可选）主操作（参考 ReinaManager 的空态规范）。
+class EmptyStateCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const EmptyStateCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.primary.withValues(alpha: 0.10),
+              ),
+              child: Icon(icon,
+                  size: 28, color: scheme.primary.withValues(alpha: 0.75)),
+            ),
+            const SizedBox(height: 16),
+            Text(title, style: Type.section),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(subtitle!,
+                  textAlign: TextAlign.center,
+                  style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onAction,
+                label: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

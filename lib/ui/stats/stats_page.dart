@@ -12,6 +12,7 @@ import '../../data/models.dart';
 import '../../providers.dart';
 import '../detail/game_detail_page.dart';
 import '../theme.dart';
+import '../design.dart';
 import '../widgets/common.dart';
 import 'word_cloud.dart';
 
@@ -341,7 +342,7 @@ class _InfoTab extends ConsumerWidget {
         : (dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft);
     return InkWell(
       onTap: g.gameId > 0
-          ? () => Navigator.of(context).push(MaterialPageRoute(
+          ? () => Navigator.of(context).push(FadeThroughRoute.builder(
               builder: (_) => GameDetailPage(gameId: g.gameId)))
           : null,
       borderRadius: BorderRadius.circular(10),
@@ -449,7 +450,9 @@ class _RatingTile extends StatelessWidget {
     return SoftCard(
       padding: const EdgeInsets.all(10),
       onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => GameDetailPage(gameId: game.id!, initial: game))),
+          FadeThroughRoute.builder(
+            builder: (_) =>
+                GameDetailPage(gameId: game.id!, initial: game))),
       child: Row(
         children: [
           CoverImage(

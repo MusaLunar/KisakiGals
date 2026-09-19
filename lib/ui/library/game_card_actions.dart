@@ -7,6 +7,7 @@ import '../../data/models.dart';
 import '../../providers.dart';
 import '../../services/game_launcher.dart';
 import '../../services/game_launch_service.dart';
+import '../design.dart';
 import '../detail/game_detail_page.dart';
 
 /// 游戏卡片的共享操作：右键菜单与批量选择逻辑。
@@ -49,8 +50,9 @@ class GameCardActions {
     final repo = AppServices.I.repo;
     switch (action) {
       case 'detail':
-        await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => GameDetailPage(gameId: game.id!, initial: game)));
+        await Navigator.of(context).push(FadeThroughRoute.builder(
+            builder: (_) =>
+                GameDetailPage(gameId: game.id!, initial: game)));
         ref.read(libraryVersionProvider.notifier).state++;
         break;
       case 'open':

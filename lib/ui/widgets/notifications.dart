@@ -32,8 +32,14 @@ class NoticeCenter extends ChangeNotifier {
   void show(String message, {bool error = false, Duration? duration}) {
     final id = _nextId++;
     _items.add(AppNotice(id: id, message: message, error: error));
+    // 最多同时显示 3 条（参考 Reimanager 的 maxSnack=3）
+    while (_items.length > 3) {
+      final oldest = _items.first;
+      _timers.remove(oldest.id)?.cancel();
+      _items.removeAt(0);
+    }
     _timers[id]?.cancel();
-    _timers[id] = Timer(duration ?? const Duration(milliseconds: 4500), () {
+    _timers[id] = Timer(duration ?? const Duration(milliseconds: 3500), () {
       dismiss(id);
     });
     notifyListeners();

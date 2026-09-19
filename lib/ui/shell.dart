@@ -25,6 +25,7 @@ import 'ai/ai_page.dart';
 import 'search/resource_search_page.dart';
 import 'stats/stats_page.dart';
 import 'settings/settings_page.dart';
+import 'design.dart';
 import 'theme.dart';
 import 'widgets/notifications.dart';
 
@@ -313,52 +314,100 @@ class _NavRail extends StatelessWidget {
         children: List.generate(_items.length, (i) {
           final selected = tab == i;
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Material(
-              color: selected
-                  ? (dark
-                      ? KisakiColors.pink.withValues(alpha: 0.22)
-                      : KisakiColors.pinkContainer)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(18),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(18),
-                onTap: () => onChanged(i),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    children: [
-                      Icon(
-                        _items[i].$1,
-                        size: 26,
-                        color: selected
-                            ? scheme.primary
-                            : (dark
-                                ? KisakiColors.nightInkSoft
-                                : KisakiColors.inkSoft),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        _items[i].$2,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight:
-                              selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected
-                              ? scheme.primary
-                              : (dark
-                                  ? KisakiColors.nightInkSoft
-                                  : KisakiColors.inkSoft),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            child: _NavTile(
+              icon: _items[i].$1,
+              label: _items[i].$2,
+              selected: selected,
+              dark: dark,
+              scheme: scheme,
+              onTap: () => onChanged(i),
             ),
           );
         }),
+      ),
+    );
+  }
+}
+
+/// 侧栏导航项：选中药丸底 + hover 淡底与轻微右移（精致微交互）。
+class _NavTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final bool dark;
+  final ColorScheme scheme;
+  final VoidCallback onTap;
+
+  const _NavTile({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.dark,
+    required this.scheme,
+    required this.onTap,
+  });
+
+  @override
+  State<_NavTile> createState() => _NavTileState();
+}
+
+class _NavTileState extends State<_NavTile> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = widget.scheme.primary;
+    final idle =
+        widget.dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft;
+    final color = widget.selected ? accent : idle;
+    final bg = widget.selected
+        ? (widget.dark
+            ? accent.withValues(alpha: 0.22)
+            : KisakiColors.pinkContainer)
+        : (_hover
+            ? (widget.dark
+                ? Colors.white.withValues(alpha: 0.06)
+                : Colors.black.withValues(alpha: 0.035))
+            : Colors.transparent);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: Motion.fast,
+          curve: Motion.enter,
+          transform: Matrix4.identity()
+            ..translateByDouble(_hover && !widget.selected ? 2.0 : 0.0, 0, 0, 1),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: widget.selected
+                  ? accent.withValues(alpha: 0.35)
+                  : Colors.transparent,
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          child: Column(
+            children: [
+              Icon(widget.icon, size: 25, color: color),
+              const SizedBox(height: 4),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

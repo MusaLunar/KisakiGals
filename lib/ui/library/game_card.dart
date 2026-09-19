@@ -12,6 +12,7 @@ import '../../providers.dart';
 import '../detail/game_detail_page.dart';
 import 'game_card_actions.dart';
 import '../theme.dart';
+import '../design.dart';
 import '../widgets/common.dart';
 
 class GameCard extends ConsumerStatefulWidget {
@@ -55,28 +56,40 @@ class _GameCardState extends ConsumerState<GameCard> {
             widget.onSelectionChanged?.call(!widget.selected);
             return;
           }
-          await Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => GameDetailPage(gameId: game.id!, initial: game)));
+          await Navigator.of(context).push(FadeThroughRoute.builder(
+              builder: (_) =>
+                  GameDetailPage(gameId: game.id!, initial: game)));
           ref.read(libraryVersionProvider.notifier).state++;
         },
         onSecondaryTapUp: (details) =>
             GameCardActions.showContextMenu(
                 context, ref, game, details.globalPosition),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: Motion.fast,
+          curve: Motion.enter,
+          transform: Matrix4.identity()
+            ..translateByDouble(0, _hover && !widget.selectionMode ? Motion.hoverLift : 0.0, 0, 1)
+            ..scaleByDouble(_hover && !widget.selectionMode ? 1.02 : 1.0,
+                _hover && !widget.selectionMode ? 1.02 : 1.0, 1, 1),
+          transformAlignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: widget.selectionMode && widget.selected
                   ? scheme.primary
-                  : _hover
-                      ? scheme.primary.withValues(alpha: 0.45)
-                      : Colors.transparent,
-              width: 2,
+                  : (_hover
+                      ? scheme.primary.withValues(alpha: 0.40)
+                      : Colors.transparent),
+              width: widget.selectionMode && widget.selected ? 2 : 1,
             ),
             color: widget.selectionMode && widget.selected
                 ? scheme.primary.withValues(alpha: 0.08)
                 : Colors.transparent,
+            boxShadow: _hover && !widget.selectionMode
+                ? Elev.cardHover(
+                    Theme.of(context).brightness == Brightness.dark,
+                    scheme.primary)
+                : null,
           ),
           padding: const EdgeInsets.all(4),
           child: Column(
