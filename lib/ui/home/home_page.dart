@@ -41,7 +41,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       error: (e, _) => Center(child: Text('加载失败：$e')),
       // 固定布局：整页不滚动，一屏展示全部内容；动态/推荐卡片内部滚动
       data: (data) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        padding: const EdgeInsets.fromLTRB(24, 14, 24, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

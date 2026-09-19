@@ -102,7 +102,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                     const WindowDragBar(height: 24),
                     Expanded(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

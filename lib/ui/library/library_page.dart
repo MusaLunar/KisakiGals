@@ -73,7 +73,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
       child: Column(
         children: [
           // 顶栏：标题 + 计数 + 搜索 + 添加
@@ -240,7 +240,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                                 },
                               );
                             }
-                            const spacing = 18.0;
+                            const spacing = 16.0;
                             final count = (constraints.maxWidth / 190)
                                 .floor()
                                 .clamp(2, 10);

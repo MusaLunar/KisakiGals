@@ -114,7 +114,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
             if (exe != null) _useExe(exe);
           },
           child: Padding(
-            padding: const EdgeInsets.all(28),
+            padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -300,8 +300,8 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
               : GridView(
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 400,
-                    mainAxisSpacing: 14,
-                    crossAxisSpacing: 14,
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 16,
                     childAspectRatio: 3.4,
                   ),
                   children: [

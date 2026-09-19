@@ -59,7 +59,7 @@ class _AiPageState extends ConsumerState<AiPage> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
       child: ListView(
         children: [
           Row(

@@ -141,7 +141,7 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 10, 28, 0),
+      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
