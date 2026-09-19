@@ -5,6 +5,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'media_paths.dart';
 
 class AppPaths {
   String root; // 数据根目录
@@ -42,6 +45,8 @@ class AppPaths {
       Directory(d).createSync(recursive: true);
     }
     _instance = paths;
+    // 媒体路径解析器与数据目录同步（供数据层/纯 Dart 代码使用）
+    MediaPaths.install(root);
     return paths;
   }
 
@@ -62,4 +67,20 @@ class AppPaths {
     final dir = await getApplicationSupportDirectory();
     return p.join(dir.path, 'KisakiGals');
   }
+
+  // ---------- 媒体路径的跨设备可移植（实现见 core/media_paths.dart）----------
+
+  /// 写入数据库时使用：数据目录内的文件存相对路径。
+  String toStored(String path) => MediaPaths.instance.toStored(path);
+
+  /// 读取数据库中的路径时使用：解析为本机可用路径。
+  String resolveStored(String stored) => MediaPaths.instance.resolveStored(stored);
+
+  /// 目录版本（存档目录等）。
+  String resolveStoredDir(String stored) =>
+      MediaPaths.instance.resolveStoredDir(stored);
+
+  /// 修复历史遗留的封面/背景绝对路径。
+  Future<int> repairLegacyMediaPaths(Database db) =>
+      MediaPaths.instance.repairLegacyMediaPaths(db);
 }

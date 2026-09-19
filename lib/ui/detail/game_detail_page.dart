@@ -64,7 +64,11 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
         final sources = ref.watch(gameSourcesProvider(widget.gameId)).valueOrNull ?? [];
         final tags = ref.watch(gameTagsProvider(widget.gameId)).valueOrNull ?? [];
         final bgBlur = ref.watch(detailBgBlurProvider);
-        final bgFile = cachedFileExists(game.backgroundUrl);
+        // 背景图同样可能存的是相对路径（换设备迁移后需解析）
+        final bgPath = game.backgroundUrl.isEmpty
+            ? ''
+            : AppServices.I.paths.resolveStored(game.backgroundUrl);
+        final bgFile = cachedFileExists(bgPath);
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -80,7 +84,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                   imageFilter: ImageFilter.blur(
                       sigmaX: bgBlur, sigmaY: bgBlur, tileMode: TileMode.clamp),
                   child: Image.file(
-                    File(game.backgroundUrl),
+                    File(bgPath),
                     fit: BoxFit.cover,
                     alignment: Alignment.topCenter,
                   ),
@@ -104,7 +108,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                           children: [
                             _topBar(game, tracking),
                             const SizedBox(height: 14),
-                            _header(game, sources, tracking),
+                            _header(game, sources, tracking, bgFile),
                             const SizedBox(height: 20),
                             if (tags.isNotEmpty) ...[
                               _tags(tags, dark),
@@ -118,12 +122,14 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                                   flex: 3,
                                   child: game.summary.isEmpty
                                       ? SoftCard(
+                                          glass: bgFile,
                                           child: Text('暂无简介',
                                               style: TextStyle(
                                                   color: Theme.of(context)
                                                       .colorScheme
                                                       .onSurfaceVariant)))
                                       : SoftCard(
+                                          glass: bgFile,
                                           child: Text(game.summary,
                                               style: const TextStyle(
                                                   height: 1.7,
@@ -191,7 +197,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
     );
   }
 
-  Widget _header(Game game, List<SourceRecord> sources, bool tracking) {
+  Widget _header(Game game, List<SourceRecord> sources, bool tracking,
+      [bool glass = false]) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -265,7 +272,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
               ),
               const SizedBox(height: 14),
               // 游玩记录：与主页一致的统计卡片（总时长 / 本次 / 次数 / 日均）
-              _PlaytimeCards(game: game, tracking: tracking),
+              _PlaytimeCards(game: game, tracking: tracking, glass: glass),
               const SizedBox(height: 16),
               _InfoRow(
                   icon: Icons.business_rounded,
@@ -675,7 +682,9 @@ class _LiveSessionChipState extends State<_LiveSessionChip> {
 class _PlaytimeCards extends StatefulWidget {
   final Game game;
   final bool tracking;
-  const _PlaytimeCards({required this.game, required this.tracking});
+  final bool glass;
+  const _PlaytimeCards(
+      {required this.game, required this.tracking, this.glass = false});
 
   @override
   State<_PlaytimeCards> createState() => _PlaytimeCardsState();
@@ -757,6 +766,7 @@ class _PlaytimeCardsState extends State<_PlaytimeCards> {
             Padding(
               padding: const EdgeInsets.only(right: 12, bottom: 12),
               child: _StatTile(
+                glass: widget.glass,
                 title: c.$1,
                 icon: c.$2,
                 color: c.$3,
@@ -771,12 +781,14 @@ class _PlaytimeCardsState extends State<_PlaytimeCards> {
 }
 
 class _StatTile extends StatelessWidget {
+  final bool glass;
   final String title;
   final IconData icon;
   final Color color;
   final String value;
   final String subtitle;
   const _StatTile({
+    this.glass = false,
     required this.title,
     required this.icon,
     required this.color,
@@ -788,6 +800,7 @@ class _StatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return SoftCard(
+      glass: glass,
       child: Row(children: [
         Container(
           width: 42,

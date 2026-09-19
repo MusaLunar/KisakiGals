@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 
 import '../core/constants.dart';
+import '../core/media_paths.dart';
 import '../core/utils.dart';
 
 class Game {
@@ -133,7 +134,8 @@ class Game {
         'name': name,
         'name_cn': nameCn,
         'aliases': aliases.isEmpty ? '' : jsonEncodeMap({'list': aliases}),
-        'cover_path': coverPath,
+        // 封面/背景：尽量存相对数据目录的路径，换设备/换盘后仍能定位
+        'cover_path': MediaPaths.instance.toStored(coverPath),
         'developer': developer,
         'release_date': releaseDate,
         'summary': summary,
@@ -151,7 +153,7 @@ class Game {
         'first_played_at': firstPlayedAt?.toIso8601String() ?? '',
         'last_played_at': lastPlayedAt?.toIso8601String() ?? '',
         'screenshots': jsonEncode(screenshots),
-        'background_url': backgroundUrl,
+        'background_url': MediaPaths.instance.toStored(backgroundUrl),
         'locale_mode': localeMode,
         'save_path': savePath,
         'device_id': deviceId,

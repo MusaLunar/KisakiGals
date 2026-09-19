@@ -1087,7 +1087,9 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                         dbFile: AppServices.I.paths.dbFile,
                         backupsDir: (dir != null && dir.isNotEmpty)
                             ? dir
-                            : AppServices.I.paths.backups);
+                            : AppServices.I.paths.backups,
+                        // 带上 covers/ 等媒体目录，换设备后封面仍可用
+                        dataRoot: AppServices.I.paths.root);
                     final path =
                         await target.backup(checkpointDb: AppServices.I.db);
                     if (dir == null || dir.isEmpty) {
@@ -1112,9 +1114,11 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                     );
                     final path = result?.files.single.path;
                     if (path == null || path.isEmpty) return;
-                    if (!BackupService.looksLikeSqlite(path)) {
+                    if (!BackupService.looksLikeArchive(path) &&
+                        !BackupService.looksLikeSqlite(path)) {
                       if (context.mounted) {
-                        showNotice('所选文件不是有效的数据库备份', error: true);
+                        showNotice('所选文件不是有效的备份（应为 .kgbak 或 .db）',
+                            error: true);
                       }
                       return;
                     }
@@ -1147,7 +1151,8 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                       // 3. 覆盖
                       await BackupService(
                               dbFile: AppServices.I.paths.dbFile,
-                              backupsDir: AppServices.I.paths.backups)
+                              backupsDir: AppServices.I.paths.backups,
+                              dataRoot: AppServices.I.paths.root)
                           .restore(path);
                     } catch (e) {
                       if (context.mounted) {

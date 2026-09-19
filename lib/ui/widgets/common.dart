@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../core/constants.dart';
 import '../../providers.dart';
+import '../../core/paths.dart';
 import '../theme.dart';
 
 /// 封面宽高比：Galgame 封面标准 **2:3**（宽:高）。
@@ -102,8 +103,10 @@ class CoverImage extends ConsumerWidget {
 
   Widget _renderImage(BuildContext context, bool dark, {required bool blur, double sigma = 12}) {
     Widget? image;
-    if (path.isNotEmpty && _existsCached(path)) {
-      image = Image.file(File(path),
+    // 数据库里可能存的是相对数据目录的路径（换设备后仍可用）
+    final resolvedPath = path.isEmpty ? '' : AppPaths.instance.resolveStored(path);
+    if (resolvedPath.isNotEmpty && _existsCached(resolvedPath)) {
+      image = Image.file(File(resolvedPath),
           fit: fit, width: width, height: height, gaplessPlayback: true);
     } else if ((networkUrl ?? '').isNotEmpty) {
       image = CachedNetworkImage(
@@ -187,13 +190,16 @@ class GlassPanel extends StatelessWidget {
   }
 }
 
-/// 实心卡片面板（非玻璃）。
+/// 卡片面板。[glass] = true 时改为毛玻璃（用于背景图之上）。
 class SoftCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
   final BorderRadius borderRadius;
   final Color? color;
   final VoidCallback? onTap;
+
+  /// 毛玻璃：背景图之上使用（BackdropFilter 模糊身后内容）
+  final bool glass;
 
   const SoftCard({
     super.key,
@@ -202,14 +208,22 @@ class SoftCard extends StatelessWidget {
     this.borderRadius = const BorderRadius.all(Radius.circular(20)),
     this.color,
     this.onTap,
+    this.glass = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (glass) {
+      return GlassPanel(
+        borderRadius: borderRadius,
+        padding: padding,
+        tint: color,
+        child: child,
+      );
+    }
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: color ??
-          (dark ? KisakiColors.nightCard : Colors.white),
+      color: color ?? (dark ? KisakiColors.nightCard : Colors.white),
       borderRadius: borderRadius,
       child: InkWell(
         onTap: onTap,

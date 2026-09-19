@@ -59,6 +59,9 @@ Future<void> _flattenLegacyDbDir(String dbFile) async {
 /// 最近一次启动时的重定位结果（UI 提示用）。
 RelocateResult? lastRelocateResult;
 
+/// 启动时修复的封面/背景路径条数（UI 提示用）。
+int lastMediaRepairCount = 0;
+
 class AppServices {
   static AppServices? _i;
   static AppServices get I => _i!;
@@ -169,6 +172,12 @@ class AppServices {
     s.relocator = PathRelocator(s.settings, s.repo);
     s.autostart = AutostartService();
     s.ai = AiService(proxy: s.fetcher.proxy);
+
+    // 修复历史遗留的封面/背景绝对路径（换设备迁移后按文件名找回）
+    try {
+      final fixed = await s.paths.repairLegacyMediaPaths(s.db);
+      if (fixed > 0) lastMediaRepairCount = fixed;
+    } catch (_) {}
 
     // 启动时尝试重定位缺失的游戏路径（失败静默，由 UI 侧另行提示）
     try {
