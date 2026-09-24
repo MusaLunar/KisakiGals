@@ -1,4 +1,4 @@
-/// 主页：问候与速览 / 最近游玩 Hero / 动态时间线 / 为你推荐 / 快捷操作。
+/// 主页：问候与速览 / 最近游玩 Hero / 动态时间线 / 为你推荐。
 ///
 /// 重构要点：
 /// - 页面骨架交给 [KPage]（标题区 + 统一留白），整页滚动；
@@ -21,7 +21,6 @@ import '../../data/models.dart';
 import '../../providers.dart';
 import '../../scraping/scraped_game.dart';
 import '../../services/game_launch_service.dart';
-import '../add/add_game_page.dart';
 import '../design.dart';
 import '../detail/game_detail_page.dart';
 import '../kit.dart';
@@ -74,6 +73,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _content(HomeData data) {
     return KPage(
+      // 超宽屏（>1440）下居中限宽，避免卡片与数据带被拉稀
+      maxContentWidth: 1440,
       title: _greeting(),
       subtitle: '共 ${data.gameCount} 部作品 · 累计 ${fmtDuration(data.all.totalSeconds)}',
       actions: [
@@ -95,9 +96,6 @@ class _HomePageState extends ConsumerState<HomePage> {
           StaggeredFadeIn(index: 1, child: _heroSection(data)),
           const SizedBox(height: Gap.lg),
           StaggeredFadeIn(index: 2, child: _feedRow(data)),
-          const SizedBox(height: Gap.lg),
-          StaggeredFadeIn(index: 3, child: _quickSection(data)),
-          const SizedBox(height: Gap.sm),
         ],
       ),
     );
@@ -505,66 +503,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  // ================= 4. 快捷操作 =================
-
-  Widget _quickSection(HomeData data) {
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const KSectionTitle('快捷操作'),
-        Row(
-          children: [
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.play_circle_fill_rounded,
-                label: '继续游戏',
-                color: scheme.primary,
-                onTap: () => _continueLatest(data),
-              ),
-            ),
-            const SizedBox(width: Gap.md),
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.add_circle_outline_rounded,
-                label: '添加游戏',
-                color: scheme.secondary,
-                onTap: _openAddGame,
-              ),
-            ),
-            const SizedBox(width: Gap.md),
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.videogame_asset_rounded,
-                label: '游戏库',
-                color: scheme.tertiary,
-                onTap: () => _switchTab(_kLibraryTab),
-              ),
-            ),
-            const SizedBox(width: Gap.md),
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.travel_explore_rounded,
-                label: '资源搜索',
-                color: scheme.primary,
-                onTap: () => _openResourceSearch(''),
-              ),
-            ),
-            const SizedBox(width: Gap.md),
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.insights_rounded,
-                label: '游玩统计',
-                color: scheme.secondary,
-                onTap: () => _switchTab(_kStatsTab),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   // ================= 交互 =================
 
   void _switchHero(int index) => setState(() => _heroIndex = index);
@@ -586,25 +524,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     ));
   }
 
-  Future<void> _openAddGame() async {
-    await Navigator.of(context)
-        .push(FadeThroughRoute.builder(builder: (_) => const AddGamePage()));
-    if (!mounted) return;
-    ref.read(libraryVersionProvider.notifier).state++;
-  }
-
   Future<void> _continueGame(Game g) async {
     await GameLaunchService.launchAndTrack(g, ref);
     if (mounted) setState(() {});
-  }
-
-  /// 继续最近游玩的一部；没有记录时退回游戏库挑选。
-  Future<void> _continueLatest(HomeData data) async {
-    if (data.recentGames.isEmpty) {
-      _switchTab(_kLibraryTab);
-      return;
-    }
-    await _continueGame(data.recentGames.first);
   }
 
   List<TagItem> _topTags() {
@@ -979,46 +901,6 @@ class _Bone extends StatelessWidget {
       child: ColoredBox(
         color: color,
         child: SizedBox(width: width, height: height),
-      ),
-    );
-  }
-}
-
-// ================= 快捷操作 =================
-
-/// 快捷操作卡：图标 + 文案，点击即跳转/执行。
-class _QuickAction extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _QuickAction({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return KCard(
-      padding: const EdgeInsets.symmetric(horizontal: Gap.md, vertical: 14),
-      onTap: onTap,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 19, color: color),
-          const SizedBox(width: Gap.sm),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Type.label,
-            ),
-          ),
-        ],
       ),
     );
   }

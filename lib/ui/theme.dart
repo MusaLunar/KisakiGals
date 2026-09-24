@@ -93,7 +93,12 @@ ThemeData _theme(Brightness brightness) {
     colorScheme: scheme,
     brightness: brightness,
     scaffoldBackgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
-    fontFamily: 'Microsoft YaHei UI',
+    // 字体：拉丁/数字用 Segoe UI（Windows 原生、字形清晰），
+    // 中文自动回退微软雅黑（Type.fontFallback）
+    fontFamily: Type.fontFamily,
+    fontFamilyFallback: Type.fontFallback,
+    // 统一文字阶梯：中文行高比 Material 默认更大，且不使用负字距
+    textTheme: _textTheme(scheme.onSurface, scheme.onSurfaceVariant),
     splashFactory: InkSparkle.splashFactory,
     visualDensity: VisualDensity.standard,
     // 药丸按钮（参考 ReinaManager 的 999 圆角）
@@ -238,5 +243,30 @@ ThemeData _theme(Brightness brightness) {
       labelStyle: Type.label,
       unselectedLabelStyle: Type.label,
     ),
+  );
+}
+
+/// 统一文字阶梯：把 design.dart 的 Type token 映射到 Material 的 TextTheme，
+/// 使未显式指定样式的组件（按钮、列表、对话框等）也使用同一套中文排印参数。
+TextTheme _textTheme(Color ink, Color inkSoft) {
+  TextStyle t(TextStyle base, {Color? color, FontWeight? weight}) =>
+      base.copyWith(color: color ?? ink, fontWeight: weight);
+
+  return TextTheme(
+    displayLarge: t(Type.display),
+    displayMedium: t(Type.display),
+    displaySmall: t(Type.title),
+    headlineLarge: t(Type.title),
+    headlineMedium: t(Type.title),
+    headlineSmall: t(Type.title),
+    titleLarge: t(Type.title),
+    titleMedium: t(Type.label),
+    titleSmall: t(Type.label),
+    bodyLarge: t(Type.body),
+    bodyMedium: t(Type.body),
+    bodySmall: t(Type.caption, color: inkSoft),
+    labelLarge: t(Type.label),
+    labelMedium: t(Type.caption),
+    labelSmall: t(Type.micro, color: inkSoft),
   );
 }

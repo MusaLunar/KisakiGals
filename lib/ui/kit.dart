@@ -28,9 +28,13 @@ class KPage extends StatelessWidget {
   final Widget child;
   final bool scrollable;
 
+  /// 内容最大宽度（超宽屏下避免元素被拉得过稀；null = 自适应全宽）
+  final double? maxContentWidth;
+
   const KPage({
     super.key,
     required this.title,
+    this.maxContentWidth,
     this.subtitle,
     this.subtitleWidget,
     this.leadingIcon,
@@ -82,21 +86,29 @@ class KPage extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: scrollable
-              ? Scrollbar(
-                  // 桌面端默认滚动条只在滚动时出现；这里常驻显示，避免
-                  // 「内容被裁但看不出还能滚」的观感问题
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    primary: true,
-                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
-                    child: child,
-                  ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
-                  child: child,
-                ),
+          child: Center(
+            child: ConstrainedBox(
+              // 超宽屏下限制内容宽度，避免元素被拉得过稀（评审：>1600px 时
+              // Hero 数据带跟着窗口一起变宽，观感松散）
+              constraints: BoxConstraints(
+                  maxWidth: maxContentWidth ?? double.infinity),
+              child: scrollable
+                  ? Scrollbar(
+                      // 桌面端默认滚动条只在滚动时出现；这里常驻显示，避免
+                      // 「内容被裁但看不出还能滚」的观感问题
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        primary: true,
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+                        child: child,
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+                      child: child,
+                    ),
+            ),
+          ),
         ),
       ],
     );

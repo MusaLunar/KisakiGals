@@ -127,37 +127,60 @@ class Motion {
   static const barrier = Color(0x66000000);
 }
 
-/// 排版阶梯（以 13.5 正文为基准，靠字重与字号双维度区分层级）。
+/// 排版阶梯。
+///
+/// 中文排印要点（Windows 桌面）：
+/// - **不要用负字距**：中文没有西文的"字侧空白"，负字距会挤在一起；
+/// - **避免 w800/w900**：微软雅黑只有 Regular/Bold 两档，超过 w700 会走
+///   合成加粗（笔画糊、边缘发虚），因此标题最高用 w700；
+/// - 中文行高需要比西文更大（正文 1.6、标题 1.35），否则密排发闷；
+/// - 数字统一用等宽字形（tabular），时长/计数在多行之间才能对齐。
 class Type {
+  /// 字体族：拉丁与数字用 Segoe UI（Windows 原生、清晰），
+  /// 中文回退到微软雅黑（见 [fontFallback]）。
+  static const fontFamily = 'Segoe UI';
+  static const fontFallback = <String>[
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    'Segoe UI',
+    'Arial',
+  ];
+
+  /// 数字等宽字形（时长、计数、日期）
+  static const nums = [FontFeature.tabularFigures()];
+
   static const display = TextStyle(
-      fontSize: 25,
-      fontWeight: FontWeight.w800,
-      letterSpacing: -0.4,
-      height: 1.25);
+    fontSize: 24,
+    fontWeight: FontWeight.w700,
+    height: 1.35,
+  );
   static const title = TextStyle(
-      fontSize: 17.5,
-      fontWeight: FontWeight.w700,
-      letterSpacing: -0.2,
-      height: 1.3);
+    fontSize: 17,
+    fontWeight: FontWeight.w700,
+    height: 1.35,
+  );
   static const section = TextStyle(
-      fontSize: 13.5,
-      fontWeight: FontWeight.w700,
-      letterSpacing: 0.1,
-      height: 1.3);
-  static const body = TextStyle(fontSize: 13.5, height: 1.55);
-  static const label = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600);
+    fontSize: 13.5,
+    fontWeight: FontWeight.w700,
+    height: 1.4,
+  );
+  static const body = TextStyle(fontSize: 13.5, height: 1.6);
+  static const label =
+      TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.4);
 
   /// 表单行标签（设置项/编辑项的行标题）
   static const formLabel =
-      TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.35);
-  static const caption = TextStyle(fontSize: 11.5, height: 1.4);
-  static const micro = TextStyle(fontSize: 10.5, height: 1.3);
+      TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.45);
+  static const caption = TextStyle(fontSize: 11.5, height: 1.5);
+  static const micro = TextStyle(fontSize: 10.5, height: 1.4);
 
-  /// 时长/计数等需要对齐的数字
+  /// 时长/计数：等宽数字 + 稍紧的行高
   static const numeric = TextStyle(
-      fontSize: 16,
-      fontWeight: FontWeight.w800,
-      fontFeatures: [FontFeature.tabularFigures()]);
+    fontSize: 16,
+    fontWeight: FontWeight.w700,
+    height: 1.25,
+    fontFeatures: nums,
+  );
 }
 
 // ============================ 交互动效 ============================
