@@ -21,6 +21,9 @@ class KPage extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? subtitleWidget;
+
+  /// 标题左侧图标（页面语义标识）
+  final IconData? leadingIcon;
   final List<Widget> actions;
   final Widget child;
   final bool scrollable;
@@ -30,6 +33,7 @@ class KPage extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.subtitleWidget,
+    this.leadingIcon,
     this.actions = const [],
     required this.child,
     this.scrollable = false,
@@ -45,6 +49,18 @@ class KPage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(24, 14, 24, 14),
           child: Row(
             children: [
+              if (leadingIcon != null) ...[
+                Container(
+                  width: 38,
+                  height: 38,
+                  margin: const EdgeInsets.only(right: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: scheme.primary.withValues(alpha: 0.11),
+                  ),
+                  child: Icon(leadingIcon, size: 20, color: scheme.primary),
+                ),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -79,6 +95,16 @@ class KPage extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 分区标题的固定槽位：并排两列时保证标题行等高（否则卡片顶边会错位）。
+class KSectionSlot extends StatelessWidget {
+  final Widget? child;
+  const KSectionSlot({super.key, this.child});
+
+  @override
+  Widget build(BuildContext context) =>
+      SizedBox(height: 38, child: Center(child: child ?? const SizedBox.shrink()));
 }
 
 /// 分区标题（用于页面内的分组）。
@@ -124,6 +150,9 @@ class KCard extends StatelessWidget {
   /// 浮层阴影（菜单/浮动操作栏用）；为 true 时改用 Elev.overlay
   final bool overlayShadow;
 
+  /// 扁平卡：只描边、不投影（用于卡内再嵌卡片，避免硬阴影叠加显脏）
+  final bool flat;
+
   /// 右键菜单（避免外部再包一层 GestureDetector）
   final void Function(Offset position)? onSecondaryTapAt;
 
@@ -137,6 +166,7 @@ class KCard extends StatelessWidget {
     this.dense = false,
     this.color,
     this.overlayShadow = false,
+    this.flat = false,
     this.onSecondaryTapAt,
   });
 
@@ -148,15 +178,23 @@ class KCard extends StatelessWidget {
     final fill = color ?? (dark ? KisakiColors.nightCard : Colors.white);
 
     if (glass) {
-      return GlassPanel(
+      final panel = GlassPanel(
         borderRadius: borderRadius,
         padding: pad,
         tint: color,
         child: child,
       );
+      // 毛玻璃卡也要能点（GlassPanel 本身没有点击能力）
+      return onTap == null
+          ? panel
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque, onTap: onTap, child: panel);
     }
-    final shadows =
-        overlayShadow ? Elev.overlay(dark) : Elev.card(dark, scheme.primary);
+    final shadows = flat
+        ? const <BoxShadow>[]
+        : (overlayShadow
+            ? Elev.overlay(dark)
+            : Elev.card(dark, scheme.primary));
     final body = onTap != null
         ? InteractiveSurface(
             onTap: onTap,
@@ -164,8 +202,8 @@ class KCard extends StatelessWidget {
             color: fill,
             outline: scheme.primary,
             padding: pad,
-            // 浮层模式下不再叠加硬阴影，避免双层投影
-            elevated: !overlayShadow,
+            // 浮层/扁平模式下不再叠加硬阴影，避免双层投影
+            elevated: !overlayShadow && !flat,
             child: child,
           )
         : DecoratedBox(
@@ -281,12 +319,16 @@ class KIconAction extends StatefulWidget {
   final VoidCallback? onTap;
   final bool active;
 
+  /// 置灰但保留位置（例如未选中任何项时的批量操作）
+  final bool enabled;
+
   const KIconAction({
     super.key,
     required this.icon,
     required this.tooltip,
     this.onTap,
     this.active = false,
+    this.enabled = true,
   });
 
   @override
@@ -332,9 +374,11 @@ class _KIconActionState extends State<KIconAction> {
             ),
             child: Icon(widget.icon,
                 size: 19,
-                color: widget.active
-                    ? scheme.primary
-                    : scheme.onSurfaceVariant),
+                color: !widget.enabled
+                    ? scheme.onSurfaceVariant.withValues(alpha: 0.38)
+                    : (widget.active
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant)),
           ),
         ),
       ),
@@ -458,6 +502,9 @@ class KEmpty extends StatelessWidget {
   final VoidCallback? onAction;
   final IconData actionIcon;
 
+  /// 紧凑变体：用于卡片内部（图标圈与间距更小）
+  final bool compact;
+
   const KEmpty({
     super.key,
     required this.icon,
@@ -466,6 +513,7 @@ class KEmpty extends StatelessWidget {
     this.actionLabel,
     this.onAction,
     this.actionIcon = Icons.refresh_rounded,
+    this.compact = false,
   });
 
   @override
@@ -476,17 +524,18 @@ class KEmpty extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 58,
-            height: 58,
+            width: compact ? 40 : 58,
+            height: compact ? 40 : 58,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: scheme.primary.withValues(alpha: 0.10),
             ),
             child: Icon(icon,
-                size: 26, color: scheme.primary.withValues(alpha: 0.8)),
+                size: compact ? 19 : 26,
+                color: scheme.primary.withValues(alpha: 0.8)),
           ),
-          const SizedBox(height: 14),
-          Text(title, style: Type.section),
+          SizedBox(height: compact ? 9 : 14),
+          Text(title, style: compact ? Type.label : Type.section),
           if (subtitle != null) ...[
             const SizedBox(height: 5),
             Text(subtitle!,
@@ -517,6 +566,65 @@ class KLoading extends StatelessWidget {
           child: const CircularProgressIndicator(strokeWidth: 2.5),
         ),
       );
+}
+
+/// 骨架占位块（加载态用，避免各页手写裸 Container + BoxDecoration）。
+class KSkeleton extends StatelessWidget {
+  final double? width;
+  final double height;
+  final double radius;
+
+  const KSkeleton({
+    super.key,
+    this.width,
+    this.height = 12,
+    this.radius = 6,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+    );
+  }
+}
+
+/// 骨架文本行（末行按比例缩短，视觉上更像真实段落）。
+class KSkeletonLines extends StatelessWidget {
+  final int lines;
+  final double lastLineFactor;
+  final double gap;
+
+  const KSkeletonLines({
+    super.key,
+    this.lines = 2,
+    this.lastLineFactor = 0.55,
+    this.gap = 8,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < lines; i++) ...[
+          if (i > 0) SizedBox(height: gap),
+          if (i == lines - 1 && lines > 1)
+            FractionallySizedBox(
+              widthFactor: lastLineFactor,
+              child: const KSkeleton(height: 10),
+            )
+          else
+            const KSkeleton(height: 11, width: double.infinity),
+        ],
+      ],
+    );
+  }
 }
 
 /// 小徽标（来源/状态/计数）。
@@ -569,7 +677,10 @@ class KRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return InkWell(
+    // 用透明 Material 承载水波纹：否则反馈会被 KCard 的不透明底色遮住
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
@@ -600,6 +711,7 @@ class KRow extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
   }
 }
@@ -607,6 +719,9 @@ class KRow extends StatelessWidget {
 /// 封面缩略图（左封面右文字的行式条目，游戏库紧凑列表与搜索结果共用）。
 class KMediaRow extends StatelessWidget {
   final String coverPath;
+
+  /// 网络封面（本地无封面时使用，例如搜刮预览/推荐结果）
+  final String? coverUrl;
   final String title;
   final String? subtitle;
   final double coverWidth;
@@ -619,7 +734,8 @@ class KMediaRow extends StatelessWidget {
 
   const KMediaRow({
     super.key,
-    required this.coverPath,
+    this.coverPath = '',
+    this.coverUrl,
     required this.title,
     this.subtitle,
     this.coverWidth = 44,
@@ -657,6 +773,7 @@ class KMediaRow extends StatelessWidget {
               height: coverH,
               child: CoverImage(
                 path: coverPath,
+                networkUrl: coverUrl,
                 nsfw: nsfw,
                 borderRadius: BorderRadius.circular(8),
               ),

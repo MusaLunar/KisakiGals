@@ -23,6 +23,13 @@ class Gap {
   static const page = EdgeInsets.fromLTRB(26, 10, 26, 0);
   static const cardPadding = EdgeInsets.all(18);
   static const cardPaddingDense = EdgeInsets.all(12);
+
+  /// 页面横向留白 / 纵向留白（页面与卡片的统一节奏）
+  static const pageH = 24.0;
+  static const pageV = 14.0;
+
+  /// 分区之间的间距（比卡片内间距大一档，用于拉开层次）
+  static const section = 20.0;
 }
 
 /// 圆角阶梯。
@@ -32,6 +39,7 @@ class Radii {
   static const md = 14.0;
   static const lg = 18.0;
   static const xl = 24.0;
+  static const xxl = 28.0;
 
   static BorderRadius get chip => BorderRadius.circular(xs);
   static BorderRadius get button => BorderRadius.circular(md);
@@ -131,6 +139,10 @@ class Type {
       height: 1.3);
   static const body = TextStyle(fontSize: 13.5, height: 1.55);
   static const label = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600);
+
+  /// 表单行标签（设置项/编辑项的行标题）
+  static const formLabel =
+      TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.35);
   static const caption = TextStyle(fontSize: 11.5, height: 1.4);
   static const micro = TextStyle(fontSize: 10.5, height: 1.3);
 
