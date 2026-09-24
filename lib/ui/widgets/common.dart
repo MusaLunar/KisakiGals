@@ -12,7 +12,6 @@ import 'package:window_manager/window_manager.dart';
 import '../../core/constants.dart';
 import '../../providers.dart';
 import '../../core/paths.dart';
-import '../design.dart';
 import '../theme.dart';
 
 /// 封面宽高比：Galgame 封面标准 **2:3**（宽:高）。
@@ -194,124 +193,6 @@ class GlassPanel extends StatelessWidget {
   }
 }
 
-/// 卡片面板。[glass] = true 时改为毛玻璃（用于背景图之上）。
-class SoftCard extends StatelessWidget {
-  final Widget child;
-  final EdgeInsets padding;
-  final BorderRadius borderRadius;
-  final Color? color;
-  final VoidCallback? onTap;
-
-  /// 毛玻璃：背景图之上使用（BackdropFilter 模糊身后内容）
-  final bool glass;
-
-  const SoftCard({
-    super.key,
-    required this.child,
-    this.padding = const EdgeInsets.all(20),
-    this.borderRadius = const BorderRadius.all(Radius.circular(20)),
-    this.color,
-    this.onTap,
-    this.glass = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (glass) {
-      return GlassPanel(
-        borderRadius: borderRadius,
-        padding: padding,
-        tint: color,
-        child: child,
-      );
-    }
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    // 可点击卡片：常态硬阴影 → hover 柔光 + 微上浮（ChronoTide 式微交互）
-    if (onTap != null) {
-      return InteractiveSurface(
-        onTap: onTap,
-        borderRadius: borderRadius,
-        color: color ?? (dark ? KisakiColors.nightCard : Colors.white),
-        outline: scheme.primary,
-        padding: padding,
-        child: child,
-      );
-    }
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color ?? (dark ? KisakiColors.nightCard : Colors.white),
-        borderRadius: borderRadius,
-        border: Border.all(
-          color: dark
-              ? Colors.white.withValues(alpha: 0.07)
-              : Colors.black.withValues(alpha: 0.05),
-        ),
-        boxShadow: Elev.card(dark, scheme.primary),
-      ),
-      child: Padding(padding: padding, child: child),
-    );
-  }
-}
-
-/// 空状态：图标 + 标题 + 说明 +（可选）主操作（参考 ReinaManager 的空态规范）。
-class EmptyStateCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  const EmptyStateCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 62,
-              height: 62,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: scheme.primary.withValues(alpha: 0.10),
-              ),
-              child: Icon(icon,
-                  size: 28, color: scheme.primary.withValues(alpha: 0.75)),
-            ),
-            const SizedBox(height: 16),
-            Text(title, style: Type.section),
-            if (subtitle != null) ...[
-              const SizedBox(height: 6),
-              Text(subtitle!,
-                  textAlign: TextAlign.center,
-                  style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
-            ],
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: onAction,
-                label: Text(actionLabel!),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// 评分条（可交互）。
 class RatingBar extends StatelessWidget {
   final double value; // 0-10
@@ -346,56 +227,6 @@ class RatingBar extends StatelessWidget {
               : () => onChanged!(value == (i + 1) * 2 ? 0 : (i + 1) * 2.0),
         );
       }),
-    );
-  }
-}
-
-/// 空状态占位。
-class EmptyState extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Widget? action;
-
-  const EmptyState({
-    super.key,
-    required this.title,
-    this.subtitle = '',
-    this.icon = Icons.local_florist_rounded,
-    this.action,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: dark ? Colors.white.withValues(alpha: 0.05) : KisakiColors.pinkContainer,
-            ),
-            child: Icon(icon, size: 44,
-                color: dark ? KisakiColors.nightInkSoft : KisakiColors.pink),
-          ),
-          const SizedBox(height: 16),
-          Text(title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600)),
-          if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(subtitle,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          ],
-          if (action != null) ...[const SizedBox(height: 18), action!],
-        ],
-      ),
     );
   }
 }

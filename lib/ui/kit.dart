@@ -159,6 +159,9 @@ class KCard extends StatelessWidget {
   /// 扁平卡：只描边、不投影（用于卡内再嵌卡片，避免硬阴影叠加显脏）
   final bool flat;
 
+  /// 自定义描边色（语义化浮层，例如错误通知卡）
+  final Color? borderColor;
+
   /// 右键菜单（避免外部再包一层 GestureDetector）
   final void Function(Offset position)? onSecondaryTapAt;
 
@@ -173,6 +176,7 @@ class KCard extends StatelessWidget {
     this.color,
     this.overlayShadow = false,
     this.flat = false,
+    this.borderColor,
     this.onSecondaryTapAt,
   });
 
@@ -216,7 +220,7 @@ class KCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: fill,
               borderRadius: borderRadius,
-              border: Border.all(color: Elev.border(dark)),
+              border: Border.all(color: borderColor ?? Elev.border(dark)),
               boxShadow: shadows,
             ),
             child: Padding(padding: pad, child: child),
@@ -733,6 +737,12 @@ class KMediaRow extends StatelessWidget {
   final double coverWidth;
   final bool selected;
   final bool nsfw;
+
+  /// 徽章换行间距（徽章较多时避免挤在一起）
+  final double badgeRunSpacing;
+
+  /// 标题区高度（默认 34，容纳两行标题）
+  final double titleHeight;
   final Widget? trailing;
   final VoidCallback? onTap;
   final void Function(Offset position)? onSecondaryTapAt;
@@ -747,6 +757,8 @@ class KMediaRow extends StatelessWidget {
     this.coverWidth = 44,
     this.selected = false,
     this.nsfw = false,
+    this.badgeRunSpacing = 4,
+    this.titleHeight = 34,
     this.trailing,
     this.onTap,
     this.onSecondaryTapAt,
@@ -792,7 +804,7 @@ class KMediaRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(
-                    height: 34,
+                    height: titleHeight,
                     child: Text(title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -805,7 +817,7 @@ class KMediaRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   if (badges.isNotEmpty)
-                    Wrap(spacing: 5, children: badges)
+                    Wrap(spacing: 5, runSpacing: badgeRunSpacing, children: badges)
                   else if (subtitle != null)
                     Text(subtitle!,
                         maxLines: 1,

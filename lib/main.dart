@@ -187,7 +187,7 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
             key: shotBoundaryKey,
             child: child ?? const SizedBox.shrink(),
           ),
-          const NoticeOverlay(child: SizedBox.shrink()),
+          const NoticeHost(),
         ],
       ),
       home: const AppShell(),

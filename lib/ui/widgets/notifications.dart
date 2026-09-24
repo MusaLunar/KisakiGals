@@ -3,12 +3,20 @@
 /// 设计要点：通知中心**不依赖 Riverpod / WidgetRef**。
 /// 早先的实现把 `WidgetRef` 捕获进 `Timer`，4.5 秒后回调时页面可能已销毁
 /// （「提示后立刻 pop」的调用点很多），会抛 StateError 且通知卡永久残留。
+///
+/// 视觉走基础层：卡片本体是 `KCard(overlayShadow: true)`（浮层重投影 +
+/// 1px 描边），间距 / 圆角 / 字号取 Gap / Radii / Type。
+/// 注意：本组件挂在 `MaterialApp.builder` 上，与 Navigator **平级**，
+/// 因此**没有 Overlay 祖先**——带 Tooltip 的 KIconAction 在这里会崩
+/// （Tooltip 依赖 OverlayPortal），关闭按钮必须保持无 tooltip 的 IconButton。
 library;
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../design.dart';
+import '../kit.dart';
 import '../theme.dart';
 
 class AppNotice {
@@ -66,6 +74,35 @@ class NoticeCenter extends ChangeNotifier {
 void showNotice(String message, {bool error = false}) =>
     NoticeCenter.instance.show(message, error: error);
 
+/// 挂在 MaterialApp builder 顶层：为通知浮层提供 **Overlay 祖先**。
+///
+/// 背景：NoticeOverlay 与 Navigator 平级挂在 builder 的 Stack 里，
+/// 祖先链中没有 Overlay，于是任何带 Tooltip 的控件（Tooltip 走
+/// OverlayPortal）在悬停时会因找不到 Overlay 而崩溃。这里用一个
+/// 常驻 Overlay 包住通知层，使通知内部可以正常使用 kit 的图标按钮。
+class NoticeHost extends StatefulWidget {
+  const NoticeHost({super.key});
+
+  @override
+  State<NoticeHost> createState() => _NoticeHostState();
+}
+
+class _NoticeHostState extends State<NoticeHost> {
+  late final OverlayEntry _entry = OverlayEntry(
+    builder: (_) => const NoticeOverlay(child: SizedBox.shrink()),
+  );
+
+  @override
+  Widget build(BuildContext context) =>
+      Overlay(initialEntries: [_entry]);
+
+  @override
+  void dispose() {
+    _entry.dispose();
+    super.dispose();
+  }
+}
+
 /// 挂在 MaterialApp builder 顶层：右上角堆叠通知卡。
 class NoticeOverlay extends StatelessWidget {
   final Widget child;
@@ -92,8 +129,10 @@ class NoticeOverlay extends StatelessWidget {
                     children: [
                       for (final n in notices.reversed)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.only(bottom: Gap.sm),
                           child: _NoticeCard(
+                            // 以通知 id 为 key：某条消失时不会让后面的卡错位复用状态
+                            key: ValueKey<int>(n.id),
                             notice: n,
                             onClose: () => NoticeCenter.instance.dismiss(n.id),
                           ),
@@ -113,29 +152,24 @@ class NoticeOverlay extends StatelessWidget {
 class _NoticeCard extends StatelessWidget {
   final AppNotice notice;
   final VoidCallback onClose;
-  const _NoticeCard({required this.notice, required this.onClose});
+  const _NoticeCard({super.key, required this.notice, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-      decoration: BoxDecoration(
-        color: dark ? KisakiColors.nightCard : Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: notice.error
-              ? KisakiColors.pink.withValues(alpha: 0.5)
-              : (dark ? Colors.white12 : Colors.black.withValues(alpha: 0.06)),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.4 : 0.10),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+    final scheme = Theme.of(context).colorScheme;
+    final base = dark ? KisakiColors.nightCard : Colors.white;
+    // 错误通知用语义色轻染底色（KCard 的描边色由 kit 统一，不逐条定制）
+    final fill = notice.error
+        ? Color.alphaBlend(
+            scheme.error.withValues(alpha: dark ? 0.16 : 0.05), base)
+        : base;
+    final accent = notice.error ? scheme.error : KisakiColors.success;
+    return KCard(
+      overlayShadow: true,
+      color: fill,
+      borderRadius: BorderRadius.circular(Radii.md),
+      padding: const EdgeInsets.fromLTRB(Gap.md, Gap.md, Gap.sm, Gap.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -144,16 +178,17 @@ class _NoticeCard extends StatelessWidget {
                 ? Icons.error_outline_rounded
                 : Icons.check_circle_outline_rounded,
             size: 18,
-            color: notice.error ? KisakiColors.pink : const Color(0xFF7EC8C3),
+            color: accent,
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: Gap.sm + 2),
           Expanded(
-            child: Text(
-              notice.message,
-              style: TextStyle(
-                fontSize: 12.5,
-                height: 1.5,
-                color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+            child: Padding(
+              // 与左侧图标的视觉基线对齐（图标 18，正文首行更高）
+              padding: const EdgeInsets.only(top: 1),
+              child: Text(
+                notice.message,
+                style: Type.body.copyWith(
+                    color: dark ? KisakiColors.nightInk : KisakiColors.ink),
               ),
             ),
           ),
@@ -164,6 +199,7 @@ class _NoticeCard extends StatelessWidget {
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
               iconSize: 16,
+              // 刻意不设 tooltip：本浮层没有 Overlay 祖先（见文件头注释）
               icon: Icon(Icons.close_rounded,
                   color:
                       dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),

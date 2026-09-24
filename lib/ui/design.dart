@@ -34,6 +34,8 @@ class Gap {
 
 /// 圆角阶梯。
 class Radii {
+  /// 缩略图/小徽标（封面小图、图标底）
+  static const thumb = 8.0;
   static const xs = 6.0;
   static const sm = 10.0;
   static const md = 14.0;

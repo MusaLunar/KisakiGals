@@ -18,7 +18,6 @@ import '../../services/ai_service.dart';
 import '../design.dart';
 import '../kit.dart';
 import '../theme.dart';
-import '../widgets/common.dart';
 
 class AiPage extends ConsumerStatefulWidget {
   const AiPage({super.key});
@@ -169,7 +168,7 @@ class _AiPageState extends ConsumerState<AiPage> {
 
   Widget _recommendCard() {
     final recs = _recs;
-    return SoftCard(
+    return KCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
