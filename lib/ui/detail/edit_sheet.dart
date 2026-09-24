@@ -1,4 +1,8 @@
-/// 编辑游戏信息底部抽屉：基本信息 / 封面 / 背景 / 元数据 id / 重新刮削。
+/// 编辑游戏信息（全屏页）：
+/// 基本信息 / 启动与存档 / 封面 / 详情页背景 / 元数据（平台条目 id） / 重新刮削。
+///
+/// 视觉全部走 ui/kit.dart：分区用 KSectionTitle + KCard，表单行用 KRow，
+/// 开关行用 SwitchListTile，间距与字号取 design.dart 的 token。
 library;
 
 import 'dart:io';
@@ -16,6 +20,8 @@ import '../../scraping/apply.dart';
 import '../../scraping/cover_candidates.dart';
 import '../../services/game_launcher.dart';
 import '../../services/save_backup.dart';
+import '../design.dart';
+import '../kit.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/image_picker.dart';
@@ -56,8 +62,6 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   /// 用户选择的本地封面路径
   String _coverLocal = '';
   List<CoverCandidate> _covers = const [];
-  final _coverCtrl = ScrollController();
-  final _bgCtrl = ScrollController();
 
   List<SourceRecord> _sources = [];
   final _idControllers = <String, TextEditingController>{};
@@ -118,8 +122,6 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
       _summary,
       _savePathCtrl,
       ..._idControllers.values,
-      _coverCtrl,
-      _bgCtrl,
     ]) {
       c.dispose();
     }
@@ -151,7 +153,6 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    // 全屏页面（不再是底部抽屉）：编辑区域更大，各分区可充分展开
     return Scaffold(
       backgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
       body: SafeArea(
@@ -159,280 +160,31 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
           children: [
             // 顶部拖动条：横跨整宽，空白处即可拖动窗口
             const WindowDragBar(height: 24),
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                decoration: BoxDecoration(
-                  color: dark ? KisakiColors.nightCard : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  children: [
-                    Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 12, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text('编辑「${widget.game.displayName}」',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded)),
-                ],
-              ),
+            // 标题 + 操作固定在顶部（表单很长，保存入口始终可见）
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 2, 24, 6),
+              child: _header(context),
             ),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _section(context, '基本信息', [
-                      Row(children: [
-                        Expanded(
-                          child: TextField(
-                              controller: _nameCn,
-                              decoration:
-                                  const InputDecoration(labelText: '中文名称')),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                              controller: _name,
-                              decoration:
-                                  const InputDecoration(labelText: '原始名称')),
-                        ),
-                      ]),
-                      const SizedBox(height: 12),
-                      Row(children: [
-                        Expanded(
-                          child: TextField(
-                              controller: _developer,
-                              decoration:
-                                  const InputDecoration(labelText: '开发商')),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                              controller: _release,
-                              decoration: const InputDecoration(
-                                  labelText: '发售日期（YYYY-MM-DD）')),
-                        ),
-                      ]),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _exe,
-                        decoration: InputDecoration(
-                            labelText: '游戏可执行文件（可粘贴路径）',
-                            suffixIcon: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                    icon: const Icon(
-                                        Icons.auto_fix_high_rounded,
-                                        size: 18),
-                                    tooltip: '从游戏目录自动识别',
-                                    onPressed: _detectExe),
-                                IconButton(
-                                    icon: const Icon(
-                                        Icons.folder_open_rounded,
-                                        size: 18),
-                                    tooltip: '浏览…',
-                                    onPressed: _pickExe),
-                              ],
-                            )),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _summary,
-                        maxLines: 4,
-                        decoration: const InputDecoration(
-                            labelText: '简介', alignLabelWithHint: true),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final s in PlayStatus.values)
-                            ChoiceChip(
-                              label: Text(s.label),
-                              selected: _status == s,
-                              onSelected: (_) =>
-                                  setState(() => _status = s),
-                            ),
-                        ],
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('NSFW（R-18）'),
-                        subtitle: const Text('启用后封面按设置模糊或替换'),
-                        value: _nsfw,
-                        onChanged: (v) => setState(() => _nsfw = v),
-                      ),
-                    ]),
-                    // 启动方式与存档（参考 ChronoTide / ReinaManager 的每游戏启动设置）
-                    _section(context, '启动与存档', [
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Locale Emulator 转区启动'),
-                        subtitle: Text(_leConfigured
-                            ? '日文原版游戏可避免乱码；LE 路径已配置'
-                            : '需要先在「设置 → 系统」配置 LEProc.exe 路径'),
-                        value: _localeMode == 'japanese',
-                        onChanged: (v) => setState(
-                            () => _localeMode = v ? 'japanese' : 'none'),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('退出游戏后自动备份存档'),
-                        subtitle: const Text('需要在下方指定存档目录'),
-                        value: _autoSave,
-                        onChanged: _savePathCtrl.text.trim().isEmpty
-                            ? null
-                            : (v) => setState(() => _autoSave = v),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: _savePathCtrl,
-                        decoration: InputDecoration(
-                            labelText: '存档目录（用于备份/恢复）',
-                            hintText: r'例：游戏目录下的 savedata 文件夹',
-                            suffixIcon: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                    icon: const Icon(
-                                        Icons.auto_fix_high_rounded,
-                                        size: 18),
-                                    tooltip: '自动识别存档目录',
-                                    onPressed: _detectSavePath),
-                                IconButton(
-                                    icon: const Icon(
-                                        Icons.folder_open_rounded,
-                                        size: 18),
-                                    tooltip: '浏览…',
-                                    onPressed: _pickSavePath),
-                              ],
-                            )),
-                        onChanged: (v) => setState(() {}),
-                      ),
-                    ]),
-                    // 封面：当前封面 + 各平台封面候选（带滚动条）+ 本地选择
-                    _section(context, '封面', [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CoverImage(
-                            path: _coverLocal.isNotEmpty
-                                ? _coverLocal
-                                : _coverPath,
-                            networkUrl: (_coverPickUrl != null &&
-                                    _coverPickUrl!.isNotEmpty)
-                                ? _coverPickUrl
-                                : null,
-                            nsfw: _nsfw,
-                            width: 90,
-                            height: 135,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                    _covers.isEmpty
-                                        ? '未找到平台封面；可重新刮削或选择本地图片'
-                                        : '点击下方缩略图切换为对应平台的封面（按 2:3 展示）',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant)),
-                                const SizedBox(height: 8),
-                                if (_covers.isNotEmpty)
-                                  ImagePickerRow(
-                                    title: '平台封面',
-                                    subtitle: '点击选用；候选多时点右侧「查看全部」',
-                                    options: [
-                                      for (final c in _covers)
-                                        ImageOption(
-                                            label: c.label, url: c.url),
-                                      ImageOption(
-                                          label: '本地文件',
-                                          localPath: _coverLocal),
-                                    ],
-                                    selectedUrl: _coverPickUrl,
-                                    selectedLocal: _coverLocal,
-                                    onPick: (o) {
-                                      if (o.localPath.isNotEmpty &&
-                                          !File(o.localPath).existsSync()) {
-                                        _pickCover();
-                                        return;
-                                      }
-                                      setState(() {
-                                        _coverPickUrl = o.url;
-                                        _coverLocal = o.localPath;
-                                      });
-                                    },
-                                  ),
-                                const SizedBox(height: 8),
-                                Wrap(spacing: 8, children: [
-                                  OutlinedButton.icon(
-                                    onPressed: _pickCover,
-                                    icon: const Icon(Icons.image_rounded,
-                                        size: 18),
-                                    label: const Text('选择本地封面'),
-                                  ),
-                                  if (_coverPath.isNotEmpty ||
-                                      _coverPickUrl != null)
-                                    TextButton.icon(
-                                      onPressed: () => setState(() {
-                                        _coverPath = '';
-                                        _coverPickUrl = null;
-                                      }),
-                                      icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                          size: 18),
-                                      label: const Text('清除封面'),
-                                    ),
-                                ]),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ]),
-                    _section(context, '详情页背景', _buildBackgroundPicker(dark)),
-                    _section(context, '元数据（平台条目 id）', _buildSources(dark)),
-                    const SizedBox(height: 8),
-                    // 底部操作：重刮 / 取消 / 保存
-                    Row(
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: _rescan,
-                          icon: const Icon(Icons.travel_explore_rounded,
-                              size: 18),
-                          label: const Text('重新刮削'),
-                        ),
-                        const Spacer(),
-                        TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('取消')),
-                        const SizedBox(width: 8),
-                        FilledButton.icon(
-                          onPressed: _save,
-                          icon: const Icon(Icons.check_rounded),
-                          label: const Text('保存'),
-                        ),
-                      ],
-                    ),
+                    const KSectionTitle('基本信息'),
+                    KCard(child: _basicInfo(context)),
+                    const SizedBox(height: Gap.xl),
+                    const KSectionTitle('启动与存档'),
+                    KCard(child: _launchAndSave(context)),
+                    const SizedBox(height: Gap.xl),
+                    const KSectionTitle('封面'),
+                    KCard(child: _coverSection(context)),
+                    const SizedBox(height: Gap.xl),
+                    const KSectionTitle('详情页背景'),
+                    KCard(child: _backgroundSection(context)),
+                    const SizedBox(height: Gap.xl),
+                    const KSectionTitle('元数据（平台条目 id）'),
+                    KCard(child: _sourceSection(context)),
                   ],
                 ),
               ),
@@ -440,63 +192,406 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
           ],
         ),
       ),
-    ),
-      ],
-    ),
-    ),
     );
   }
 
-
-  Widget _section(
-      BuildContext context, String title, List<Widget> children) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  /// 顶栏：标题 + 重新刮削 / 取消 / 保存。
+  Widget _header(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
       children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 14, bottom: 10),
-          child: Row(
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 3,
-                height: 14,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(2),
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(title,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w800)),
+              Text('编辑信息', style: Type.display),
+              const SizedBox(height: Gap.xxs),
+              Text(widget.game.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
             ],
           ),
         ),
-        ...children,
+        KPill(
+          label: '重新刮削',
+          icon: Icons.travel_explore_rounded,
+          filled: false,
+          onTap: _rescan,
+        ),
+        const SizedBox(width: Gap.sm),
+        KPill(
+          label: '取消',
+          filled: false,
+          onTap: () => Navigator.pop(context),
+        ),
+        const SizedBox(width: Gap.sm),
+        KPill(label: '保存', icon: Icons.check_rounded, onTap: _save),
       ],
     );
   }
 
-  List<Widget> _buildBackgroundPicker(bool dark) {
+  /// 表单行：左标签 + 右控件（与设置页同一套 KRow 版式）。
+  Widget _row(String label, Widget field, {String? hint, double width = 340}) {
+    return KRow(
+      title: label,
+      subtitle: hint,
+      trailing: SizedBox(width: width, child: field),
+    );
+  }
+
+  Widget _basicInfo(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _row(
+                '中文名称',
+                TextField(
+                  controller: _nameCn,
+                  decoration: const InputDecoration(isDense: true),
+                ),
+                hint: '列表与详情页的显示名',
+              ),
+            ),
+            const SizedBox(width: Gap.lg),
+            Expanded(
+              child: _row(
+                '原始名称',
+                TextField(
+                  controller: _name,
+                  decoration: const InputDecoration(isDense: true),
+                ),
+                hint: '日文 / 英文原名',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.sm),
+        Row(
+          children: [
+            Expanded(
+              child: _row(
+                '开发商',
+                TextField(
+                  controller: _developer,
+                  decoration: const InputDecoration(isDense: true),
+                ),
+              ),
+            ),
+            const SizedBox(width: Gap.lg),
+            Expanded(
+              child: _row(
+                '发售日期',
+                TextField(
+                  controller: _release,
+                  decoration: const InputDecoration(
+                      isDense: true, hintText: 'YYYY-MM-DD'),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.sm),
+        KRow(
+          title: '可执行文件',
+          subtitle: '可粘贴路径；设置后自动同步游戏目录',
+          trailing: SizedBox(
+            width: 420,
+            child: TextField(
+              controller: _exe,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: r'例：D:\Games\ATRI\ATRI.exe',
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KIconAction(
+                      icon: Icons.auto_fix_high_rounded,
+                      tooltip: '从游戏目录自动识别',
+                      onTap: _detectExe,
+                    ),
+                    KIconAction(
+                      icon: Icons.folder_open_rounded,
+                      tooltip: '浏览…',
+                      onTap: _pickExe,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: Gap.sm),
+        KRow(
+          title: '简介',
+          subtitle: '来自刮削，可手动修改',
+          trailing: SizedBox(
+            width: 560,
+            child: TextField(
+              controller: _summary,
+              maxLines: 4,
+              decoration: const InputDecoration(isDense: true),
+            ),
+          ),
+        ),
+        const SizedBox(height: Gap.md),
+        // 游玩状态：KChip 多选一
+        Text('游玩状态',
+            style: Type.body.copyWith(fontWeight: FontWeight.w600)),
+        const SizedBox(height: Gap.sm),
+        Wrap(
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
+          children: [
+            for (final s in PlayStatus.values)
+              KChip(
+                label: s.label,
+                selected: _status == s,
+                onTap: () => setState(() => _status = s),
+              ),
+          ],
+        ),
+        const SizedBox(height: Gap.xs),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('NSFW（R-18）',
+              style: Type.body.copyWith(fontWeight: FontWeight.w600)),
+          subtitle: Text('启用后封面按设置模糊或替换',
+              style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+          value: _nsfw,
+          onChanged: (v) => setState(() => _nsfw = v),
+        ),
+      ],
+    );
+  }
+
+  Widget _launchAndSave(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('Locale Emulator 转区启动',
+              style: Type.body.copyWith(fontWeight: FontWeight.w600)),
+          subtitle: Text(
+            _leConfigured
+                ? '日文原版游戏可避免乱码；LE 路径已配置'
+                : '需要先在「设置 → 系统」配置 LEProc.exe 路径',
+            style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          value: _localeMode == 'japanese',
+          onChanged: (v) =>
+              setState(() => _localeMode = v ? 'japanese' : 'none'),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('退出游戏后自动备份存档',
+              style: Type.body.copyWith(fontWeight: FontWeight.w600)),
+          subtitle: Text('需要在下方指定存档目录',
+              style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+          value: _autoSave,
+          onChanged: _savePathCtrl.text.trim().isEmpty
+              ? null
+              : (v) => setState(() => _autoSave = v),
+        ),
+        const SizedBox(height: Gap.sm),
+        KRow(
+          title: '存档目录',
+          subtitle: '用于备份 / 恢复（可自动识别）',
+          trailing: SizedBox(
+            width: 420,
+            child: TextField(
+              controller: _savePathCtrl,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: r'例：游戏目录下的 savedata 文件夹',
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KIconAction(
+                      icon: Icons.auto_fix_high_rounded,
+                      tooltip: '自动识别存档目录',
+                      onTap: _detectSavePath,
+                    ),
+                    KIconAction(
+                      icon: Icons.folder_open_rounded,
+                      tooltip: '浏览…',
+                      onTap: _pickSavePath,
+                    ),
+                  ],
+                ),
+              ),
+              onChanged: (v) => setState(() {}),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _coverSection(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hasCover = _coverPath.isNotEmpty || _coverPickUrl != null;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CoverImage(
+          path: _coverLocal.isNotEmpty ? _coverLocal : _coverPath,
+          networkUrl:
+              (_coverPickUrl != null && _coverPickUrl!.isNotEmpty)
+                  ? _coverPickUrl
+                  : null,
+          nsfw: _nsfw,
+          width: 90,
+          height: 135,
+          borderRadius: BorderRadius.circular(Radii.sm),
+        ),
+        const SizedBox(width: Gap.lg),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _covers.isEmpty
+                    ? '未找到平台封面；可重新刮削或选择本地图片'
+                    : '点击下方缩略图切换为对应平台的封面（按 2:3 展示）',
+                style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              if (_covers.isNotEmpty) ...[
+                const SizedBox(height: Gap.sm),
+                ImagePickerRow(
+                  title: '平台封面',
+                  subtitle: '点击选用；候选多时点右侧「查看全部」',
+                  options: [
+                    for (final c in _covers)
+                      ImageOption(label: c.label, url: c.url),
+                    ImageOption(label: '本地文件', localPath: _coverLocal),
+                  ],
+                  selectedUrl: _coverPickUrl,
+                  selectedLocal: _coverLocal,
+                  onPick: (o) {
+                    if (o.localPath.isNotEmpty &&
+                        !File(o.localPath).existsSync()) {
+                      _pickCover();
+                      return;
+                    }
+                    setState(() {
+                      _coverPickUrl = o.url;
+                      _coverLocal = o.localPath;
+                    });
+                  },
+                ),
+              ],
+              const SizedBox(height: Gap.sm),
+              Wrap(
+                spacing: Gap.sm,
+                runSpacing: Gap.sm,
+                children: [
+                  KPill(
+                    label: '选择本地封面',
+                    icon: Icons.image_rounded,
+                    filled: false,
+                    onTap: _pickCover,
+                  ),
+                  if (hasCover)
+                    KPill(
+                      label: '清除封面',
+                      icon: Icons.delete_outline_rounded,
+                      filled: false,
+                      onTap: () => setState(() {
+                        _coverPath = '';
+                        _coverPickUrl = null;
+                        _coverLocal = '';
+                      }),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _backgroundSection(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final shots = widget.game.screenshots;
-    return [
-      ImagePickerRow(
-        title: '背景图',
-        subtitle: shots.isEmpty
-            ? '暂无刮削截图；重新刮削后可在此选择背景图'
-            : '点击选用；候选多时点右侧「查看全部」',
-        options: [
-          const ImageOption(label: '纯色', isSolid: true),
-          for (final url in shots) ImageOption(label: '截图', url: url),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ImagePickerRow(
+          title: '背景图',
+          subtitle: shots.isEmpty
+              ? '暂无刮削截图；重新刮削后可在此选择背景图'
+              : '点击选用；候选多时点右侧「查看全部」',
+          options: [
+            const ImageOption(label: '纯色', isSolid: true),
+            for (final url in shots) ImageOption(label: '截图', url: url),
+          ],
+          // null = 未改动：按当前背景高亮
+          selectedUrl: _bgPick ??
+              (widget.game.backgroundUrl.isEmpty ? '' : _currentBgUrl(shots)),
+          onPick: (o) => setState(() => _bgPick = o.url),
+        ),
+        const SizedBox(height: Gap.xs),
+        Text('「纯色」= 详情页不显示背景图；其余选项会把截图缓存到本地。',
+            style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+      ],
+    );
+  }
+
+  Widget _sourceSection(BuildContext context) {
+    if (_sources.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: Gap.sm),
+        child: KEmpty(
+          icon: Icons.dataset_outlined,
+          title: '暂无平台数据记录',
+          subtitle: '重新刮削后会自动登记各平台条目 id',
+        ),
+      );
+    }
+    return Column(
+      children: [
+        for (var i = 0; i < _sources.length; i++) ...[
+          if (i > 0) const Divider(height: 1),
+          KRow(
+            leading: SourceBadge(source: _sources[i].source),
+            title: '条目 id',
+            subtitle: _sources[i].rating > 0
+                ? '${_sources[i].rating.toStringAsFixed(1)} · ${_sources[i].voteCount} 评'
+                : '无评分',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 200,
+                  child: TextField(
+                    controller: _idControllers[_sources[i].source],
+                    decoration:
+                        const InputDecoration(hintText: '条目 id', isDense: true),
+                  ),
+                ),
+                KIconAction(
+                  icon: Icons.delete_outline_rounded,
+                  tooltip: '删除该平台记录',
+                  onTap: () async {
+                    await AppServices.I.repo
+                        .deleteSource(widget.game.id!, _sources[i].source);
+                    await _loadSources();
+                  },
+                ),
+              ],
+            ),
+          ),
         ],
-        // null = 未改动：按当前背景高亮
-        selectedUrl: _bgPick ??
-            (widget.game.backgroundUrl.isEmpty ? '' : _currentBgUrl(shots)),
-        onPick: (o) => setState(() => _bgPick = o.url),
-      ),
-    ];
+      ],
+    );
   }
 
   /// 当前背景对应的截图 URL（用于高亮）。
@@ -509,58 +604,6 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
 
   bool _isCurrentBg(String url) =>
       widget.game.backgroundUrl.endsWith(url.split('/').last);
-
-  List<Widget> _buildSources(bool dark) {
-    if (_sources.isEmpty) {
-      return [
-        Text('暂无平台数据记录；重新刮削后自动登记。',
-            style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant))
-      ];
-    }
-    return [
-      for (final s in _sources) ...[
-        Row(
-          children: [
-            SizedBox(
-              width: 92,
-              child: SourceBadge(source: s.source),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: _idControllers[s.source],
-                decoration: const InputDecoration(
-                    hintText: '条目 id', isDense: true),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 86,
-              child: Text(
-                s.rating > 0
-                    ? '${s.rating.toStringAsFixed(1)} · ${s.voteCount} 评'
-                    : '无评分',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
-              ),
-            ),
-            IconButton(
-              tooltip: '删除该平台记录',
-              icon: const Icon(Icons.delete_outline_rounded, size: 18),
-              onPressed: () async {
-                await AppServices.I.repo.deleteSource(widget.game.id!, s.source);
-                await _loadSources();
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-      ],
-    ];
-  }
 
   // ---------- 动作 ----------
 
@@ -626,6 +669,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     g.developer = _developer.text.trim();
     g.releaseDate = _release.text.trim();
     g.exePath = _exe.text.trim();
+    // 路径存在性检查：仅当 exe 真实存在时才回写游戏目录
     if (g.exePath.isNotEmpty && File(g.exePath).existsSync()) {
       g.directory = File(g.exePath).parent.path;
     }
@@ -644,6 +688,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     }
     g.coverPath = _coverPath;
     g.localeMode = _localeMode;
+    // 设备指纹 + 相对路径（MediaPaths 在 toRow 中把数据目录内的路径存成相对路径）
     await AppServices.I.relocator.stamp(g);
     g.savePath = _savePathCtrl.text.trim();
     await AppServices.I.repo.updateGame(g);
@@ -678,4 +723,3 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     Navigator.pop(context);
   }
 }
-

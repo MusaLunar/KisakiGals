@@ -22,20 +22,21 @@ class WordCloud extends StatelessWidget {
     final minW = tags.map((t) => t.weight).reduce(math.min);
     final range = (maxW - minW) <= 0 ? 1.0 : (maxW - minW);
 
+    // 配色只取 KisakiColors（深色模式用浅色档），不再写死十六进制
     final palette = dark
         ? [
             KisakiColors.pinkSoft,
             KisakiColors.lavenderSoft,
-            const Color(0xFF9AD0CD),
-            const Color(0xFFF0C987),
-            const Color(0xFFE8A1B8),
+            KisakiColors.pink,
+            KisakiColors.lavender,
+            KisakiColors.star,
           ]
         : [
             KisakiColors.pink,
             KisakiColors.lavender,
-            const Color(0xFF4FA8A0),
-            const Color(0xFFD99A3C),
-            const Color(0xFFD96A8E),
+            KisakiColors.star,
+            KisakiColors.onPinkContainer,
+            KisakiColors.onLavenderContainer,
           ];
 
     final rng = math.Random(42);

@@ -1,4 +1,7 @@
-/// 评分评价弹窗：本地保存 + 可选同步上传到 Bangumi / VNDB / Hikarinagi。
+/// 评分评价页：本地保存 + 可选同步上传到 Bangumi / VNDB / Hikarinagi。
+///
+/// 全屏路由页：保留 Scaffold + WindowDragBar（桌面拖动），内容卡片统一走
+/// kit 的 KCard / KSectionTitle / KRow，视觉与其它页面一致。
 library;
 
 import 'package:flutter/material.dart';
@@ -8,8 +11,11 @@ import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
 import '../../services/upload/upload.dart';
+import '../design.dart';
+import '../kit.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/notifications.dart';
 
 class RateDialog extends ConsumerStatefulWidget {
   final Game game;
@@ -21,12 +27,22 @@ class RateDialog extends ConsumerStatefulWidget {
 }
 
 class _RateDialogState extends ConsumerState<RateDialog> {
+  /// 0-10（5 星 × 2 分），0 = 未评分
   late double _rating = widget.game.userRating;
   late final TextEditingController _review =
       TextEditingController(text: widget.game.userReview);
   final Map<String, bool> _uploadTo = {};
+
+  /// 各平台是否已配置 Token（预取一次，避免每帧发 FutureBuilder）
+  final Map<String, bool> _logged = {};
   bool _uploading = false;
   final List<String> _results = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAccounts();
+  }
 
   @override
   void dispose() {
@@ -34,229 +50,295 @@ class _RateDialogState extends ConsumerState<RateDialog> {
     super.dispose();
   }
 
-  SourceRecord? _sourceFor(String platform) {
-    try {
-      return widget.sources.firstWhere((s) => s.source == platform);
-    } catch (_) {
-      return null;
+  Future<void> _loadAccounts() async {
+    for (final (platform, _, _) in _uploadable) {
+      final token = await AppServices.I.accounts.token(platform);
+      if (!mounted) return;
+      setState(() => _logged[platform] = token != null);
     }
+  }
+
+  /// 可上传平台：本地已登记该平台条目（才有 sourceId 可写）
+  List<(String, String, SourceRecord)> get _uploadable {
+    final out = <(String, String, SourceRecord)>[];
+    for (final (platform, label) in [
+      (KisakiSources.bangumi, 'Bangumi'),
+      (KisakiSources.vndb, 'VNDB'),
+      (KisakiSources.hikarinagi, 'Hikarinagi'),
+    ]) {
+      final src = _sourceFor(platform);
+      if (src != null) out.add((platform, label, src));
+    }
+    return out;
+  }
+
+  SourceRecord? _sourceFor(String platform) {
+    for (final s in widget.sources) {
+      if (s.source == platform) return s;
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
+    final targets = _uploadable;
 
-    final uploadTargets = [
-      (KisakiSources.bangumi, 'Bangumi', _sourceFor(KisakiSources.bangumi)),
-      (KisakiSources.vndb, 'VNDB', _sourceFor(KisakiSources.vndb)),
-      (KisakiSources.hikarinagi, 'Hikarinagi', _sourceFor(KisakiSources.hikarinagi)),
-    ].where((t) => t.$3 != null).toList();
-
-    // 全屏页面：评分/评价输入区域更大（不再是底部抽屉）
     return Scaffold(
       backgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
       body: SafeArea(
         child: Column(
           children: [
+            // 顶部拖动条：横跨整宽，空白处即可拖动窗口
             const WindowDragBar(height: 24),
             Expanded(
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                decoration: BoxDecoration(
-                  color: dark ? KisakiColors.nightCard : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                padding: EdgeInsets.only(
-                    left: 28,
-                    right: 28,
-                    top: 20,
-                    bottom: MediaQuery.of(context).viewInsets.bottom + 20),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text('评价「${widget.game.displayName}」',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                                overflow: TextOverflow.ellipsis),
-                          ),
-                          IconButton(
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.close_rounded)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-            Center(
-              child: Column(
-                children: [
-                  RatingBar(
-                    value: _rating,
-                    size: 40,
-                    onChanged: (v) => setState(() => _rating = v),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _rating <= 0 ? '未评分' : '${_rating.toStringAsFixed(0)} / 10',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: scheme.primary),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _review,
-              maxLines: 5,
-              maxLength: 2000,
-              decoration: const InputDecoration(
-                  hintText: '写下你的游玩感受…',
-                  alignLabelWithHint: true),
-            ),
-            if (uploadTargets.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('同步上传到',
-                  style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  for (final (platform, label, _) in uploadTargets)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 10),
-                      child: FutureBuilder<bool>(
-                        future: _hasAccount(platform),
-                        builder: (context, snap) {
-                          final logged = snap.data ?? false;
-                          return FilterChip(
-                            label: Text(label),
-                            selected: _uploadTo[platform] ?? false,
-                            onSelected: logged
-                                ? (v) => setState(
-                                    () => _uploadTo[platform] = v)
-                                : null,
-                            avatar: Icon(
-                              logged
-                                  ? Icons.check_circle_rounded
-                                  : Icons.person_off_rounded,
-                              size: 15,
-                              color: logged
-                                  ? KisakiColors.pink
-                                  : Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                            labelStyle: TextStyle(
-                                fontSize: 12.5,
-                                color: logged
-                                    ? null
-                                    : Theme.of(context).colorScheme.onSurfaceVariant),
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
-              if (_results.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                for (final r in _results)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                    28, 0, 28, MediaQuery.of(context).viewInsets.bottom + 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ---------- 标题栏 ----------
+                    Row(
                       children: [
-                        const Icon(Icons.info_outline_rounded,
-                            size: 14, color: Colors.grey),
-                        const SizedBox(width: 6),
                         Expanded(
-                            child: Text(r,
-                                style: const TextStyle(fontSize: 12))),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('评分与评价', style: Type.display),
+                              SizedBox(height: Gap.xxs),
+                              Text(widget.game.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Type.caption
+                                      .copyWith(color: scheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        ),
+                        KIconAction(
+                          icon: Icons.close_rounded,
+                          tooltip: '关闭',
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
                       ],
                     ),
-                  ),
-              ],
-            ],
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('取消')),
-                const Spacer(),
-                FilledButton.icon(
-                  onPressed: _uploading ? null : _save,
-                  icon: _uploading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.check_rounded, size: 18),
-                  label: const Text('保存'),
+                    SizedBox(height: Gap.xl),
+                    // ---------- 评分 + 评价 ----------
+                    KCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Column(
+                              children: [
+                                RatingBar(
+                                  value: _rating,
+                                  size: 40,
+                                  onChanged: (v) =>
+                                      setState(() => _rating = v.clamp(0, 10)),
+                                ),
+                                SizedBox(height: Gap.xs),
+                                AnimatedCount(
+                                  text: _rating <= 0
+                                      ? '未评分'
+                                      : '${_rating.toStringAsFixed(0)} / 10',
+                                  style: Type.numeric.copyWith(
+                                      fontSize: 18, color: scheme.primary),
+                                ),
+                                SizedBox(height: Gap.xxs),
+                                Text(
+                                  _rating <= 0
+                                      ? '点击星星评分（5 星制 × 10 分）'
+                                      : '再次点击同一颗星可清零',
+                                  style: Type.caption.copyWith(
+                                      color: scheme.onSurfaceVariant),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: Gap.lg),
+                          TextField(
+                            controller: _review,
+                            maxLines: 5,
+                            maxLength: 2000,
+                            decoration: const InputDecoration(
+                                hintText: '写下你的游玩感受…',
+                                alignLabelWithHint: true),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // ---------- 同步上传 ----------
+                    if (targets.isNotEmpty) ...[
+                      SizedBox(height: Gap.xl),
+                      const KSectionTitle('同步上传到'),
+                      KCard(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: Gap.lg, vertical: Gap.xs),
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < targets.length; i++) ...[
+                              if (i > 0) const Divider(height: 1),
+                              _UploadSwitch(
+                                label: targets[i].$2,
+                                logged: _logged[targets[i].$1] ?? false,
+                                value: _uploadTo[targets[i].$1] ?? false,
+                                onChanged: (v) => setState(
+                                    () => _uploadTo[targets[i].$1] = v),
+                              ),
+                            ],
+                            if (_results.isNotEmpty) ...[
+                              const Divider(height: 1),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: Gap.sm),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    for (final r in _results)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 4),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                                Icons.info_outline_rounded,
+                                                size: 14,
+                                                color: scheme.onSurfaceVariant),
+                                            SizedBox(width: Gap.sm),
+                                            Expanded(
+                                              child: Text(r,
+                                                  style: Type.caption.copyWith(
+                                                      color: scheme
+                                                          .onSurfaceVariant)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(
+                            top: Gap.sm, left: Gap.xs),
+                        child: Text(
+                          '未配置 Token 的平台无法勾选，可到「设置 → 账号」填入后重试；'
+                          '评分会先保存在本地，再上传到勾选的平台。',
+                          style: Type.caption
+                              .copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ),
+                    ],
+                    SizedBox(height: Gap.xl),
+                    // ---------- 操作 ----------
+                    Row(
+                      children: [
+                        KPill(
+                          label: '取消',
+                          filled: false,
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
+                        const Spacer(),
+                        KPill(
+                          label: _uploading ? '上传中…' : '保存',
+                          icon: _uploading ? null : Icons.check_rounded,
+                          onTap: _uploading ? null : _save,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ],
         ),
-              ),
-            ),
-          ),
-        ],
-      ),
       ),
     );
   }
 
-  Future<bool> _hasAccount(String platform) async =>
-      await AppServices.I.accounts.token(platform) != null;
-
   Future<void> _save() async {
     final game = widget.game;
-    game.userRating = _rating;
+    // 评分范围保护（0-10）
+    game.userRating = _rating.clamp(0, 10).toDouble();
     game.userReview = _review.text.trim();
-    if (_rating > 0 && game.playStatus == PlayStatus.wish) {
+    if (game.userRating > 0 && game.playStatus == PlayStatus.wish) {
       game.playStatus = PlayStatus.played;
     }
     await AppServices.I.repo.updateGame(game);
 
-    // 同步上传
+    // 同步上传（勾选且已配置 Token 的平台）
     final targets =
         _uploadTo.entries.where((e) => e.value).map((e) => e.key).toList();
-    if (targets.isNotEmpty) {
-      setState(() => _uploading = true);
-      final uploader = ReviewUploader(proxy: AppServices.I.fetcher.proxy);
-      for (final platform in targets) {
-        final token = await AppServices.I.accounts.token(platform);
-        final src = _sourceFor(platform);
-        if (token == null || src == null) continue;
-        final result = await uploader.upload(
-          platform: platform,
-          token: token,
-          source: src,
-          rating: _rating,
-          comment: _review.text.trim(),
-        );
-        _results
-            .add('${KisakiSources.labels[platform] ?? platform}：${result.message}');
-      }
-      if (mounted) setState(() => _uploading = false);
+    if (targets.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(_results.isEmpty
-              ? '已保存评分'
-              : _results.join('；'))));
-      if (context.mounted) Navigator.of(context).pop();
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('评分已保存')));
+      showNotice('评分已保存');
       Navigator.of(context).pop();
+      return;
     }
+
+    setState(() => _uploading = true);
+    final uploader = ReviewUploader(proxy: AppServices.I.fetcher.proxy);
+    for (final platform in targets) {
+      final token = await AppServices.I.accounts.token(platform);
+      final src = _sourceFor(platform);
+      if (token == null || src == null) continue;
+      final result = await uploader.upload(
+        platform: platform,
+        token: token,
+        source: src,
+        rating: game.userRating,
+        comment: game.userReview,
+      );
+      _results
+          .add('${KisakiSources.labels[platform] ?? platform}：${result.message}');
+    }
+    if (mounted) setState(() => _uploading = false);
+    if (!mounted) return;
+    showNotice(_results.isEmpty ? '已保存评分' : _results.join('；'));
+    Navigator.of(context).pop();
+  }
+}
+
+/// 单个平台的同步开关：未配置 Token 时禁用并给出说明。
+class _UploadSwitch extends StatelessWidget {
+  final String label;
+  final bool logged;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _UploadSwitch({
+    required this.label,
+    required this.logged,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      secondary: Icon(
+        logged ? Icons.check_circle_rounded : Icons.person_off_rounded,
+        size: 18,
+        color: logged ? scheme.primary : scheme.onSurfaceVariant,
+      ),
+      title: Text(label,
+          style: Type.body.copyWith(
+              fontWeight: FontWeight.w600,
+              color: logged ? null : scheme.onSurfaceVariant)),
+      subtitle: Text(
+        logged ? '保存后同步评分与评价' : '未配置 Token（设置 → 账号）',
+        style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+      ),
+      value: logged && value,
+      onChanged: logged ? onChanged : null,
+    );
   }
 }

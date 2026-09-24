@@ -1,4 +1,8 @@
-/// 设置页：系统 / 账号 / 数据源 / 数据 / 插件 / 关于。
+/// 设置页：系统 / 账号 / 数据源 / AI / 数据 / 插件 / 关于（7 个分区）。
+///
+/// 视觉规范：页面骨架 KPage，分区 KSectionTitle + KCard，表单行 KRow，
+/// 开关行 SwitchListTile；组间间距 20、组内行间距 8，
+/// 说明文字统一 Type.caption + onSurfaceVariant。
 library;
 
 import 'dart:io';
@@ -19,8 +23,9 @@ import '../../services/autostart.dart';
 import '../../services/cloud_sync.dart';
 import '../../services/plugin_system.dart';
 import '../../services/upload/upload.dart';
+import '../design.dart';
+import '../kit.dart';
 import '../theme.dart';
-import '../widgets/common.dart';
 import '../widgets/notifications.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
@@ -54,84 +59,69 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+    final scheme = Theme.of(context).colorScheme;
+    return KPage(
+      title: '设置',
+      subtitle: _sections[_section].$2,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 分区导航
           SizedBox(
-            width: 148,
+            width: 156,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 8, bottom: 10),
-                  child: Text('设置',
-                      style: Theme.of(context)
-                          .textTheme
-                          .headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800)),
-                ),
                 for (var i = 0; i < _sections.length; i++)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Material(
-                      color: _section == i
-                          ? (dark
-                              ? KisakiColors.pink.withValues(alpha: 0.2)
-                              : KisakiColors.pinkContainer)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(14),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(14),
-                        onTap: () {
-                          setState(() => _section = i);
-                          ref.read(settingsSectionProvider.notifier).state = i;
-                        },
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 11),
-                          child: Row(
-                            children: [
-                              Icon(_sections[i].$1,
-                                  size: 19,
-                                  color: _section == i
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant),
-                              const SizedBox(width: 10),
-                              Text(_sections[i].$2,
-                                  style: TextStyle(
-                                      fontSize: 13.5,
-                                      fontWeight: _section == i
-                                          ? FontWeight.w700
-                                          : FontWeight.w500)),
-                            ],
-                          ),
-                        ),
+                    padding: const EdgeInsets.only(bottom: Gap.xs),
+                    child: ListTile(
+                      dense: true,
+                      selected: _section == i,
+                      selectedColor: scheme.primary,
+                      textColor: scheme.onSurface,
+                      iconColor: scheme.onSurfaceVariant,
+                      selectedTileColor: scheme.primary
+                          .withValues(alpha: dark ? 0.20 : 0.11),
+                      shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(Radii.md)),
+                      leading: Icon(_sections[i].$1, size: 19),
+                      title: Text(
+                        _sections[i].$2,
+                        style: Type.label.copyWith(
+                            fontWeight: _section == i
+                                ? FontWeight.w700
+                                : FontWeight.w500),
                       ),
+                      onTap: () {
+                        setState(() => _section = i);
+                        ref.read(settingsSectionProvider.notifier).state = i;
+                      },
                     ),
                   ),
               ],
             ),
           ),
-          const VerticalDivider(width: 20),
+          const VerticalDivider(width: Gap.xl),
           // 内容
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: switch (_section) {
-                0 => const _SystemSection(),
-                1 => const _AccountSection(),
-                2 => const _SourceSection(),
-                3 => const _AiSection(),
-                4 => const _DataSection(),
-                5 => const _PluginSection(),
-                _ => const _AboutSection(),
-              },
+            child: FadeThroughSwitcher(
+              child: KeyedSubtree(
+                key: ValueKey(_section),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: Gap.xxl),
+                  child: switch (_section) {
+                    0 => const _SystemSection(),
+                    1 => const _AccountSection(),
+                    2 => const _SourceSection(),
+                    3 => const _AiSection(),
+                    4 => const _DataSection(),
+                    5 => const _PluginSection(),
+                    _ => const _AboutSection(),
+                  },
+                ),
+              ),
             ),
           ),
         ],
@@ -142,6 +132,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
 // ---------- 通用控件 ----------
 
+/// 设置分组：分区标题 + 卡片（组内行间距 8、组间间距 20）。
 class SettingsGroup extends StatelessWidget {
   final String title;
   final List<Widget> children;
@@ -152,56 +143,83 @@ class SettingsGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
-          child: Text(title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleSmall
-                  ?.copyWith(fontWeight: FontWeight.w800)),
+        KSectionTitle(title),
+        KCard(
+          padding: const EdgeInsets.symmetric(
+              horizontal: Gap.lg, vertical: Gap.md),
+          child: Column(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0) const SizedBox(height: Gap.sm),
+                children[i],
+              ],
+            ],
+          ),
         ),
-        SoftCard(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-          child: Column(children: children),
-        ),
-        const SizedBox(height: 18),
+        const SizedBox(height: Gap.xl),
       ],
     );
   }
 }
 
+/// 设置行：左标题+说明、右控件（KRow 版式）。
 class SettingRow extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? trailing;
-  const SettingRow({super.key, required this.title, this.subtitle, this.trailing});
+  const SettingRow(
+      {super.key, required this.title, this.subtitle, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    return KRow(title: title, subtitle: subtitle, trailing: trailing);
+  }
+}
+
+/// 开关行：标题 + 说明 + Switch（主题已统一 Switch 配色）。
+class SettingSwitch extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  const SettingSwitch({
+    super.key,
+    required this.title,
+    this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      title: Text(title, style: Type.body),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle!,
+              style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+      value: value,
+      onChanged: onChanged,
+    );
+  }
+}
+
+/// 分组底部的说明文字（Type.caption + onSurfaceVariant）。
+class _GroupNote extends StatelessWidget {
+  final String text;
+  const _GroupNote(this.text);
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 13.5, fontWeight: FontWeight.w600)),
-                if (subtitle != null && subtitle!.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(subtitle!,
-                      style: TextStyle(
-                          fontSize: 11.5,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                ],
-              ],
-            ),
-          ),
-          if (trailing != null) ...[const SizedBox(width: 16), trailing!],
-        ],
-      ),
+      padding: const EdgeInsets.only(left: Gap.xs, bottom: Gap.lg),
+      child: Text(text,
+          style: Type.caption.copyWith(
+              height: 1.6,
+              color: Theme.of(context).colorScheme.onSurfaceVariant)),
     );
   }
 }
@@ -233,6 +251,13 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _leController.dispose();
+    _searchGalController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -270,18 +295,15 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SettingsGroup(title: '启动与窗口', children: [
-          SettingRow(
+          SettingSwitch(
             title: '开机自启',
             subtitle: '登录 Windows 后自动启动 KisakiGals',
-            trailing: Switch(
-              value: _autostart,
-              onChanged: (v) async {
-                await AppServices.I.autostart.setEnabled(v);
-                setState(() => _autostart = v);
-              },
-            ),
+            value: _autostart,
+            onChanged: (v) async {
+              await AppServices.I.autostart.setEnabled(v);
+              setState(() => _autostart = v);
+            },
           ),
-          const Divider(),
           SettingRow(
             title: '启动游戏后',
             subtitle: '游戏开始运行时主窗口的行为（最小化到托盘不会占用任务栏）',
@@ -299,7 +321,6 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
               },
             ),
           ),
-          const Divider(),
           SettingRow(
             title: '关闭应用时',
             subtitle: '托盘图标始终存在，可随时恢复窗口；此项决定点 × 时是退出还是隐藏',
@@ -330,7 +351,8 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
               child: TextField(
                 controller: _searchGalController,
                 decoration: const InputDecoration(
-                    hintText: 'https://your-app.workers.dev/gal', isDense: true),
+                    hintText: 'https://your-app.workers.dev/gal',
+                    isDense: true),
                 onChanged: (v) => AppServices.I.settings
                     .setString(SettingsStore.kSearchGalApi, v.trim()),
               ),
@@ -349,7 +371,8 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                 child: TextField(
                   controller: _leController,
                   decoration: const InputDecoration(
-                      hintText: r'例：D:\LocaleEmulator\LEProc.exe', isDense: true),
+                      hintText: r'例：D:\LocaleEmulator\LEProc.exe',
+                      isDense: true),
                   onChanged: (v) async {
                     setState(() => _lePath = v.trim());
                     await AppServices.I.settings
@@ -357,9 +380,11 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                   },
                 ),
               ),
-              const SizedBox(width: 8),
-              OutlinedButton(
-                onPressed: () async {
+              const SizedBox(width: Gap.sm),
+              KPill(
+                label: '浏览…',
+                filled: false,
+                onTap: () async {
                   final r = await FilePicker.platform.pickFiles(
                     type: FileType.any,
                     dialogTitle: '选择 Locale Emulator 的 LEProc.exe',
@@ -375,7 +400,6 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                   });
                   showNotice('已保存 Locale Emulator 路径');
                 },
-                child: const Text('浏览…'),
               ),
             ]),
           ),
@@ -421,7 +445,6 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
               },
             ),
           ),
-          const Divider(),
           SettingRow(
             title: 'NSFW 封面处理',
             subtitle: 'R-18 封面的显示方式',
@@ -462,7 +485,6 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                 ),
               ),
             ),
-          const Divider(),
           SettingRow(
             title: '详情页背景模糊度',
             subtitle: '背景图压暗模糊的强度（0 = 不模糊）',
@@ -484,6 +506,8 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
             ),
           ),
         ]),
+        _GroupNote('设置实时写入本地数据库；除「数据 → 数据目录」外均立即生效。'
+            '当前渲染主题：${Theme.of(context).brightness == Brightness.dark ? '深色' : '浅色'}。'),
       ],
     );
   }
@@ -578,8 +602,7 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
             ? '上次同步 ${fmtDateTime(at)}\n${r.message}'
             : r.message;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(r.ok ? r.message : r.message)));
+      showNotice(r.message, error: !r.ok);
     } finally {
       if (mounted) setState(() => _syncing.remove(platform));
     }
@@ -593,8 +616,7 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
         SettingsGroup(
           title: '平台账号',
           children: [
-            for (final platform in _tokens.keys) ...[
-              if (platform != _tokens.keys.first) const Divider(),
+            for (final platform in _tokens.keys)
               _AccountRow(
                 platform: platform,
                 controller: _tokens[platform]!,
@@ -603,20 +625,11 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
                 onStatus: (msg) => setState(() => _status[platform] = msg),
                 onSync: () => _sync(platform),
               ),
-            ],
           ],
         ),
-        Padding(
-          padding: const EdgeInsets.only(left: 6),
-          child: Text(
+        const _GroupNote(
             'Token 仅保存在本地数据库。点击「获取 Token」前往对应平台生成；'
-            '「同步云端记录」会按平台条目 id 匹配本地游戏并更新游玩状态与评分（不覆盖本地已填评分）。',
-            style: TextStyle(
-                fontSize: 11.5,
-                height: 1.6,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-        ),
+            '「同步云端记录」会按平台条目 id 匹配本地游戏并更新游玩状态与评分（不覆盖本地已填评分）。'),
       ],
     );
   }
@@ -659,11 +672,12 @@ class _AccountRow extends StatelessWidget {
                         hintText: '粘贴 Access Token', isDense: true),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: Gap.sm),
                 // 获取 Token：跳转浏览器
-                IconButton(
+                KIconAction(
+                  icon: Icons.open_in_new_rounded,
                   tooltip: '获取 Token（打开浏览器）',
-                  onPressed: () async {
+                  onTap: () async {
                     final url = Uri.parse(
                         kTokenUrls[platform] ?? 'https://example.com');
                     if (!await launchUrl(url,
@@ -671,7 +685,6 @@ class _AccountRow extends StatelessWidget {
                       onStatus('无法打开浏览器，请手动访问：$url');
                     }
                   },
-                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
                 ),
                 TextButton(
                   onPressed: () async {
@@ -694,22 +707,24 @@ class _AccountRow extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: Gap.xs),
+            // 固定高度避免同步态切换时行高跳动（46 > 药丸按钮实际高度）
             SizedBox(
-              height: 30,
-              child: syncing
-                  ? const Align(
-                      alignment: Alignment.centerRight,
-                      child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2)))
-                  : OutlinedButton.icon(
-                      onPressed: onSync,
-                      icon: const Icon(Icons.cloud_download_rounded, size: 16),
-                      label: const Text('同步云端记录',
-                          style: TextStyle(fontSize: 12.5)),
-                    ),
+              height: 46,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: syncing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : KPill(
+                        label: '同步云端记录',
+                        icon: Icons.cloud_download_rounded,
+                        filled: false,
+                        onTap: onSync,
+                      ),
+              ),
             ),
           ],
         ),
@@ -746,8 +761,8 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
 
   Future<void> _load() async {
     final s = AppServices.I.settings;
-    _enabled = await s.getStringList(SettingsStore.kEnabledSources,
-        KisakiSources.defaultEnabled);
+    _enabled = await s.getStringList(
+        SettingsStore.kEnabledSources, KisakiSources.defaultEnabled);
     final proxy = await s.getString('sources.proxy', '');
     _proxyController.text = proxy;
     if (mounted) setState(() {});
@@ -772,19 +787,21 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
               subtitle:
                   '例：http://127.0.0.1:7890；留空时自动使用系统代理（当前检测：${AppServices.I.fetcher.proxy ?? '直连'}）',
               trailing: SizedBox(
-                width: 240,
+                width: 260,
                 child: Row(
                   children: [
                     Expanded(
                       child: TextField(
                         controller: _proxyController,
-                        decoration:
-                            const InputDecoration(hintText: '留空=自动', isDense: true),
+                        decoration: const InputDecoration(
+                            hintText: '留空=自动', isDense: true),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: () async {
+                    const SizedBox(width: Gap.sm),
+                    KPill(
+                      label: '保存',
+                      filled: false,
+                      onTap: () async {
                         await AppServices.I.settings.setString(
                             'sources.proxy', _proxyController.text.trim());
                         // 不传 tokens：保留已配置的 VNDB / Bangumi 凭据
@@ -794,7 +811,6 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                           showNotice('代理设置已保存并重新加载');
                         }
                       },
-                      child: const Text('保存'),
                     ),
                   ],
                 ),
@@ -805,10 +821,12 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
         SettingsGroup(
           title: '元数据源（搜刮时并发查询）',
           children: [
-            for (final id in KisakiSources.defaultEnabled + [KisakiSources.dlsite, KisakiSources.cngal]) ...[
+            for (final id in KisakiSources.defaultEnabled +
+                [KisakiSources.dlsite, KisakiSources.cngal])
               SettingRow(
                 title: KisakiSources.labels[id] ?? id,
-                subtitle: id == KisakiSources.cngal ? '公开 API 不太稳定，默认关闭' : null,
+                subtitle:
+                    id == KisakiSources.cngal ? '公开 API 不太稳定，默认关闭' : null,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -816,14 +834,16 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2))
                         : TextButton(
                             onPressed: () async {
                               setState(() => _testing[id] = true);
                               final ok =
                                   await AppServices.I.fetcher.testSource(id);
                               if (!context.mounted) return;
-                              showNotice('${KisakiSources.labels[id]}：${ok ? '连接正常' : '连接失败'}',
+                              showNotice(
+                                  '${KisakiSources.labels[id]}：${ok ? '连接正常' : '连接失败'}',
                                   error: !ok);
                               if (context.mounted) {
                                 setState(() => _testing[id] = false);
@@ -831,6 +851,7 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                             },
                             child: const Text('测试'),
                           ),
+                    const SizedBox(width: Gap.sm),
                     Switch(
                       value: _enabled.contains(id),
                       onChanged: (v) {
@@ -846,8 +867,6 @@ class _SourceSectionState extends ConsumerState<_SourceSection> {
                   ],
                 ),
               ),
-              if (id != KisakiSources.cngal) const Divider(),
-            ],
           ],
         ),
       ],
@@ -911,13 +930,13 @@ class _AiSectionState extends ConsumerState<_AiSection> {
               width: 260,
               child: TextField(
                 controller: _baseUrl,
-                decoration: const InputDecoration(hintText: '填到 /v1 为止', isDense: true),
+                decoration: const InputDecoration(
+                    hintText: '填到 /v1 为止', isDense: true),
                 onChanged: (v) => AppServices.I.settings
                     .setString(SettingsStore.kAiBaseUrl, v.trim()),
               ),
             ),
           ),
-          const Divider(),
           SettingRow(
             title: 'API Key',
             subtitle: '仅保存在本地数据库',
@@ -926,13 +945,13 @@ class _AiSectionState extends ConsumerState<_AiSection> {
               child: TextField(
                 controller: _apiKey,
                 obscureText: true,
-                decoration: const InputDecoration(hintText: 'sk-…', isDense: true),
+                decoration:
+                    const InputDecoration(hintText: 'sk-…', isDense: true),
                 onChanged: (v) => AppServices.I.settings
                     .setString(SettingsStore.kAiApiKey, v.trim()),
               ),
             ),
           ),
-          const Divider(),
           SettingRow(
             title: '模型名称',
             subtitle: '例：gpt-4o-mini、deepseek-chat、qwen-plus',
@@ -940,7 +959,8 @@ class _AiSectionState extends ConsumerState<_AiSection> {
               width: 260,
               child: TextField(
                 controller: _model,
-                decoration: const InputDecoration(hintText: '模型 id', isDense: true),
+                decoration:
+                    const InputDecoration(hintText: '模型 id', isDense: true),
                 onChanged: (v) => AppServices.I.settings
                     .setString(SettingsStore.kAiModel, v.trim()),
               ),
@@ -956,8 +976,10 @@ class _AiSectionState extends ConsumerState<_AiSection> {
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : OutlinedButton(
-                    onPressed: () async {
+                : KPill(
+                    label: '测试',
+                    filled: false,
+                    onTap: () async {
                       final config = _config();
                       if (!config.ready) {
                         setState(() => _testStatus = '请先填写完整配置');
@@ -979,21 +1001,12 @@ class _AiSectionState extends ConsumerState<_AiSection> {
                         _testStatus = r.ok ? '连接正常：${r.content}' : r.message;
                       });
                     },
-                    child: const Text('测试'),
                   ),
           ),
         ]),
-        Padding(
-          padding: const EdgeInsets.only(left: 6),
-          child: Text(
+        const _GroupNote(
             '配置后可在「AI」页生成游玩总结与作品推荐；推荐结果以卡片展示，可一键搜刮入库。'
-            '任何 OpenAI 兼容端点（DeepSeek / 通义 / Ollama / LM Studio 等）均可使用。',
-            style: TextStyle(
-                fontSize: 11.5,
-                height: 1.6,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-        ),
+            '任何 OpenAI 兼容端点（DeepSeek / 通义 / Ollama / LM Studio 等）均可使用。'),
       ],
     );
   }
@@ -1026,7 +1039,11 @@ class _DataSectionState extends ConsumerState<_DataSection> {
     final backups = AppServices.I.paths.backups;
     final dir = Directory(backups);
     _backupCount = dir.existsSync()
-        ? dir.listSync().whereType<File>().where((f) => f.path.endsWith('.db')).length
+        ? dir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.db'))
+            .length
         : 0;
     if (mounted) setState(() {});
   }
@@ -1040,46 +1057,43 @@ class _DataSectionState extends ConsumerState<_DataSection> {
           SettingRow(
             title: '数据目录',
             subtitle: '$_dataDir\n（包含数据库、封面缓存、备份；修改后重启生效）',
-            trailing: SizedBox(
-              width: 130,
-              child: OutlinedButton(
-                onPressed: () async {
-                  final result = await FilePicker.platform.getDirectoryPath(
-                      dialogTitle: '选择数据目录');
-                  if (result != null) {
-                    await AppServices.I.settings
-                        .setString(SettingsStore.kDataDir, result);
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已保存，重启应用后生效')));
-                  }
-                },
-                child: const Text('更改'),
-              ),
+            trailing: KPill(
+              label: '更改',
+              filled: false,
+              onTap: () async {
+                final result = await FilePicker.platform
+                    .getDirectoryPath(dialogTitle: '选择数据目录');
+                if (result != null) {
+                  await AppServices.I.settings
+                      .setString(SettingsStore.kDataDir, result);
+                  if (!context.mounted) return;
+                  showNotice('已保存，重启应用后生效');
+                }
+              },
             ),
           ),
         ]),
         SettingsGroup(title: '备份与恢复', children: [
-          SettingRow(
+          SettingSwitch(
             title: '每日自动备份',
             subtitle: '启动时若距上次备份超过 24 小时则自动创建',
-            trailing: Switch(
-              value: _autoBackup,
-              onChanged: (v) async {
-                await AppServices.I.settings
-                    .setBool(SettingsStore.kAutoBackup, v);
-                setState(() => _autoBackup = v);
-              },
-            ),
+            value: _autoBackup,
+            onChanged: (v) async {
+              await AppServices.I.settings
+                  .setBool(SettingsStore.kAutoBackup, v);
+              setState(() => _autoBackup = v);
+            },
           ),
-          const Divider(),
           SettingRow(
             title: '当前备份',
             subtitle: '默认备份目录已有 $_backupCount 份；「备份到…」可选任意位置，方便把数据拷到另一台电脑',
             trailing: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                OutlinedButton(
-                  onPressed: () async {
+                KPill(
+                  label: '备份到…',
+                  filled: false,
+                  onTap: () async {
                     // 默认存数据目录 backups/；也可选择其他位置（便于拷贝到别的电脑）
                     final dir = await FilePicker.platform.getDirectoryPath(
                         dialogTitle: '备份保存到（取消则存默认备份目录）');
@@ -1098,77 +1112,15 @@ class _DataSectionState extends ConsumerState<_DataSection> {
                       await target.prune(keep);
                     }
                     await _load();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text('备份完成：$path')));
-                    }
-                  },
-                  child: const Text('备份到…'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: () async {
-                    final result = await FilePicker.platform.pickFiles(
-                      type: FileType.any,
-                      dialogTitle: '选择要恢复的备份文件（.db）',
-                    );
-                    final path = result?.files.single.path;
-                    if (path == null || path.isEmpty) return;
-                    if (!BackupService.looksLikeArchive(path) &&
-                        !BackupService.looksLikeSqlite(path)) {
-                      if (context.mounted) {
-                        showNotice('所选文件不是有效的备份（应为 .kgbak 或 .db）',
-                            error: true);
-                      }
-                      return;
-                    }
                     if (!context.mounted) return;
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('恢复备份'),
-                        content: Text(
-                            '将用 ${path.split(Platform.pathSeparator).last} 覆盖当前数据库，恢复后应用会自动重启。继续吗？'),
-                        actions: [
-                          TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: const Text('取消')),
-                          FilledButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              child: const Text('恢复并重启')),
-                        ],
-                      ),
-                    );
-                    if (ok != true || !context.mounted) return;
-                    try {
-                      // 1. 关闭数据库连接（释放文件锁）
-                      await AppServices.I.db.close();
-                      // 2. 清理 WAL/SHM 附属文件（否则旧数据会回写覆盖恢复结果）
-                      BackupService(
-                              dbFile: AppServices.I.paths.dbFile,
-                              backupsDir: AppServices.I.paths.backups)
-                          .removeSidecarFiles();
-                      // 3. 覆盖
-                      await BackupService(
-                              dbFile: AppServices.I.paths.dbFile,
-                              backupsDir: AppServices.I.paths.backups,
-                              dataRoot: AppServices.I.paths.root)
-                          .restore(path);
-                    } catch (e) {
-                      if (context.mounted) {
-                        showNotice('恢复失败：$e（可手动将备份复制到数据目录覆盖 kisakigals.db）',
-                            error: true);
-                      }
-                      return;
-                    }
-                    // 4. 自动重启应用
-                    final exe = Platform.resolvedExecutable;
-                    await Process.start(exe, [],
-                        workingDirectory: File(exe).parent.path,
-                        mode: ProcessStartMode.detached);
-                    exit(0);
+                    showNotice('备份完成：$path');
                   },
-                  child: const Text('从文件恢复…'),
+                ),
+                const SizedBox(width: Gap.sm),
+                KPill(
+                  label: '从文件恢复…',
+                  filled: false,
+                  onTap: () => _restoreFromFile(context),
                 ),
               ],
             ),
@@ -1178,11 +1130,10 @@ class _DataSectionState extends ConsumerState<_DataSection> {
           SettingRow(
             title: '元数据缓存',
             subtitle: '搜刮结果缓存 24 小时；封面缓存在 covers 目录',
-            trailing: OutlinedButton(
-              onPressed: () {
-                _clearCacheDialog(context);
-              },
-              child: const Text('清理'),
+            trailing: KPill(
+              label: '清理',
+              filled: false,
+              onTap: () => _clearCacheDialog(context),
             ),
           ),
         ]),
@@ -1190,8 +1141,70 @@ class _DataSectionState extends ConsumerState<_DataSection> {
     );
   }
 
+  /// 从 .kgbak / .db 备份恢复（恢复后自动重启应用）。
+  Future<void> _restoreFromFile(BuildContext context) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      dialogTitle: '选择要恢复的备份文件（.kgbak / .db）',
+    );
+    final path = result?.files.single.path;
+    if (path == null || path.isEmpty) return;
+    if (!BackupService.looksLikeArchive(path) &&
+        !BackupService.looksLikeSqlite(path)) {
+      if (context.mounted) {
+        showNotice('所选文件不是有效的备份（应为 .kgbak 或 .db）', error: true);
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    final ok = await showKisakiDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('恢复备份'),
+        content: Text(
+            '将用 ${path.split(Platform.pathSeparator).last} 覆盖当前数据库，恢复后应用会自动重启。继续吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('恢复并重启')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      // 1. 关闭数据库连接（释放文件锁）
+      await AppServices.I.db.close();
+      // 2. 清理 WAL/SHM 附属文件（否则旧数据会回写覆盖恢复结果）
+      BackupService(
+              dbFile: AppServices.I.paths.dbFile,
+              backupsDir: AppServices.I.paths.backups)
+          .removeSidecarFiles();
+      // 3. 覆盖
+      await BackupService(
+              dbFile: AppServices.I.paths.dbFile,
+              backupsDir: AppServices.I.paths.backups,
+              dataRoot: AppServices.I.paths.root)
+          .restore(path);
+    } catch (e) {
+      if (context.mounted) {
+        showNotice('恢复失败：$e（可手动将备份复制到数据目录覆盖 kisakigals.db）',
+            error: true);
+      }
+      return;
+    }
+    // 4. 自动重启应用
+    final exe = Platform.resolvedExecutable;
+    await Process.start(exe, [],
+        workingDirectory: File(exe).parent.path,
+        mode: ProcessStartMode.detached);
+    exit(0);
+  }
+
   void _clearCacheDialog(BuildContext context) {
-    showDialog(
+    showKisakiDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('清理缓存'),
@@ -1204,12 +1217,13 @@ class _DataSectionState extends ConsumerState<_DataSection> {
               AppServices.I.fetcher.cache.clear();
               final covers = Directory(AppServices.I.paths.covers);
               if (covers.existsSync()) {
-                covers.listSync().whereType<File>().forEach((f) => f.deleteSync());
+                covers
+                    .listSync()
+                    .whereType<File>()
+                    .forEach((f) => f.deleteSync());
               }
               Navigator.pop(ctx);
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('缓存已清理')));
+              showNotice('缓存已清理');
             },
             child: const Text('清理'),
           ),
@@ -1234,18 +1248,21 @@ class _PluginSection extends ConsumerWidget {
         SettingsGroup(
           title: '内置插件',
           children: [
-            for (final p in plugins) ...[
+            for (final p in plugins)
               SettingRow(
                 title: '${p.name} · v${p.version}',
-                subtitle: '${p.description}\n${p.settings.map((s) => '${s.label}：${p.config[s.key]}').join('  ')}',
+                subtitle:
+                    '${p.description}\n${p.settings.map((s) => '${s.label}：${p.config[s.key]}').join('  ')}',
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (final s in p.settings.where((s) => s.type == PluginSettingType.int_))
+                    for (final s in p.settings
+                        .where((s) => s.type == PluginSettingType.int_))
                       SizedBox(
                         width: 130,
                         child: TextFormField(
-                          key: ValueKey('plugin_${p.id}_${s.key}_${p.config[s.key]}'),
+                          key: ValueKey(
+                              'plugin_${p.id}_${s.key}_${p.config[s.key]}'),
                           initialValue: '${p.config[s.key]}',
                           decoration: InputDecoration(
                               isDense: true, hintText: s.label),
@@ -1253,25 +1270,24 @@ class _PluginSection extends ConsumerWidget {
                           onFieldSubmitted: (v) async {
                             final n = int.tryParse(v);
                             if (n != null) {
-                              await AppServices.I.plugins.setConfig(p.id, s.key, n);
+                              await AppServices.I.plugins
+                                  .setConfig(p.id, s.key, n);
                             }
                           },
                         ),
                       ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: Gap.sm),
                     Switch(
                       value: p.enabled,
                       onChanged: (v) async {
-                        await AppServices.I.plugins
-                            .setEnabled(p.id, v, AppServices.I.pluginContext!);
+                        await AppServices.I.plugins.setEnabled(
+                            p.id, v, AppServices.I.pluginContext!);
                         ref.read(libraryVersionProvider.notifier).state++;
                       },
                     ),
                   ],
                 ),
               ),
-              if (p != plugins.last) const Divider(),
-            ],
           ],
         ),
         SettingsGroup(
@@ -1288,21 +1304,24 @@ class _PluginSection extends ConsumerWidget {
                   title: '${m['name']}（外部）',
                   subtitle: '${m['description'] ?? ''} · 作者：${m['author'] ?? '未知'}',
                 ),
-            SettingRow(
-              title: '',
-              trailing: OutlinedButton(
-                onPressed: () async {
+            Align(
+              alignment: Alignment.centerRight,
+              child: KPill(
+                label: '导入清单',
+                icon: Icons.file_open_rounded,
+                filled: false,
+                onTap: () async {
                   final result = await FilePicker.platform.pickFiles(
                       type: FileType.custom, allowedExtensions: ['json']);
                   if (result?.files.single.path != null) {
                     final err = await AppServices.I.plugins
                         .importManifest(result!.files.single.path!);
                     if (context.mounted) {
-                      showNotice(err ?? '导入成功（元数据展示模式）', error: err != null);
+                      showNotice(err ?? '导入成功（元数据展示模式）',
+                          error: err != null);
                     }
                   }
                 },
-                child: const Text('导入清单'),
               ),
             ),
           ],
@@ -1320,70 +1339,67 @@ class _AboutSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const SizedBox(height: 30),
+        const SizedBox(height: Gap.xxl),
         ClipRRect(
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(Radii.xl),
           child: Image.asset('assets/logo/logo_128.png',
-              width: 110, height: 110,
-              errorBuilder: (_, __, ___) => Icon(Icons.local_florist_rounded,
-                  size: 80, color: KisakiColors.pink)),
+              width: 110,
+              height: 110,
+              errorBuilder: (_, __, ___) => const Icon(
+                  Icons.local_florist_rounded,
+                  size: 80,
+                  color: KisakiColors.pink)),
         ),
-        const SizedBox(height: 16),
-        Text('KisakiGals',
-            style: Theme.of(context)
-                .textTheme
-                .headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w900)),
-        const SizedBox(height: 4),
+        const SizedBox(height: Gap.lg),
+        Text('KisakiGals', style: Type.display),
+        const SizedBox(height: Gap.xs),
         Text('版本 ${AppInfo.version}',
-            style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        const SizedBox(height: 22),
+            style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+        const SizedBox(height: Gap.xl),
         SettingsGroup(title: '信息', children: [
           SettingRow(
               title: '作者',
               trailing: Text(AppInfo.author,
-                  style: const TextStyle(fontWeight: FontWeight.w700))),
-          const Divider(),
+                  style: Type.body.copyWith(fontWeight: FontWeight.w700))),
           SettingRow(
               title: '项目地址',
               subtitle: AppInfo.repository,
-              trailing: OutlinedButton.icon(
-                onPressed: () async {
+              trailing: KPill(
+                label: '打开',
+                icon: Icons.open_in_new_rounded,
+                filled: false,
+                onTap: () async {
                   final url = Uri.parse(AppInfo.repository);
                   if (!await launchUrl(url,
                       mode: LaunchMode.externalApplication)) {
                     if (context.mounted) {
-                      showNotice('无法打开浏览器：${AppInfo.repository}', error: true);
+                      showNotice('无法打开浏览器：${AppInfo.repository}',
+                          error: true);
                     }
                   }
                 },
-                icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                label: const Text('打开'),
               )),
-          const Divider(),
           SettingRow(
             title: '检查更新',
             subtitle: '当前已是最新版本',
-            trailing: OutlinedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('你已经在最新版本 ${AppInfo.version}')));
-              },
-              child: const Text('检查'),
+            trailing: KPill(
+              label: '检查',
+              filled: false,
+              onTap: () =>
+                  showNotice('你已经在最新版本 ${AppInfo.version}'),
             ),
           ),
         ]),
         Padding(
-          padding: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.only(top: Gap.sm),
           child: Text(
             '用 Flutter 与 ♥ 打造 · 元数据来自 VNDB / Bangumi / 月幕GAL / Hikarinagi / Steam / CnGal / KunGal / TouchGal',
             textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 11,
+            style: Type.caption.copyWith(
                 color: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
           ),
         ),

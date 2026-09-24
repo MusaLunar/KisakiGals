@@ -31,9 +31,12 @@ final tabIndexProvider = StateProvider<int>((ref) => 0);
 final settingsSectionProvider = StateProvider<int>((ref) => 0);
 
 /// 跳转到设置页的指定分区（AI=3）。
+/// 跳到「设置」并定位到指定分区。
+/// 注意：侧栏顺序为 主页0 / 游戏库1 / 资源搜索2 / 统计3 / AI4 / 设置5，
+/// 这里必须是 5 —— 原先写成 4 会让按钮看起来「点了没反应」（跳到 AI 页）。
 void jumpToSettingsSection(WidgetRef ref, int section) {
   ref.read(settingsSectionProvider.notifier).state = section;
-  ref.read(tabIndexProvider.notifier).state = 4;
+  ref.read(tabIndexProvider.notifier).state = 5;
 }
 
 /// 刷新信号：任何库变更后自增，通知各页重新读取。

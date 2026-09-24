@@ -2,6 +2,8 @@
 ///
 /// 参考 Moe-Sakura/SearchGal：不解析直链、不托管资源，只给出发布页链接；
 /// 入库则复用既有的「添加游戏 → 搜刮」流程，用资源标题作为关键词自动补全元数据。
+///
+/// 页面骨架走 KPage，结果卡片走 KCard / KBadge，流式结果错落淡入。
 library;
 
 import 'dart:async';
@@ -15,6 +17,8 @@ import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../../services/resource_search.dart';
 import '../add/add_game_page.dart';
+import '../design.dart';
+import '../kit.dart';
 import '../theme.dart';
 import '../widgets/notifications.dart';
 
@@ -114,8 +118,8 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
   }
 
   Future<void> _openUrl(String url) async {
-    final ok = await launchUrl(Uri.parse(url),
-        mode: LaunchMode.externalApplication);
+    final ok =
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
     if (!ok) showNotice('打开链接失败：$url', error: true);
   }
 
@@ -124,12 +128,12 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
     final existing = await AppServices.I.repo.findGameByTitle(item.title);
     if (!mounted) return;
     if (existing != null) {
-      showNotice('「${existing.displayName}」已在库中，已为你打开详情');
+      showNotice('「${existing.displayName}」已在库中，已为你打开游戏库');
       ref.read(libraryVersionProvider.notifier).state++;
       ref.read(tabIndexProvider.notifier).state = 1;
       return;
     }
-    await Navigator.of(context).push(MaterialPageRoute(
+    await Navigator.of(context).push(FadeThroughRoute.builder(
         builder: (_) => AddGamePage(initialQuery: item.title)));
     if (mounted) {
       ref.read(libraryVersionProvider.notifier).state++;
@@ -138,208 +142,171 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+    return KPage(
+      title: '资源搜索',
+      subtitle: _items.isEmpty
+          ? '聚合资源站发布页 · 只提供链接，不托管资源'
+          : '共 ${_items.length} 条 · 按相关度排序',
+      actions: [
+        if (_busy)
+          KBadge(text: '$_completed / $_total', color: scheme.primary),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Icon(Icons.travel_explore_rounded,
-                size: 22, color: KisakiColors.pink),
-            const SizedBox(width: 8),
-            Text('资源搜索',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: dark ? KisakiColors.nightInk : KisakiColors.ink)),
-            const SizedBox(width: 10),
-            Text(
-                _items.isEmpty
-                    ? '聚合资源站发布页'
-                    : '共 ${_items.length} 条 · 按相关度排序',
-                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-            const Spacer(),
-            if (_busy)
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: Text('$_completed / $_total',
-                    style:
-                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-              ),
-          ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(
-              child: TextField(
-                controller: _ctrl,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _start(),
-                decoration: const InputDecoration(
-                  hintText: '搜索游戏名（中文名效果最好，例如 千恋万花）',
-                  prefixIcon: Icon(Icons.search_rounded, size: 20),
-                  isDense: true,
+          // 搜索框 + 主操作
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _start(),
+                  decoration: const InputDecoration(
+                    hintText: '搜索游戏名（中文名效果最好，例如 千恋万花）',
+                    prefixIcon: Icon(Icons.search_rounded, size: 20),
+                    isDense: true,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            FilledButton.icon(
-              onPressed: _busy ? null : _start,
-              icon: _busy
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.search_rounded, size: 18),
-              label: Text(_busy ? '搜索中…' : '搜索'),
-            ),
-          ]),
-          const SizedBox(height: 14),
-          if (_items.isEmpty && _errors.isEmpty && !_busy)
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.cloud_download_outlined,
-                        size: 44, color: scheme.onSurfaceVariant),
-                    const SizedBox(height: 12),
-                    Text(_keyword.isEmpty ? '输入游戏名开始搜索' : '未找到与「$_keyword」相关的资源',
-                        style: TextStyle(
-                            fontSize: 14, color: scheme.onSurfaceVariant)),
-                    const SizedBox(height: 6),
-                    Text('结果来自各资源站的发布页，可一键打开下载页或直接入库',
-                        style: TextStyle(
-                            fontSize: 12, color: scheme.onSurfaceVariant)),
-                  ],
-                ),
+              const SizedBox(width: Gap.md),
+              KPill(
+                label: _busy ? '搜索中…' : '搜索',
+                icon: _busy ? null : Icons.search_rounded,
+                onTap: _busy ? null : _start,
               ),
-            )
-          else
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 20),
-                children: [
-                  if (_errors.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: KisakiColors.pink.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                            color: KisakiColors.pink.withValues(alpha: 0.35)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final e in _errors.entries)
-                            Text('${e.key}：${e.value}',
-                                style: const TextStyle(fontSize: 11.5)),
-                        ],
-                      ),
-                    ),
-                  if (_items.isEmpty && _busy)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 40),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  for (final it in _items) _tile(context, it),
-                ],
-              ),
-            ),
+            ],
+          ),
+          const SizedBox(height: Gap.lg),
+          Expanded(child: _results(context)),
         ],
       ),
     );
   }
 
-  Widget _tile(BuildContext context, ResourceItem it) {
-    final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-      decoration: BoxDecoration(
-        color: dark ? KisakiColors.nightCard : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Row(children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Flexible(
-                  child: Text(it.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 13.5, fontWeight: FontWeight.w600)),
-                ),
-                if (ResourceSearcher.relevance(it.title, _keyword) >= 850) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF7EC8C3).withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: const Text('高度相关',
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF3F9E97))),
+  Widget _results(BuildContext context) {
+    if (_items.isEmpty && _errors.isEmpty && !_busy) {
+      return KEmpty(
+        icon: Icons.cloud_download_outlined,
+        title: _keyword.isEmpty ? '输入游戏名开始搜索' : '未找到与「$_keyword」相关的资源',
+        subtitle: '结果来自各资源站的发布页，可一键打开下载页或直接入库',
+        actionLabel: _keyword.isEmpty ? null : '再搜一次',
+        onAction: _keyword.isEmpty ? null : _start,
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.only(bottom: Gap.xl),
+      children: [
+        // 各源错误提示（不阻断其它源的结果）
+        if (_errors.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Gap.md),
+            child: KCard(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: Gap.lg, vertical: Gap.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.error_outline_rounded,
+                          size: 16, color: KisakiColors.danger),
+                      const SizedBox(width: Gap.sm),
+                      Text('部分数据源不可用',
+                          style: Type.section
+                              .copyWith(color: KisakiColors.danger)),
+                    ],
                   ),
+                  const SizedBox(height: Gap.xs),
+                  for (final e in _errors.entries)
+                    Text('${e.key}：${e.value}',
+                        style: Type.caption.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant)),
                 ],
-              ]),
-              const SizedBox(height: 4),
-              Text(it.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 5),
-              Row(children: [
-                _chip(it.site, KisakiColors.lavender),
-                const SizedBox(width: 6),
-                for (final t in it.tags.take(3)) ...[
-                  _chip(t, t == ResourceTag.noLogin
-                      ? const Color(0xFF7EC8C3)
-                      : (t == ResourceTag.needMagic
-                          ? const Color(0xFFE0B060)
-                          : scheme.onSurfaceVariant)),
-                  const SizedBox(width: 6),
-                ],
-              ]),
-            ],
+              ),
+            ),
           ),
-        ),
-        TextButton.icon(
-          onPressed: () => _openUrl(it.url),
-          icon: const Icon(Icons.open_in_new_rounded, size: 16),
-          label: const Text('下载页'),
-        ),
-        FilledButton.tonalIcon(
-          onPressed: () => _addToLibrary(it),
-          icon: const Icon(Icons.library_add_rounded, size: 16),
-          label: const Text('入库'),
-        ),
-        const SizedBox(width: 6),
-      ]),
+        if (_items.isEmpty && _busy)
+          const Padding(
+            padding: EdgeInsets.only(top: Gap.huge),
+            child: KLoading(),
+          ),
+        for (var i = 0; i < _items.length; i++)
+          StaggeredFadeIn(
+            index: i,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: Gap.sm),
+              child: _tile(context, _items[i]),
+            ),
+          ),
+      ],
     );
   }
 
-  Widget _chip(String text, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(text,
-            style: TextStyle(
-                fontSize: 10.5, color: color, fontWeight: FontWeight.w600)),
-      );
+  Widget _tile(BuildContext context, ResourceItem it) {
+    final scheme = Theme.of(context).colorScheme;
+    final relevant = ResourceSearcher.relevance(it.title, _keyword);
+    return KCard(
+      padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.sm, Gap.md),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(it.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Type.body.copyWith(
+                              fontWeight: FontWeight.w600)),
+                    ),
+                    if (relevant >= 850) ...[
+                      const SizedBox(width: Gap.sm),
+                      const KBadge(
+                          text: '高度相关', color: Color(0xFF3F9E97)),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: Gap.xs),
+                Wrap(
+                  spacing: Gap.sm,
+                  runSpacing: Gap.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    KBadge(text: it.site, color: KisakiColors.lavender),
+                    for (final t in it.tags.take(3))
+                      KBadge(
+                        text: t,
+                        color: t == ResourceTag.noLogin
+                            ? const Color(0xFF7EC8C3)
+                            : (t == ResourceTag.needMagic
+                                ? KisakiColors.warning
+                                : scheme.onSurfaceVariant),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: Gap.sm),
+          TextButton.icon(
+            onPressed: () => _openUrl(it.url),
+            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            label: const Text('下载页'),
+          ),
+          const SizedBox(width: Gap.xs),
+          FilledButton.tonalIcon(
+            onPressed: () => _addToLibrary(it),
+            icon: const Icon(Icons.library_add_rounded, size: 16),
+            label: const Text('入库'),
+          ),
+        ],
+      ),
+    );
+  }
 }
