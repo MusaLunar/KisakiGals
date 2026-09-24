@@ -10,7 +10,7 @@ import 'package:window_manager/window_manager.dart';
 import 'app_services.dart';
 import 'data/settings_store.dart';
 import 'providers.dart';
-import 'ui/shell.dart';
+import 'ui/shell/app_shell.dart';
 import 'ui/theme.dart';
 import 'ui/widgets/notifications.dart';
 
@@ -190,7 +190,7 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
           const NoticeOverlay(child: SizedBox.shrink()),
         ],
       ),
-      home: const ShellPage(),
+      home: const AppShell(),
     );
   }
 }

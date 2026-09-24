@@ -12,10 +12,13 @@ import 'core/paths.dart';
 import 'data/db.dart';
 import 'data/game_repository.dart';
 import 'data/metadata_cache.dart';
+import 'data/models.dart';
 import 'data/settings_store.dart';
 import 'scraping/metadata_fetcher.dart';
 import 'scraping/tag_translator.dart';
 import 'services/autostart.dart';
+
+import 'scraping/cover_candidates.dart';
 import 'services/device.dart';
 import 'services/ai_service.dart';
 import 'services/playtime_tracker.dart';
@@ -61,6 +64,46 @@ RelocateResult? lastRelocateResult;
 
 /// 启动时修复的封面/背景路径条数（UI 提示用）。
 int lastMediaRepairCount = 0;
+
+/// 启动时自动补回的封面数量（UI 提示用）。
+int lastCoverRefetch = 0;
+
+/// 背景补齐：对本地封面缺失的游戏，按平台记录的封面 URL 重新下载。
+/// 返回补回的封面数量；全程静默，失败不影响启动。
+Future<int> _refetchMissingCovers(AppServices s) async {
+  final games = await s.repo.allGames();
+  var fixed = 0;
+  for (final g in games) {
+    if (g.id == null) continue;
+    final local = g.coverPath.isEmpty
+        ? ''
+        : s.paths.resolveStored(g.coverPath);
+    if (local.isNotEmpty && File(local).existsSync()) continue;
+    // 从平台记录里找一个可用封面 URL
+    List<SourceRecord> sources;
+    try {
+      sources = await s.repo.sourcesOf(g.id!);
+    } catch (_) {
+      continue;
+    }
+    final candidates = <String>[];
+    for (final src in sources) {
+      final url = CoverCandidates.extractCoverUrl(src.raw);
+      if (url.isNotEmpty) candidates.add(url);
+    }
+    if (candidates.isEmpty) continue;
+    for (final url in candidates.take(3)) {
+      final saved = await s.fetcher.downloadImage(url, 'game_${g.id}');
+      if (saved.isNotEmpty) {
+        g.coverPath = saved;
+        await s.repo.updateGame(g);
+        fixed++;
+        break;
+      }
+    }
+  }
+  return fixed;
+}
 
 class AppServices {
   static AppServices? _i;
@@ -177,6 +220,12 @@ class AppServices {
     try {
       final fixed = await s.paths.repairLegacyMediaPaths(s.db);
       if (fixed > 0) lastMediaRepairCount = fixed;
+    } catch (_) {}
+
+    // 补齐缺失的本地封面：从该游戏的平台记录里取封面 URL 重新下载
+    // （迁移后封面文件丢失、或早期数据只存了失效路径时尤其有用）
+    try {
+      lastCoverRefetch = await _refetchMissingCovers(s);
     } catch (_) {}
 
     // 启动时尝试重定位缺失的游戏路径（失败静默，由 UI 侧另行提示）

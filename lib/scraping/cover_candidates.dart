@@ -43,6 +43,9 @@ class CoverCandidates {
     return out;
   }
 
+  /// 从单条平台记录里提取封面 URL（供自动补回封面使用）。
+  static String extractCoverUrl(Map<String, dynamic> raw) => _extract(raw);
+
   static String _extract(Map<String, dynamic> m) {
     if (m.isEmpty) return '';
     for (final key in _coverKeys) {

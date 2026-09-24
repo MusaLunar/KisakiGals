@@ -409,3 +409,34 @@ class FadeThroughSwitcher extends StatelessWidget {
     );
   }
 }
+
+/// 统一的对话框：进场 250ms（缩放 0.94→1 + 淡入）、退场 200ms，
+/// 与 ReinaManager 的"大圆角 + 轻描边"外观配合（圆角由 dialogTheme 控制）。
+Future<T?> showKisakiDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) {
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: Motion.barrier,
+    transitionDuration: Motion.page,
+    pageBuilder: (context, _, __) => builder(context),
+    transitionBuilder: (context, animation, secondary, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Motion.enter,
+        reverseCurve: Motion.exit,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween(begin: Motion.dialogScaleFrom, end: 1.0).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
