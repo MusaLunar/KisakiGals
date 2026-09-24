@@ -15,6 +15,8 @@ import '../../providers.dart';
 import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../../services/ai_service.dart';
+import '../design.dart';
+import '../kit.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -58,38 +60,27 @@ class _AiPageState extends ConsumerState<AiPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+    final scheme = Theme.of(context).colorScheme;
+    return KPage(
+      title: 'AI 助手',
+      subtitle: '基于你的游玩数据与标签词云生成总结与推荐；数据仅用于当次请求，不上传游戏文件',
+      actions: [
+        KPill(
+          label: 'AI 设置',
+          icon: Icons.settings_rounded,
+          filled: false,
+          onTap: _jumpSettings,
+        ),
+      ],
       child: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
         children: [
-          Row(
-            children: [
-              Text('AI 助手',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(width: 10),
-              const Icon(Icons.auto_awesome_rounded,
-                  size: 20, color: KisakiColors.lavender),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _jumpSettings,
-                icon: const Icon(Icons.settings_rounded, size: 18),
-                label: const Text('AI 设置'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text('基于你的游玩数据与标签词云，由 AI 生成游玩总结与新作推荐。数据仅用于构造当次请求，不会上传游戏文件。',
-              style: TextStyle(
-                  fontSize: 12.5,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          const SizedBox(height: 16),
           _summaryCard(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           _recommendCard(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
+          Text('提示：AI 输出仅供参考；推荐卡的「+」会先搜刮元数据再入库。',
+              style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
         ],
       ),
     );
@@ -98,30 +89,30 @@ class _AiPageState extends ConsumerState<AiPage> {
   // ---------- 智能总结 ----------
 
   Widget _summaryCard() {
-    return SoftCard(
+    final scheme = Theme.of(context).colorScheme;
+    return KCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.insights_rounded, color: KisakiColors.pink),
-              const SizedBox(width: 8),
-              Text('游玩智能总结',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800)),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: KisakiColors.pink.withValues(alpha: 0.12),
+                ),
+                child: const Icon(Icons.insights_rounded,
+                    size: 18, color: KisakiColors.pink),
+              ),
+              const SizedBox(width: 10),
+              Text('游玩智能总结', style: Type.section),
               const Spacer(),
-              FilledButton.icon(
-                onPressed: _summarizing ? null : _generateSummary,
-                icon: _summarizing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.auto_awesome_rounded, size: 18),
-                label: Text(_summarizing ? '生成中…' : '生成总结'),
+              KPill(
+                label: _summarizing ? '生成中…' : '生成总结',
+                icon: Icons.auto_awesome_rounded,
+                onTap: _summarizing ? null : _generateSummary,
               ),
             ],
           ),
@@ -131,19 +122,19 @@ class _AiPageState extends ConsumerState<AiPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(Radii.md),
+                color: scheme.surfaceContainer,
+                border: Border.all(color: Elev.border(
+                    Theme.of(context).brightness == Brightness.dark)),
               ),
               child: SelectableText(_summary,
-                  style: const TextStyle(height: 1.7, fontSize: 13.5)),
+                  style: Type.body.copyWith(height: 1.75)),
             )
           else if (_summaryError != null)
             _errorBox(_summaryError!)
           else
             Text('点击「生成总结」，AI 将结合总时长、活跃天数、最常玩作品与标签词云给出一段点评。',
-                style: TextStyle(
-                    fontSize: 12.5,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
         ],
       ),
     );
@@ -382,6 +373,13 @@ class _AiPageState extends ConsumerState<AiPage> {
 
 enum _RecAddState { idle, working, added, exists, failed }
 
+/// 推荐封面的懒搜刮缓存：按标题复用同一 Future，
+/// 避免卡片每次重建都重新发起多源网络搜索（有 24h 磁盘缓存兜底）。
+final Map<String, Future<ScrapedGame?>> _recCoverCache = {};
+
+Future<ScrapedGame?> _coverFuture(String title) =>
+    _recCoverCache.putIfAbsent(title, () => AppServices.I.fetcher.fetchBest(title));
+
 /// 推荐卡片：封面（懒搜刮）+ 标题 + 理由 + 标签 + 添加按钮。
 class _RecCard extends ConsumerWidget {
   final AiRecommendation rec;
@@ -408,7 +406,7 @@ class _RecCard extends ConsumerWidget {
                 width: 46,
                 height: 64,
                 child: FutureBuilder<ScrapedGame?>(
-                  future: AppServices.I.fetcher.fetchBest(rec.title),
+                  future: _coverFuture(rec.title),
                   builder: (context, snap) {
                     final url = snap.data?.coverUrl ?? '';
                     if (url.isEmpty) {
