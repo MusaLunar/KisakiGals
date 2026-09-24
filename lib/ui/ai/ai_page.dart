@@ -76,9 +76,9 @@ class _AiPageState extends ConsumerState<AiPage> {
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           _summaryCard(),
-          const SizedBox(height: 16),
+          const SizedBox(height: Gap.lg),
           _recommendCard(),
-          const SizedBox(height: 8),
+          const SizedBox(height: Gap.sm),
           Text('提示：AI 输出仅供参考；推荐卡的「+」会先搜刮元数据再入库。',
               style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
         ],
@@ -100,13 +100,13 @@ class _AiPageState extends ConsumerState<AiPage> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                   color: KisakiColors.pink.withValues(alpha: 0.12),
                 ),
                 child: const Icon(Icons.insights_rounded,
                     size: 18, color: KisakiColors.pink),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: Gap.sm),
               Text('游玩智能总结', style: Type.section),
               const Spacer(),
               KPill(
@@ -116,7 +116,7 @@ class _AiPageState extends ConsumerState<AiPage> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: Gap.md),
           if (_summary.isNotEmpty)
             Container(
               width: double.infinity,
@@ -176,7 +176,7 @@ class _AiPageState extends ConsumerState<AiPage> {
           Row(
             children: [
               const Icon(Icons.recommend_rounded, color: KisakiColors.lavender),
-              const SizedBox(width: 8),
+              const SizedBox(width: Gap.sm),
               Text('作品推荐',
                   style: Theme.of(context)
                       .textTheme
@@ -196,7 +196,7 @@ class _AiPageState extends ConsumerState<AiPage> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: Gap.md),
           if (_recommending)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
@@ -349,14 +349,14 @@ class _AiPageState extends ConsumerState<AiPage> {
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(Radii.sm + 2),
           color: KisakiColors.pinkContainer,
         ),
         child: Row(
           children: [
             const Icon(Icons.info_outline_rounded,
                 size: 18, color: KisakiColors.pink),
-            const SizedBox(width: 8),
+            const SizedBox(width: Gap.sm),
             Expanded(
               child: Text(msg,
                   style: const TextStyle(
@@ -392,9 +392,9 @@ class _RecCard extends ConsumerWidget {
     final state = page._addState[rec.title] ?? _RecAddState.idle;
     return Material(
       color: dark ? KisakiColors.nightBg.withValues(alpha: 0.5) : const Color(0xFFFDF6F1),
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(Radii.lg),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(Radii.lg),
         onTap: state == _RecAddState.working ? null : () => page._addRecommendation(rec),
         child: Padding(
           padding: const EdgeInsets.all(10),
@@ -412,7 +412,7 @@ class _RecCard extends ConsumerWidget {
                     if (url.isEmpty) {
                       return Container(
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(Radii.xs),
                           color: KisakiColors.pinkContainer,
                         ),
                         child: const Icon(Icons.local_florist_rounded,
@@ -420,14 +420,14 @@ class _RecCard extends ConsumerWidget {
                       );
                     }
                     return ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(Radii.xs),
                       child: CachedNetworkImage(
                           imageUrl: url, fit: BoxFit.cover),
                     );
                   },
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: Gap.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -439,7 +439,7 @@ class _RecCard extends ConsumerWidget {
                         style: const TextStyle(
                             fontWeight: FontWeight.w700, fontSize: 13)),
                     if (rec.reason.isNotEmpty) ...[
-                      const SizedBox(height: 3),
+                      const SizedBox(height: Gap.xs),
                       Text(rec.reason,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -451,7 +451,7 @@ class _RecCard extends ConsumerWidget {
                                   .onSurfaceVariant)),
                     ],
                     if (rec.tags.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                      const SizedBox(height: Gap.xs),
                       Wrap(
                         spacing: 4,
                         runSpacing: 3,
