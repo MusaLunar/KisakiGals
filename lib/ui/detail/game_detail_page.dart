@@ -12,6 +12,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../ui/shell/title_bar.dart';
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../core/utils.dart';
@@ -113,7 +114,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
             child: Column(
               children: [
                 // 顶部拖动条：横跨整宽，空白处即可拖动窗口
-                const WindowDragBar(height: 24),
+                const AppTitleBar(),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),

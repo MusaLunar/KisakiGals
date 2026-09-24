@@ -8,6 +8,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../design.dart';
 import '../theme.dart';
 
 class ImageOption {
@@ -207,7 +208,7 @@ class ImagePickerDialog extends StatelessWidget {
     required bool Function(ImageOption) isSelected,
     required ValueChanged<ImageOption> onPick,
   }) {
-    return showDialog(
+    return showKisakiDialog(
       context: context,
       builder: (_) => ImagePickerDialog(
         title: title,

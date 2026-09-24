@@ -117,7 +117,7 @@ class KSectionTitle extends StatelessWidget {
     this.text, {
     super.key,
     this.trailing,
-    this.padding = const EdgeInsets.only(bottom: 10),
+    this.padding = const EdgeInsets.only(bottom: 12),
   });
 
   @override

@@ -49,23 +49,22 @@ class Radii {
 
 /// 阴影与描边：常态硬阴影、hover 柔光、浮层重投影。
 class Elev {
-  /// 静置：零模糊位移投影（贴上纸片的感觉）
+  /// 静置：零模糊位移投影（贴上纸片的感觉）。
+  /// 用中性黑而非主色：主色投影在浅色底上几乎看不见，会显得"卡片是扁平的"。
   static List<BoxShadow> card(bool dark, Color outline) => [
         BoxShadow(
-          color: dark
-              ? Colors.black.withValues(alpha: 0.42)
-              : outline.withValues(alpha: 0.15),
+          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.075),
           offset: const Offset(2, 3),
           blurRadius: 0,
         ),
       ];
 
-  /// hover：柔和光晕（与静置形成对比，"精致感"的关键）
+  /// hover：柔和光晕（与静置的硬阴影形成对比，"精致感"的关键）
   static List<BoxShadow> cardHover(bool dark, Color outline) => [
         BoxShadow(
           color: dark
               ? Colors.black.withValues(alpha: 0.55)
-              : outline.withValues(alpha: 0.22),
+              : outline.withValues(alpha: 0.26),
           offset: const Offset(2, 8),
           blurRadius: 18,
         ),

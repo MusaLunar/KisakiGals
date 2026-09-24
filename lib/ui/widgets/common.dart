@@ -170,7 +170,7 @@ class GlassPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final base = tint ??
-        (dark ? Colors.white.withValues(alpha: 0.05) : Colors.white.withValues(alpha: 0.72));
+        (dark ? Colors.white.withValues(alpha: 0.10) : Colors.white.withValues(alpha: 0.86));
     return ClipRRect(
       borderRadius: borderRadius,
       child: BackdropFilter(
@@ -181,7 +181,10 @@ class GlassPanel extends StatelessWidget {
             color: base,
             borderRadius: borderRadius,
             border: Border.all(
-              color: dark ? Colors.white.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.65),
+              // 背景图之上必须给出可辨的边界（原先白描边在白卡上等于没有）
+              color: dark
+                  ? Colors.white.withValues(alpha: 0.14)
+                  : Colors.black.withValues(alpha: 0.08),
             ),
           ),
           child: child,

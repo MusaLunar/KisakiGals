@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart' as riverpod;
 
+import '../shell/title_bar.dart';
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
@@ -159,7 +160,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
         child: Column(
           children: [
             // 顶部拖动条：横跨整宽，空白处即可拖动窗口
-            const WindowDragBar(height: 24),
+            const AppTitleBar(),
             // 标题 + 操作固定在顶部（表单很长，保存入口始终可见）
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 2, 24, 6),
