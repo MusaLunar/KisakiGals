@@ -124,6 +124,13 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                         _topBar(game, tracking),
                         const SizedBox(height: Gap.md),
                         _header(game, sources, tracking, bgFile),
+                        // 以下区块与右侧信息列对齐（封面 220 + 间距 24），
+                        // 避免页面出现两条不同的左基线（评审指出 24 与 269 并存）
+                        Padding(
+                          padding: const EdgeInsets.only(left: 244),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                         if (tags.isNotEmpty) ...[
                           const SizedBox(height: Gap.xl),
                           _tags(tags),
@@ -164,6 +171,9 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                         ),
                         const SizedBox(height: Gap.xl),
                         _sourcesSection(game, sources, bgFile),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),

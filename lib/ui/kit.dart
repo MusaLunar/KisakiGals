@@ -83,9 +83,15 @@ class KPage extends StatelessWidget {
         ),
         Expanded(
           child: scrollable
-              ? SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
-                  child: child,
+              ? Scrollbar(
+                  // 桌面端默认滚动条只在滚动时出现；这里常驻显示，避免
+                  // 「内容被裁但看不出还能滚」的观感问题
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    primary: true,
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+                    child: child,
+                  ),
                 )
               : Padding(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
