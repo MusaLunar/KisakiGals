@@ -104,12 +104,29 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                 alignment: Alignment.topCenter,
               ),
             ),
-          // 压暗/提亮遮罩（纯色，不用渐变），保证前景可读
+          // 遮罩：上浅下深的渐变 —— 顶部保留作品主视觉，下方保证内容可读
+          // （纯色遮罩要么压掉画面、要么让下方文字发灰，评审建议改渐变）
           if (bgFile)
-            ColoredBox(
-                color: dark
-                    ? KisakiColors.nightBg.withValues(alpha: 0.68)
-                    : KisakiColors.cream.withValues(alpha: 0.72)),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: dark
+                      ? [
+                          KisakiColors.nightBg.withValues(alpha: 0.62),
+                          KisakiColors.nightBg.withValues(alpha: 0.88),
+                          KisakiColors.nightBg.withValues(alpha: 0.94),
+                        ]
+                      : [
+                          KisakiColors.cream.withValues(alpha: 0.52),
+                          KisakiColors.cream.withValues(alpha: 0.86),
+                          KisakiColors.cream.withValues(alpha: 0.94),
+                        ],
+                  stops: const [0.0, 0.45, 1.0],
+                ),
+              ),
+            ),
           SafeArea(
             child: Column(
               children: [
