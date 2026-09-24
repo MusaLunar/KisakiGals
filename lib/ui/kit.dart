@@ -119,11 +119,16 @@ class KSectionTitle extends StatelessWidget {
   final Widget? trailing;
   final EdgeInsets padding;
 
+  /// 是否预留 38 高的右侧槽位（并排/无动作的区块也放空槽位，
+  /// 使各区块标题行等高、节奏一致）
+  final bool reserveSlot;
+
   const KSectionTitle(
     this.text, {
     super.key,
     this.trailing,
     this.padding = const EdgeInsets.only(bottom: 12),
+    this.reserveSlot = false,
   });
 
   @override
@@ -134,7 +139,10 @@ class KSectionTitle extends StatelessWidget {
         children: [
           Text(text, style: Type.section),
           const Spacer(),
-          if (trailing != null) trailing!,
+          if (trailing != null)
+            trailing!
+          else if (reserveSlot)
+            const KSectionSlot(),
         ],
       ),
     );
@@ -743,6 +751,10 @@ class KMediaRow extends StatelessWidget {
 
   /// 标题区高度（默认 34，容纳两行标题）
   final double titleHeight;
+
+  /// 右侧时间文本（等宽数字 + 固定宽度右对齐，用于时间线类列表）
+  final String? timeText;
+  final double timeWidth;
   final Widget? trailing;
   final VoidCallback? onTap;
   final void Function(Offset position)? onSecondaryTapAt;
@@ -759,6 +771,8 @@ class KMediaRow extends StatelessWidget {
     this.nsfw = false,
     this.badgeRunSpacing = 4,
     this.titleHeight = 34,
+    this.timeText,
+    this.timeWidth = 78,
     this.trailing,
     this.onTap,
     this.onSecondaryTapAt,
@@ -827,6 +841,20 @@ class KMediaRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (timeText != null) ...[
+              SizedBox(
+                width: timeWidth,
+                child: Text(
+                  timeText!,
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.caption.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()]),
+                ),
+              ),
+            ],
             if (trailing != null) ...[const SizedBox(width: 8), trailing!],
           ],
         ),

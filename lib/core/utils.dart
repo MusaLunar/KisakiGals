@@ -101,3 +101,18 @@ List<Map<String, dynamic>> jsonDecodeList(String? s) => s == null || s.isEmpty
     : (jsonDecode(s) as List)
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
+
+/// 相对时间（统一口径，供主页动态/统计等复用）：
+/// <1 分钟「刚刚」→ <60 分钟「x 分钟前」→ <24 小时「x 小时前」→
+/// <7 天「x 天前」→ 更早用 YYYY-MM-DD。
+/// 注意与 [fmtRelative] 的区别：后者 1~2 天会给「昨天」，
+/// 与列表右对齐时间列的「x 天前」口径不一致，混用会出现两种风格。
+String fmtRelativeShort(DateTime t) {
+  final now = DateTime.now();
+  final d = now.difference(t);
+  if (d.inSeconds < 60) return '刚刚';
+  if (d.inMinutes < 60) return '${d.inMinutes} 分钟前';
+  if (d.inHours < 24) return '${d.inHours} 小时前';
+  if (d.inDays < 7) return '${d.inDays} 天前';
+  return fmtDate(t);
+}

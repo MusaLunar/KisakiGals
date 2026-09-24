@@ -43,6 +43,11 @@ class KisakiColors {
   static const nightInk = Color(0xFFEDE7EC);
   static const nightInkSoft = Color(0xFFA79CA6);
 
+  /// 外壳内容区底色（页面面板）：与 app_shell 使用同一 token，
+  /// 视图固定的渐变遮罩末色必须用它才能无缝衔接。
+  static Color pageSurface(bool dark) =>
+      dark ? const Color(0xFF1B1721) : const Color(0xFFFCFBFA);
+
   // 描边（低对比、极细）
   static Color outline(bool dark) => dark
       ? Colors.white.withValues(alpha: 0.09)

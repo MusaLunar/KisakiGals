@@ -30,6 +30,12 @@ class Gap {
 
   /// 分区之间的间距（比卡片内间距大一档，用于拉开层次）
   static const section = 20.0;
+
+  /// 间距节奏：区块标题 → 内容
+  static const titleToContent = 12.0;
+
+  /// 间距节奏：区块之间
+  static const sectionGap = 28.0;
 }
 
 /// 圆角阶梯。
