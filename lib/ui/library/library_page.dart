@@ -1,4 +1,9 @@
-/// 游戏库：自适应网格 + 右侧筛选边栏（排序/状态/收藏/来源/标签/开发商）。
+/// 游戏库：大封面网格 / 紧凑列表两种排版 + 右侧筛选边栏
+/// （排序 / 状态 / 收藏 / 来源 / 开发商 / 标签）。
+///
+/// 页面骨架全部走 kit 原语：KPage 提供标题区与页面留白、KToolbar 承载工具栏、
+/// KCard 承载筛选栏与批量操作栏、KEmpty / KLoading 承担空态与加载态；
+/// 页面自身不再写标题栏、整页背景与手写卡片。
 library;
 
 import 'dart:async';
@@ -12,11 +17,17 @@ import '../../data/models.dart';
 import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../add/add_game_page.dart';
+import '../design.dart';
+import '../kit.dart';
 import '../theme.dart';
-import '../widgets/common.dart';
+import '../widgets/common.dart' show kCoverAspect;
 import '../widgets/notifications.dart';
 import 'game_card.dart';
+import 'game_card_actions.dart';
 import 'game_list_tile.dart';
+
+/// 网格/列表的卡片间距（4/8px 栅格上的 16）。
+const double _gridSpacing = Gap.lg;
 
 class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key});
@@ -38,9 +49,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   void initState() {
     super.initState();
-    AppServices.I.settings
-        .getBool('library.sidebar', def: true)
-        .then((v) {
+    AppServices.I.settings.getBool('library.sidebar', def: true).then((v) {
       if (mounted) setState(() => _sidebarVisible = v);
     });
   }
@@ -52,17 +61,76 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     super.dispose();
   }
 
+  // ---------------- 状态操作 ----------------
+
+  /// 库版本自增：通知 gamesProvider / 平台评分 / 筛选栏数据重新读取。
+  void _refresh() => ref.read(libraryVersionProvider.notifier).state++;
+
   Future<void> _toggleSidebar() async {
     setState(() => _sidebarVisible = !_sidebarVisible);
     await AppServices.I.settings.setBool('library.sidebar', _sidebarVisible);
   }
 
+  /// 排版切换（网格 / 紧凑列表）并持久化到设置。
+  Future<void> _toggleLayout() async {
+    final next = ref.read(libraryLayoutProvider) == 'list' ? 'grid' : 'list';
+    ref.read(libraryLayoutProvider.notifier).state = next;
+    await AppServices.I.settings.setString(SettingsStore.kLibraryLayout, next);
+  }
+
+  void _toggleBatchMode() => setState(() {
+        _batchMode = !_batchMode;
+        _selected.clear();
+      });
+
+  void _exitBatchMode() => setState(() {
+        _batchMode = false;
+        _selected.clear();
+      });
+
+  void _setSelected(int id, bool selected) => setState(() {
+        if (selected) {
+          _selected.add(id);
+        } else {
+          _selected.remove(id);
+        }
+      });
+
+  /// 清除全部筛选条件（空态按钮与筛选栏顶部按钮共用）。
+  void _clearAllFilters() {
+    final f = ref.read(libraryFilterProvider);
+    f.status = null;
+    f.tag = null;
+    f.developer = null;
+    f.source = null;
+    f.favoriteOnly = false;
+    f.query = '';
+    _refresh();
+  }
+
+  Future<void> _openAddGame() async {
+    await Navigator.of(context).push(
+        FadeThroughRoute.builder(builder: (_) => const AddGamePage()));
+    if (!mounted) return;
+    _refresh();
+  }
+
+  /// 搜索防抖：250ms 内连续输入只刷新一次（避免每个字符都查库）。
+  void _debouncedRefresh() {
+    _searchTimer?.cancel();
+    _searchTimer = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      _refresh();
+    });
+  }
+
+  // ---------------- 构建 ----------------
+
   @override
   Widget build(BuildContext context) {
-    final ref = this.ref;
     final filter = ref.watch(libraryFilterProvider);
     final games = ref.watch(gamesProvider);
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final layout = ref.watch(libraryLayoutProvider);
 
     // 外部重置筛选（如「清除全部筛选」）时同步输入框
     if (_searchCtrl.text != filter.query) {
@@ -72,39 +140,30 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+    // 副标题展示当前筛选结果数量（重载时保留上一次的数字，不闪）
+    final subtitle = games.when(
+      skipLoadingOnReload: true,
+      data: (list) => '共 ${list.length} 部作品',
+      loading: () => '正在读取游戏库…',
+      error: (e, _) => '游戏库读取失败',
+    );
+
+    return KPage(
+      title: '游戏库',
+      subtitle: subtitle,
+      actions: [
+        KPill(
+          label: '添加游戏',
+          icon: Icons.add_rounded,
+          onTap: _openAddGame,
+        ),
+      ],
       child: Column(
         children: [
-          // 顶栏：标题 + 计数 + 搜索 + 添加
-          Row(
+          KToolbar(
             children: [
-              Text('游戏库',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(width: 10),
-              games.maybeWhen(
-                data: (list) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: dark
-                        ? KisakiColors.pink.withValues(alpha: 0.18)
-                        : KisakiColors.pinkContainer,
-                  ),
-                  child: Text('${list.length}',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: dark ? KisakiColors.pinkSoft : KisakiColors.pink)),
-                ),
-                orElse: () => const SizedBox.shrink(),
-              ),
-              const Spacer(),
               SizedBox(
-                width: 280,
+                width: 300,
                 child: TextField(
                   controller: _searchCtrl,
                   decoration: const InputDecoration(
@@ -118,271 +177,237 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                   },
                 ),
               ),
-              const SizedBox(width: 10),
-              IconButton(
+              const Spacer(),
+              KIconAction(
+                icon: _sidebarVisible
+                    ? Icons.filter_alt_rounded
+                    : Icons.filter_alt_off_rounded,
                 tooltip: _sidebarVisible ? '隐藏筛选栏' : '显示筛选栏',
-                onPressed: _toggleSidebar,
-                icon: Icon(
-                  _sidebarVisible
-                      ? Icons.filter_alt_rounded
-                      : Icons.filter_alt_off_rounded,
-                  size: 22,
-                  color: _sidebarVisible
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
-                ),
+                active: _sidebarVisible,
+                onTap: _toggleSidebar,
               ),
-              const SizedBox(width: 8),
-              // 排版切换：大封面网格 / 紧凑列表
-              IconButton(
-                tooltip: ref.watch(libraryLayoutProvider) == 'list'
-                    ? '切换为大封面网格'
-                    : '切换为紧凑列表',
-                onPressed: () async {
-                  final next = ref.read(libraryLayoutProvider) == 'list'
-                      ? 'grid'
-                      : 'list';
-                  ref.read(libraryLayoutProvider.notifier).state = next;
-                  await AppServices.I.settings
-                      .setString(SettingsStore.kLibraryLayout, next);
-                },
-                icon: Icon(
-                  ref.watch(libraryLayoutProvider) == 'list'
-                      ? Icons.grid_view_rounded
-                      : Icons.view_list_rounded,
-                  size: 22,
-                ),
+              KIconAction(
+                icon: layout == 'list'
+                    ? Icons.grid_view_rounded
+                    : Icons.view_list_rounded,
+                tooltip: layout == 'list' ? '切换为大封面网格' : '切换为紧凑列表',
+                onTap: _toggleLayout,
               ),
-              const SizedBox(width: 8),
-              IconButton(
-                tooltip: '批量管理',
-                onPressed: () {
-                  setState(() {
-                    _batchMode = !_batchMode;
-                    _selected.clear();
-                  });
-                },
-                icon: Icon(
-                  Icons.checklist_rounded,
-                  size: 22,
-                  color: _batchMode
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.icon(
-                onPressed: () async {
-                  await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const AddGamePage()));
-                  ref.read(libraryVersionProvider.notifier).state++;
-                },
-                icon: const Icon(Icons.add_rounded, size: 20),
-                label: const Text('添加游戏'),
+              KIconAction(
+                icon: Icons.checklist_rounded,
+                tooltip: _batchMode ? '退出批量管理' : '批量管理',
+                active: _batchMode,
+                onTap: _toggleBatchMode,
               ),
             ],
           ),
-          const SizedBox(height: 12),
           Expanded(
-            child: Column(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: games.when(
-                    skipLoadingOnReload: true,
-                    skipLoadingOnRefresh: true,
-                    data: (list) => list.isEmpty
-                        ? const Center(child: Text('没有符合条件的游戏'))
-                        : LayoutBuilder(builder: (context, constraints) {
-                            // 平台评分角标数据（一次查询，避免每张卡各查一次）
-                            final ratings =
-                                ref.watch(platformRatingsProvider).valueOrNull ??
-                                    const <int, double>{};
-                            final layout = ref.watch(libraryLayoutProvider);
-                            if (layout == 'list') {
-                              // 紧凑列表：左封面 + 右名称，一页可容纳多个
-                              const gap = 10.0;
-                              const tileW = 320.0;
-                              final cols = (constraints.maxWidth / tileW)
-                                  .floor()
-                                  .clamp(1, 6);
-                              return GridView.builder(
-                                padding:
-                                    const EdgeInsets.only(bottom: 20, top: 4),
-                                gridDelegate:
-                                    SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: cols,
-                                  mainAxisSpacing: gap,
-                                  crossAxisSpacing: gap,
-                                  mainAxisExtent: 82,
-                                ),
-                                itemCount: list.length,
-                                itemBuilder: (context, i) {
-                                  final g = list[i];
-                                  return GameListTile(
-                                    game: g,
-                                    bestPlatformRating: ratings[g.id],
-                                    selectionMode: _batchMode,
-                                    selected: _selected.contains(g.id),
-                                    onSelectionChanged: (sel) {
-                                      setState(() {
-                                        if (sel) {
-                                          _selected.add(g.id!);
-                                        } else {
-                                          _selected.remove(g.id);
-                                        }
-                                      });
-                                    },
-                                  );
-                                },
-                              );
-                            }
-                            const spacing = 16.0;
-                            final count = (constraints.maxWidth / 190)
-                                .floor()
-                                .clamp(2, 10);
-                            // 封面严格 2:3：单元高 = 封面高 + 标题/开发商文字区 + 内边距
-                            final cellW =
-                                (constraints.maxWidth - spacing * (count - 1)) /
-                                    count;
-                            final cellH = cellW / kCoverAspect + 56;
-                            return GridView.builder(
-                              padding:
-                                  const EdgeInsets.only(bottom: 20, top: 4),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: count,
-                                mainAxisSpacing: spacing,
-                                crossAxisSpacing: spacing,
-                                childAspectRatio: cellW / cellH,
-                              ),
-                              itemCount: list.length,
-                              itemBuilder: (context, i) {
-                                final g = list[i];
-                                return GameCard(
-                                  game: g,
-                                  bestPlatformRating: ratings[g.id],
-                                  selectionMode: _batchMode,
-                                  selected: _selected.contains(g.id),
-                                  onSelectionChanged: (sel) {
-                                    setState(() {
-                                      if (sel) {
-                                        _selected.add(g.id!);
-                                      } else {
-                                        _selected.remove(g.id);
-                                      }
-                                    });
-                                  },
-                                );
-                              },
-                            );
-                          }),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => Center(child: Text('加载失败：$e')),
-                  ),
-                ),
-                    if (_sidebarVisible) ...[
-                      const SizedBox(width: 14),
-                      _FilterSidebar(filter: filter),
-                    ],
-                  ],
-                ),
-              ),
-              if (_batchMode)
-                _BatchBar(
-                  selected: _selected,
-                  onSelectAll: (all) {
-                    setState(() {
-                      final list = ref.read(gamesProvider).valueOrNull ?? [];
-                      _selected.clear();
-                      if (all) {
-                        for (final g in list) {
-                          _selected.add(g.id!);
-                        }
-                      }
-                    });
-                  },
-                  onDone: () => setState(() {
-                    _batchMode = false;
-                    _selected.clear();
-                  }),
-                ),
+                Expanded(child: _buildBody(games, layout, filter)),
+                if (_sidebarVisible) ...[
+                  const SizedBox(width: Gap.lg),
+                  _FilterSidebar(filter: filter, onClear: _clearAllFilters),
+                ],
               ],
             ),
           ),
+          // 批量操作栏：居中浮层，不挤压网格高度
+          if (_batchMode)
+            Padding(
+              padding: const EdgeInsets.only(top: Gap.md, bottom: Gap.lg),
+              child: _BatchBar(
+                selected: _selected,
+                onSelectAll: (all) => setState(() {
+                  final list = ref.read(gamesProvider).valueOrNull ?? const [];
+                  _selected.clear();
+                  if (all) {
+                    for (final g in list) {
+                      _selected.add(g.id!);
+                    }
+                  }
+                }),
+                onDone: _exitBatchMode,
+              ),
+            ),
         ],
       ),
     );
   }
 
-  void _debouncedRefresh() {
-    _searchTimer?.cancel();
-    _searchTimer = Timer(const Duration(milliseconds: 250), () {
-      if (!mounted) return;
-      ref.read(libraryVersionProvider.notifier).state++;
-    });
+  /// 内容区：网格 / 列表 / 空态 / 加载态。
+  Widget _buildBody(
+      AsyncValue<List<Game>> games, String layout, LibraryFilter filter) {
+    return games.when(
+      // 搜索与筛选触发的重载不显示 spinner（否则每次输入都闪一下）
+      skipLoadingOnReload: true,
+      skipLoadingOnRefresh: true,
+      data: (list) => list.isEmpty
+          // 空库与「筛选后为空」是两回事，文案与操作分开
+          ? (filter.hasActive
+              ? KEmpty(
+                  icon: Icons.search_off_rounded,
+                  title: '没有符合条件的游戏',
+                  subtitle: '试试调整筛选条件，或清空搜索关键词',
+                  actionLabel: '清除全部筛选',
+                            actionIcon: Icons.filter_alt_off_rounded,
+                  onAction: _clearAllFilters,
+                )
+              : const KEmpty(
+                  icon: Icons.videogame_asset_off_rounded,
+                  title: '游戏库还是空的',
+                  subtitle: '点右上角「添加游戏」收录第一部作品吧',
+                ))
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                // 平台评分角标数据：一次查询供整个网格共享（避免每张卡各查一次）
+                final ratings =
+                    ref.watch(platformRatingsProvider).valueOrNull ??
+                        const <int, double>{};
+                return layout == 'list'
+                    ? _buildList(list, ratings, constraints)
+                    : _buildGrid(list, ratings, constraints);
+              },
+            ),
+      loading: () => const KLoading(size: 26),
+      error: (e, _) => KEmpty(
+        icon: Icons.error_outline_rounded,
+        title: '游戏库读取失败',
+        subtitle: '$e',
+      ),
+    );
+  }
+
+  /// 大封面网格：封面严格 2:3，单元高度由封面高度反推。
+  Widget _buildGrid(
+      List<Game> list, Map<int, double> ratings, BoxConstraints c) {
+    final count = (c.maxWidth / 190).floor().clamp(2, 10);
+    final cellW = (c.maxWidth - _gridSpacing * (count - 1)) / count;
+    // 卡片有内边距，封面按**内容宽度**保持 2:3，再补上内边距与文字区
+    final coverW = cellW - kGameCardPadding.horizontal;
+    final cellH = coverW / kCoverAspect +
+        kGameCardPadding.vertical +
+        kGameCardMetaHeight;
+    return GridView.builder(
+      padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: count,
+        mainAxisSpacing: _gridSpacing,
+        crossAxisSpacing: _gridSpacing,
+        childAspectRatio: cellW / cellH,
+      ),
+      itemCount: list.length,
+      itemBuilder: (context, i) {
+        final g = list[i];
+        // 首屏错落淡入（12 项之后不再延迟）
+        return StaggeredFadeIn(
+          index: i,
+          child: GameCard(
+            game: g,
+            bestPlatformRating: ratings[g.id],
+            selectionMode: _batchMode,
+            selected: _selected.contains(g.id),
+            onSelectionChanged: (sel) => _setSelected(g.id!, sel),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 紧凑列表：左 2:3 小封面 + 右名称，多列自适应，一页容纳更多条目。
+  Widget _buildList(
+      List<Game> list, Map<int, double> ratings, BoxConstraints c) {
+    const tileW = 320.0;
+    final cols = (c.maxWidth / tileW).floor().clamp(1, 6);
+    return GridView.builder(
+      padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: cols,
+        mainAxisSpacing: _gridSpacing,
+        crossAxisSpacing: _gridSpacing,
+        mainAxisExtent: 88,
+      ),
+      itemCount: list.length,
+      itemBuilder: (context, i) {
+        final g = list[i];
+        return StaggeredFadeIn(
+          index: i,
+          child: GameListTile(
+            game: g,
+            bestPlatformRating: ratings[g.id],
+            selectionMode: _batchMode,
+            selected: _selected.contains(g.id),
+            onSelectionChanged: (sel) => _setSelected(g.id!, sel),
+          ),
+        );
+      },
+    );
   }
 }
 
-
-/// 右侧筛选边栏：按类别整理全部筛选/排序项，外观统一。
+/// 右侧筛选边栏：排序 / 状态 / 收藏 / 来源 / 开发商 / 标签，
+/// 全部用 KCard + KSectionTitle + KChip 组织（选中态统一由 KChip 提供）。
 class _FilterSidebar extends ConsumerWidget {
   final LibraryFilter filter;
-  const _FilterSidebar({required this.filter});
+
+  /// 清除全部筛选（与空态按钮共用同一份逻辑，避免两处条件不一致）。
+  final VoidCallback onClear;
+
+  const _FilterSidebar({required this.filter, required this.onClear});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 筛选变化后本栏也要跟着重画（选中态）
+    ref.watch(libraryVersionProvider);
+    final scheme = Theme.of(context).colorScheme;
     final tags = ref.watch(allTagsProvider).valueOrNull ?? const <TagItem>[];
     final devs = ref.watch(developersProvider).valueOrNull ?? const <String>[];
     final sources = ref.watch(usedSourcesProvider).valueOrNull ?? const <String>[];
-    final dark = Theme.of(context).brightness == Brightness.dark;
 
     void apply() => ref.read(libraryVersionProvider.notifier).state++;
 
     return SizedBox(
       width: 234,
-      child: Card(
-        elevation: 0,
-        margin: EdgeInsets.zero,
-        color: dark ? KisakiColors.nightCard : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: KCard(
+        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.md, Gap.md, Gap.lg),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+          padding: EdgeInsets.zero,
           children: [
-            // 清除筛选放在最上方（有筛选时才显示）
+            // 「清除全部筛选」置顶（有筛选时才显示）
             if (filter.hasActive) ...[
-              OutlinedButton.icon(
-                onPressed: () {
-                  final f = ref.read(libraryFilterProvider);
-                  f.status = null;
-                  f.tag = null;
-                  f.developer = null;
-                  f.source = null;
-                  f.favoriteOnly = false;
-                  f.query = '';
-                  apply();
-                },
-                icon: const Icon(Icons.filter_alt_off_rounded, size: 16),
-                label: const Text('清除全部筛选'),
+              KPill(
+                label: '清除全部筛选',
+                icon: Icons.filter_alt_off_rounded,
+                filled: false,
+                onTap: onClear,
               ),
-              const SizedBox(height: 10),
-              const Divider(height: 10),
+              const SizedBox(height: Gap.md),
             ],
-            _sectionLabel(context, '排序'),
-            for (final s in GameSort.values)
-              _sortRow(context, s, apply),
-            const Divider(height: 22),
-            _sectionLabel(context, '游玩状态'),
+            const KSectionTitle('排序'),
             Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: Gap.xs + 2,
+              runSpacing: Gap.xs + 2,
+              children: [
+                for (final s in GameSort.values)
+                  KChip(
+                    label: s.label,
+                    selected: filter.sort == s,
+                    onTap: () {
+                      ref.read(libraryFilterProvider).sort = s;
+                      apply();
+                    },
+                  ),
+              ],
+            ),
+            const Divider(height: Gap.xxl),
+            const KSectionTitle('游玩状态'),
+            Wrap(
+              spacing: Gap.xs + 2,
+              runSpacing: Gap.xs + 2,
               children: [
                 for (final s in PlayStatus.values)
-                  _SideChip(
+                  KChip(
                     label: s.label,
                     selected: filter.status == s,
                     onTap: () {
@@ -392,28 +417,32 @@ class _FilterSidebar extends ConsumerWidget {
                   ),
               ],
             ),
-            const Divider(height: 22),
-            _sectionLabel(context, '收藏'),
-            _SideChip(
-              label: '仅看收藏',
-              icon: filter.favoriteOnly
-                  ? Icons.favorite_rounded
-                  : Icons.favorite_border_rounded,
-              selected: filter.favoriteOnly,
-              onTap: () {
-                filter.favoriteOnly = !filter.favoriteOnly;
-                apply();
-              },
+            const Divider(height: Gap.xxl),
+            const KSectionTitle('收藏'),
+            Wrap(
+              spacing: Gap.xs + 2,
+              runSpacing: Gap.xs + 2,
+              children: [
+                KChip(
+                  label: '仅看收藏',
+                  color: KisakiColors.pink,
+                  selected: filter.favoriteOnly,
+                  onTap: () {
+                    filter.favoriteOnly = !filter.favoriteOnly;
+                    apply();
+                  },
+                ),
+              ],
             ),
             if (sources.isNotEmpty) ...[
-              const Divider(height: 22),
-              _sectionLabel(context, '数据来源'),
+              const Divider(height: Gap.xxl),
+              const KSectionTitle('数据来源'),
               Wrap(
-                spacing: 6,
-                runSpacing: 6,
+                spacing: Gap.xs + 2,
+                runSpacing: Gap.xs + 2,
                 children: [
                   for (final src in sources)
-                    _SideChip(
+                    KChip(
                       label: KisakiSources.labels[src] ?? src,
                       selected: filter.source == src,
                       onTap: () {
@@ -425,59 +454,50 @@ class _FilterSidebar extends ConsumerWidget {
               ),
             ],
             if (devs.isNotEmpty) ...[
-              const Divider(height: 22),
-              _sectionLabel(context, '开发商'),
-              PopupMenuButton<String>(
-                onSelected: (d) {
-                  filter.developer = filter.developer == d ? null : d;
-                  apply();
-                },
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                itemBuilder: (_) => [
-                  const PopupMenuItem(value: '', child: Text('全部开发商')),
-                  ...devs.map((d) => PopupMenuItem(value: d, child: Text(d))),
-                ],
-                child: Container(
-                  height: 36,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  alignment: Alignment.centerLeft,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: filter.developer != null
-                        ? (dark
-                            ? KisakiColors.pink.withValues(alpha: 0.2)
-                            : KisakiColors.pinkContainer)
-                        : (dark ? Colors.white10 : const Color(0xFFFDF3EE)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          filter.developer ?? '全部开发商',
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: filter.developer != null
-                                  ? FontWeight.w700
-                                  : FontWeight.w500),
-                        ),
-                      ),
-                      const Icon(Icons.expand_more_rounded, size: 16),
+              const Divider(height: Gap.xxl),
+              const KSectionTitle('开发商'),
+              // 开发商数量可能很多，用「chip 触发 + 菜单选择」而不是铺满整屏 chip
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  PopupMenuButton<String>(
+                    tooltip: '选择开发商',
+                    onSelected: (d) {
+                      filter.developer =
+                          d.isEmpty || filter.developer == d ? null : d;
+                      apply();
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: '', child: Text('全部开发商')),
+                      for (final d in devs)
+                        PopupMenuItem(value: d, height: 34, child: Text(d)),
                     ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        KChip(
+                          label: filter.developer ?? '全部开发商',
+                          selected: filter.developer != null,
+                          onTap: null,
+                        ),
+                        const SizedBox(width: 2),
+                        Icon(Icons.expand_more_rounded,
+                            size: 16, color: scheme.onSurfaceVariant),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
             if (tags.isNotEmpty) ...[
-              const Divider(height: 22),
-              _sectionLabel(context, '标签'),
+              const Divider(height: Gap.xxl),
+              const KSectionTitle('标签'),
               Wrap(
-                spacing: 6,
-                runSpacing: 6,
+                spacing: Gap.xs + 2,
+                runSpacing: Gap.xs + 2,
                 children: [
                   for (final t in tags.take(40))
-                    _SideChip(
+                    KChip(
                       label: t.name,
                       selected: filter.tag == t.name,
                       onTap: () {
@@ -488,107 +508,6 @@ class _FilterSidebar extends ConsumerWidget {
                 ],
               ),
             ],
-
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionLabel(BuildContext context, String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8, top: 2),
-        child: Text(text,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      );
-
-  Widget _sortRow(BuildContext context, GameSort s, VoidCallback apply) =>
-      Consumer(builder: (context, ref, _) {
-        final current = ref.watch(libraryFilterProvider).sort;
-        final selected = current == s;
-        return InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: () {
-            ref.read(libraryFilterProvider).sort = s;
-            apply();
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            child: Row(
-              children: [
-                Icon(
-                  selected
-                      ? Icons.radio_button_checked_rounded
-                      : Icons.radio_button_off_rounded,
-                  size: 16,
-                  color: selected
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(s.label,
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w500)),
-              ],
-            ),
-          ),
-        );
-      });
-}
-
-/// 边栏统一胶囊筛选块（状态/来源/标签/收藏共用一种外观）。
-class _SideChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  final IconData? icon;
-  const _SideChip(
-      {required this.label, required this.selected, required this.onTap, this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      borderRadius: BorderRadius.circular(9),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(9),
-          color: selected
-              ? (dark ? KisakiColors.pink.withValues(alpha: 0.25) : KisakiColors.pinkContainer)
-              : (dark ? Colors.white10 : const Color(0xFFFDF3EE)),
-          border: Border.all(
-            color: selected
-                ? scheme.primary.withValues(alpha: 0.55)
-                : Colors.transparent,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon,
-                  size: 13,
-                  color: selected
-                      ? scheme.primary
-                      : Theme.of(context).colorScheme.onSurfaceVariant),
-              const SizedBox(width: 4),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected
-                    ? (dark ? KisakiColors.pinkSoft : KisakiColors.pink)
-                    : Theme.of(context).colorScheme.onSurface,
-              ),
-            ),
           ],
         ),
       ),
@@ -596,111 +515,122 @@ class _SideChip extends StatelessWidget {
   }
 }
 
-/// 批量管理操作栏。
+/// 批量管理操作栏：居中浮层（KCard + Elev.overlay），主按钮是实心药丸。
 class _BatchBar extends ConsumerWidget {
   final Set<int> selected;
   final ValueChanged<bool> onSelectAll;
   final VoidCallback onDone;
-  const _BatchBar(
-      {required this.selected, required this.onSelectAll, required this.onDone});
+
+  const _BatchBar({
+    required this.selected,
+    required this.onSelectAll,
+    required this.onDone,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final n = selected.length;
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: dark ? KisakiColors.nightCard : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          Text('已选 $n 项',
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w700)),
-          const SizedBox(width: 10),
-          TextButton(
-              onPressed: () => onSelectAll(true), child: const Text('全选')),
-          TextButton(
-              onPressed: () => onSelectAll(false), child: const Text('清除')),
-          const Spacer(),
-          PopupMenuButton<PlayStatus>(
-            tooltip: '批量更改状态',
-            onSelected: (s) async {
-              final repo = AppServices.I.repo;
-              for (final id in selected) {
-                final g = await repo.getGame(id);
-                if (g != null) {
-                  g.playStatus = s;
-                  await repo.updateGame(g);
-                }
-              }
-              ref.read(libraryVersionProvider.notifier).state++;
-              showNotice('已将 $n 部游戏状态设为「${s.label}」');
-            },
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            itemBuilder: (_) => [
-              for (final s in PlayStatus.values)
-                PopupMenuItem(value: s, child: Text('设为「${s.label}」')),
-            ],
-            child: const Text('更改状态',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-              onPressed: () async {
-                final repo = AppServices.I.repo;
-                for (final id in selected) {
-                  final g = await repo.getGame(id);
-                  if (g != null) {
-                    g.isFavorite = true;
-                    await repo.updateGame(g);
+
+    return Center(
+      // KCard 没有投影参数：这里只补一层浮层柔光（Elev.overlay），
+      // 卡片自身的底色/描边/圆角仍然由 KCard 负责。
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: Radii.sheet,
+          boxShadow: Elev.overlay(dark),
+        ),
+        child: KCard(
+          borderRadius: Radii.sheet,
+          padding: const EdgeInsets.symmetric(
+              horizontal: Gap.lg, vertical: Gap.sm + 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('已选 $n 项', style: Type.section),
+              const SizedBox(width: Gap.sm),
+              TextButton(
+                  onPressed: () => onSelectAll(true), child: const Text('全选')),
+              TextButton(
+                style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant),
+                onPressed: () => onSelectAll(false),
+                child: const Text('清除'),
+              ),
+              const SizedBox(width: Gap.lg),
+              // 批量改状态
+              PopupMenuButton<PlayStatus>(
+                tooltip: '批量更改状态',
+                onSelected: (s) async {
+                  final repo = AppServices.I.repo;
+                  for (final id in selected) {
+                    final g = await repo.getGame(id);
+                    if (g != null) {
+                      g.playStatus = s;
+                      await repo.updateGame(g);
+                    }
                   }
-                }
-                ref.read(libraryVersionProvider.notifier).state++;
-                showNotice('已收藏 $n 部游戏');
-              },
-              child: const Text('收藏')),
-          const SizedBox(width: 8),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            onPressed: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('批量删除'),
-                  content: Text('确定要删除选中的 $n 部游戏吗？\n游玩记录与统计将一并删除。'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('取消')),
-                    FilledButton(
-                        style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red),
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('删除')),
-                  ],
+                  if (!context.mounted) return;
+                  ref.read(libraryVersionProvider.notifier).state++;
+                  showNotice('已将 $n 部游戏状态设为「${s.label}」');
+                },
+                itemBuilder: (_) => [
+                  for (final s in PlayStatus.values)
+                    PopupMenuItem(
+                        value: s, height: 34, child: Text('设为「${s.label}」')),
+                ],
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: Gap.md, vertical: Gap.sm + 1),
+                  child: Text('更改状态', style: Type.label),
                 ),
-              );
-              if (ok != true) return;
-              final repo = AppServices.I.repo;
-              for (final id in selected) {
-                await repo.deleteGame(id);
-              }
-              ref.read(libraryVersionProvider.notifier).state++;
-              showNotice('已删除 $n 部游戏');
-              onDone();
-            },
-            child: const Text('删除'),
+              ),
+              const SizedBox(width: Gap.xs),
+              TextButton(
+                onPressed: () async {
+                  final repo = AppServices.I.repo;
+                  for (final id in selected) {
+                    final g = await repo.getGame(id);
+                    if (g != null) {
+                      g.isFavorite = true;
+                      await repo.updateGame(g);
+                    }
+                  }
+                  if (!context.mounted) return;
+                  ref.read(libraryVersionProvider.notifier).state++;
+                  showNotice('已收藏 $n 部游戏');
+                },
+                child: const Text('收藏'),
+              ),
+              const SizedBox(width: Gap.xs),
+              TextButton(
+                style: TextButton.styleFrom(
+                    foregroundColor: KisakiColors.danger),
+                onPressed: () async {
+                  // 二次确认（与单条删除同一套对话框）
+                  final ok = await GameCardActions.confirmBatchDelete(
+                      context, n);
+                  if (!ok) return;
+                  final repo = AppServices.I.repo;
+                  for (final id in selected) {
+                    await repo.deleteGame(id);
+                  }
+                  ref.read(libraryVersionProvider.notifier).state++;
+                  showNotice('已删除 $n 部游戏');
+                  onDone();
+                },
+                child: const Text('删除'),
+              ),
+              const SizedBox(width: Gap.md),
+              // 主操作：实心药丸，未选中时禁用
+              KPill(
+                label: '完成',
+                icon: Icons.check_rounded,
+                onTap: n == 0 ? null : onDone,
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          FilledButton.tonal(onPressed: onDone, child: const Text('完成')),
-        ],
+        ),
       ),
     );
   }

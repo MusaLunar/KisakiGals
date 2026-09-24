@@ -155,6 +155,8 @@ class InteractiveSurface extends StatefulWidget {
   final EdgeInsets padding;
   final bool elevated;
   final double lift;
+  final double hoverScale;
+  final double pressScale;
   final bool borderOnIdle;
   final Offset? secondaryTapPosition;
   final void Function(Offset position)? onSecondaryTapAt;
@@ -172,6 +174,8 @@ class InteractiveSurface extends StatefulWidget {
     this.padding = Gap.cardPadding,
     this.elevated = true,
     this.lift = Motion.hoverLift,
+    this.hoverScale = Motion.hoverScale,
+    this.pressScale = Motion.pressScale,
     this.borderOnIdle = true,
   });
 
@@ -192,8 +196,8 @@ class _InteractiveSurfaceState extends State<InteractiveSurface> {
     final hovered = _hover && _interactive;
 
     final scale = _pressed
-        ? Motion.pressScale
-        : (hovered ? Motion.hoverScale : 1.0);
+        ? widget.pressScale
+        : (hovered ? widget.hoverScale : 1.0);
     final dy = _pressed ? 0.0 : (hovered ? widget.lift : 0.0);
 
     return MouseRegion(

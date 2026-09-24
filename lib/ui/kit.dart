@@ -20,6 +20,7 @@ import 'widgets/common.dart' show CoverImage, cachedFileExists, GlassPanel;
 class KPage extends StatelessWidget {
   final String title;
   final String? subtitle;
+  final Widget? subtitleWidget;
   final List<Widget> actions;
   final Widget child;
   final bool scrollable;
@@ -28,6 +29,7 @@ class KPage extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.subtitleWidget,
     this.actions = const [],
     required this.child,
     this.scrollable = false,
@@ -48,7 +50,9 @@ class KPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title, style: Type.display),
-                    if (subtitle != null) ...[
+                    if (subtitleWidget != null) ...
+                      [const SizedBox(height: 3), subtitleWidget!]
+                    else if (subtitle != null) ...[
                       const SizedBox(height: 3),
                       Text(subtitle!,
                           style: Type.caption
@@ -117,6 +121,12 @@ class KCard extends StatelessWidget {
   final bool dense;
   final Color? color;
 
+  /// 浮层阴影（菜单/浮动操作栏用）；为 true 时改用 Elev.overlay
+  final bool overlayShadow;
+
+  /// 右键菜单（避免外部再包一层 GestureDetector）
+  final void Function(Offset position)? onSecondaryTapAt;
+
   const KCard({
     super.key,
     required this.child,
@@ -126,6 +136,8 @@ class KCard extends StatelessWidget {
     this.glass = false,
     this.dense = false,
     this.color,
+    this.overlayShadow = false,
+    this.onSecondaryTapAt,
   });
 
   @override
@@ -143,24 +155,32 @@ class KCard extends StatelessWidget {
         child: child,
       );
     }
-    if (onTap != null) {
-      return InteractiveSurface(
-        onTap: onTap,
-        borderRadius: borderRadius,
-        color: fill,
-        outline: scheme.primary,
-        padding: pad,
-        child: child,
-      );
-    }
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: borderRadius,
-        border: Border.all(color: Elev.border(dark)),
-        boxShadow: Elev.card(dark, scheme.primary),
-      ),
-      child: Padding(padding: pad, child: child),
+    final shadows =
+        overlayShadow ? Elev.overlay(dark) : Elev.card(dark, scheme.primary);
+    final body = onTap != null
+        ? InteractiveSurface(
+            onTap: onTap,
+            borderRadius: borderRadius,
+            color: fill,
+            outline: scheme.primary,
+            padding: pad,
+            // 浮层模式下不再叠加硬阴影，避免双层投影
+            elevated: !overlayShadow,
+            child: child,
+          )
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: borderRadius,
+              border: Border.all(color: Elev.border(dark)),
+              boxShadow: shadows,
+            ),
+            child: Padding(padding: pad, child: child),
+          );
+    if (onSecondaryTapAt == null) return body;
+    return GestureDetector(
+      onSecondaryTapUp: (d) => onSecondaryTapAt!(d.globalPosition),
+      child: body,
     );
   }
 }
@@ -328,6 +348,7 @@ class KChip extends StatefulWidget {
   final bool selected;
   final VoidCallback? onTap;
   final Color? color;
+  final IconData? icon;
 
   const KChip({
     super.key,
@@ -335,6 +356,7 @@ class KChip extends StatefulWidget {
     this.selected = false,
     this.onTap,
     this.color,
+    this.icon,
   });
 
   @override
@@ -375,13 +397,22 @@ class _KChipState extends State<KChip> {
                   : Elev.border(dark),
             ),
           ),
-          child: Text(
-            widget.label,
-            style: Type.caption.copyWith(
-              color: widget.selected ? color : scheme.onSurfaceVariant,
-              fontWeight: widget.selected ? FontWeight.w700 : FontWeight.w500,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (widget.icon != null) ...[
+              Icon(widget.icon,
+                  size: 12,
+                  color: widget.selected ? color : scheme.onSurfaceVariant),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              widget.label,
+              style: Type.caption.copyWith(
+                color: widget.selected ? color : scheme.onSurfaceVariant,
+                fontWeight:
+                    widget.selected ? FontWeight.w700 : FontWeight.w500,
+              ),
             ),
-          ),
+          ]),
         ),
       ),
     );
@@ -425,6 +456,7 @@ class KEmpty extends StatelessWidget {
   final String? subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
+  final IconData actionIcon;
 
   const KEmpty({
     super.key,
@@ -433,6 +465,7 @@ class KEmpty extends StatelessWidget {
     this.subtitle,
     this.actionLabel,
     this.onAction,
+    this.actionIcon = Icons.refresh_rounded,
   });
 
   @override
@@ -463,7 +496,7 @@ class KEmpty extends StatelessWidget {
           ],
           if (actionLabel != null && onAction != null) ...[
             const SizedBox(height: 16),
-            KPill(label: actionLabel!, icon: Icons.refresh_rounded, onTap: onAction),
+            KPill(label: actionLabel!, icon: actionIcon, onTap: onAction),
           ],
         ],
       ),
@@ -611,8 +644,10 @@ class KMediaRow extends StatelessWidget {
         onTap: onTap,
         padding: const EdgeInsets.fromLTRB(8, 8, 10, 8),
         borderRadius: BorderRadius.circular(Radii.lg),
+        // 选中态用不透明底色（半透明会在卡片上显得发灰）
         color: selected
-            ? scheme.primary.withValues(alpha: 0.10)
+            ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.10),
+                dark ? KisakiColors.nightCard : Colors.white)
             : (dark ? KisakiColors.nightCard : Colors.white),
         outline: scheme.primary,
         child: Row(
@@ -629,6 +664,7 @@ class KMediaRow extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Column(
+                // 顶对齐：一行/两行标题的行基线保持一致
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -666,3 +702,125 @@ class KMediaRow extends StatelessWidget {
 
 /// 封面图存在性检查（供页面复用，避免各页自行 stat）。
 bool coverExists(String path) => cachedFileExists(path);
+
+// ============================ 封面之上的浮层元素 ============================
+//
+// 以下三个原语用于「压在封面图上的角标 / 按钮 / 勾选圈」：
+// 它们必须自带遮罩或描边，否则在任意封面图上都会看不清。
+
+/// 封面角标（状态、平台评分、游玩中等）。
+class KOverlayTag extends StatelessWidget {
+  final String text;
+  final IconData? icon;
+  final Color color;
+
+  const KOverlayTag({
+    super.key,
+    required this.text,
+    this.icon,
+    this.color = Colors.white,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null) ...[
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+        ],
+        Text(text,
+            style: Type.micro
+                .copyWith(color: color, fontWeight: FontWeight.w700)),
+      ]),
+    );
+  }
+}
+
+/// 封面上的圆形按钮（收藏、移除等）。
+class KOverlayIconButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final Color? color;
+  final double size;
+
+  const KOverlayIconButton({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    this.onTap,
+    this.color,
+    this.size = 26,
+  });
+
+  @override
+  State<KOverlayIconButton> createState() => _KOverlayIconButtonState();
+}
+
+class _KOverlayIconButtonState extends State<KOverlayIconButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.color ?? Colors.white;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: PressableScale(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.enter,
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.black.withValues(alpha: _hover ? 0.68 : 0.5),
+              border:
+                  Border.all(color: Colors.white.withValues(alpha: 0.22)),
+            ),
+            child: Icon(widget.icon, size: widget.size * 0.55, color: c),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 批量选择勾选圈（压在封面上）：未选中也有清晰描边。
+class KSelectDot extends StatelessWidget {
+  final bool selected;
+  final double size;
+
+  const KSelectDot({super.key, required this.selected, this.size = 22});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected
+            ? scheme.primary
+            : Colors.black.withValues(alpha: 0.42),
+        border: Border.all(color: Colors.white, width: 1.6),
+      ),
+      child: selected
+          ? Icon(Icons.check_rounded,
+              size: size * 0.62, color: Colors.white)
+          : const SizedBox.shrink(),
+    );
+  }
+}
