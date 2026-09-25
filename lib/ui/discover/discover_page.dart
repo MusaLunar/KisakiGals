@@ -31,6 +31,7 @@ import '../../data/models.dart';
 import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../../scraping/apply.dart';
+import '../../core/utils.dart';
 import '../../scraping/scraped_game.dart';
 import '../design.dart';
 import '../kit.dart';
@@ -82,10 +83,12 @@ const double _kDetailMetaWidth = 208;
 ///
 /// 工具条的计数与网格共用这一份实现：两处数字不会打架。
 List<ScrapedGame> _filterLoaded(List<ScrapedGame> items, String query) {
-  final q = query.trim().toLowerCase();
+  // 规范化后再匹配：中文名里常带全角符号（如「千恋＊万花」），
+  // 用户输入「千恋万花」时直接 contains 会漏掉，这里用全局统一的匹配口径。
+  final q = normalizeForMatch(query);
   if (q.isEmpty) return items;
   return items.where((g) {
-    bool hit(String s) => s.isNotEmpty && s.toLowerCase().contains(q);
+    bool hit(String s) => s.isNotEmpty && normalizeForMatch(s).contains(q);
     return hit(g.displayName) ||
         hit(g.name) ||
         hit(g.nameCn) ||
@@ -237,9 +240,10 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     // 返回条目的标题里未必出现关键词），再按名字过滤只会把正确答案藏起来。
     // 用户继续打字（输入框偏离已提交关键词）时，多出来的字才当"在已加载
     // 结果里再缩小范围"用。
-    final typed = _searchCtrl.text.trim();
-    final localQuery = typed == filter.keyword ? '' : typed;
-    final shown = _filterLoaded(items, localQuery).length;
+    // 输入不即时筛选：本地过滤只认「已提交的关键词」（见 _submitSearch）。
+    // 之前逐字符过滤会把刚搜到的结果立刻筛掉（例如搜「千恋万花」时 VNDB 返回的
+    // 条目名是「千恋＊万花」，含全角星号，逐字符匹配不上 → 看起来像搜不到）。
+    final shown = _filterLoaded(items, filter.keyword).length;
 
     return KPage(
       title: '探索',
@@ -257,7 +261,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     feed: feed,
                     data: data,
                     items: items,
-                    query: localQuery,
+                    query: filter.keyword,
                     keyword: filter.keyword,
                     onClearQuery: _clearSearch,
                   ),
@@ -304,14 +308,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
           icon: Icons.search_rounded,
           onTap: _submitSearch,
         ),
-        if (filter.searching) ...[
-          const SizedBox(width: Gap.xs),
-          KIconAction(
-            icon: Icons.close_rounded,
-            tooltip: '清空关键词，回到榜单浏览（筛选条件保留）',
-            onTap: _clearSearch,
-          ),
-        ],
         // 视图操作一律右对齐（与游戏库的工具条同一个布局节奏）
         const Spacer(),
         ..._exploreActions(data, loaded, shown),
@@ -326,7 +322,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         onChanged: (_) => setState(() {}),
         onSubmitted: (_) => _submitSearch(),
         decoration: InputDecoration(
-          hintText: '搜索游戏名（回车按关键词搜索）',
+          hintText: '搜索游戏名（回车或点「搜索」）',
           prefixIcon: const Icon(Icons.search_rounded, size: 20),
           suffixIcon: _searchCtrl.text.isEmpty
               ? null
