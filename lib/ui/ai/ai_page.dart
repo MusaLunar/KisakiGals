@@ -34,6 +34,8 @@ class _AiPageState extends ConsumerState<AiPage> {
   List<AiRecommendation>? _recs;
   String? _recsError;
   bool _recommending = false;
+  /// 最大回复长度（推理模型需要余量，见设置 → AI）
+  int _maxTokens = 4000;
   final _addState = <String, _RecAddState>{};
 
   Future<AiConfig?> _loadConfig() async {
@@ -43,6 +45,7 @@ class _AiPageState extends ConsumerState<AiPage> {
       apiKey: await s.getString(SettingsStore.kAiApiKey, ''),
       model: await s.getString(SettingsStore.kAiModel, ''),
     );
+    _maxTokens = await s.getInt(SettingsStore.kAiMaxTokens, 4000);
     if (!mounted) return null;
     if (!config.ready) {
       setState(() {
@@ -152,6 +155,7 @@ class _AiPageState extends ConsumerState<AiPage> {
       system: '你是 galgame 游戏库管理器「KisakiGals」的助手，语气轻松友好，用简体中文回答。',
       user: '请根据以下玩家游玩数据，写一段 120-200 字的游玩总结：概括游玩习惯（时段/频率）、'
           '偏好题材（结合标签词云）、点评 1-2 部最常玩或高分作品，最后给一句轻松的鼓励。\n\n$data',
+      maxTokens: _maxTokens,
     );
     if (!mounted) return;
     setState(() {
@@ -244,6 +248,7 @@ class _AiPageState extends ConsumerState<AiPage> {
           '[{"title":"作品官方译名或日文原名","reason":"40字内推荐理由","tags":["标签1","标签2"]}]\n\n'
           '玩家资料：\n$data',
       temperature: 0.9,
+      maxTokens: _maxTokens,
     );
     if (!mounted) return;
     if (!r.ok) {

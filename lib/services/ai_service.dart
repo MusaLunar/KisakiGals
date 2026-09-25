@@ -66,18 +66,19 @@ class AiService {
       ));
 
   Dio _proxiedDio() {
-    final d = _dioProxied ??= Dio(BaseOptions(
+    // HttpClient 只创建一次（原实现每次调用都重新赋值 adapter，
+    // 等于每次请求新建连接池并丢弃旧的）
+    return _dioProxied ??= Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 120),
-    ));
-    d.httpClientAdapter = IOHttpClientAdapter()
-      ..createHttpClient = () {
-        final client = HttpClient();
-        client.findProxy =
-            (uri) => 'PROXY ${proxy!.replaceFirst(RegExp(r'^https?://'), '')}';
-        return client;
-      };
-    return d;
+    ))
+      ..httpClientAdapter = (IOHttpClientAdapter()
+        ..createHttpClient = () {
+          final client = HttpClient();
+          client.findProxy = (uri) =>
+              'PROXY ${proxy!.replaceFirst(RegExp(r'^https?://'), '')}';
+          return client;
+        });
   }
 
   /// 候选通道：非本地优先代理；本地端点先直连，
@@ -90,16 +91,19 @@ class AiService {
     if (isLocal) {
       return proxy == null ? [_directDio()] : [_directDio(), _proxiedDio()];
     }
-    return proxy == null ? [_directDio()] : [_proxiedDio()];
+    // 远端端点：配了代理就先走代理，但**保留直连兜底** ——
+    // 系统代理常是残留配置（Clash 已退出），只走代理会直接失败
+    return proxy == null ? [_directDio()] : [_proxiedDio(), _directDio()];
   }
 
-  /// 调用 chat completions。[temperature] 默认 0.8。
+  /// 调用 chat completions。[temperature] 默认 0.8；
+/// [maxTokens] 默认 4000（推理模型会先消耗推理额度，给少了正文会为空）。
   Future<AiResult> chat({
     required AiConfig config,
     required String system,
     required String user,
     double temperature = 0.8,
-    int maxTokens = 1200,
+    int maxTokens = 4000,
   }) async {
     if (!config.ready) {
       return const AiResult(false, '', '请先在「设置 → AI」填写 Base URL、API Key 与模型名称');
@@ -147,8 +151,26 @@ class AiService {
     }
     final first = Map<String, dynamic>.from(choices.first as Map);
     final message = Map<String, dynamic>.from((first['message'] ?? {}) as Map);
-    final content = (message['content'] ?? '').toString().trim();
-    if (content.isEmpty) return const AiResult(false, '', 'AI 返回内容为空');
+    var content = (message['content'] ?? '').toString().trim();
+    // 推理模型（deepseek-flash / deepseek-reasoner 等）会先输出
+    // reasoning_content；若 token 上限被推理过程吃光，content 会是空串
+    final reasoning = (message['reasoning_content'] ?? '').toString().trim();
+    final finish = (first['finish_reason'] ?? '').toString();
+    if (content.isEmpty && reasoning.isNotEmpty) {
+      // 有推理内容但正文为空：多半是被 max_tokens 截断
+      return AiResult(true, reasoning,
+          finish == 'length'
+              ? '已被 token 上限截断（当前模型为推理模型，请在设置中调大「最大回复长度」）'
+              : '已返回推理内容');
+    }
+    if (content.isEmpty) {
+      return AiResult(
+          false,
+          '',
+          finish == 'length'
+              ? 'AI 在 token 上限内未产出正文：当前模型会先消耗推理额度，请调大「最大回复长度」'
+              : 'AI 返回内容为空');
+    }
     return AiResult(true, content, 'ok');
   }
 

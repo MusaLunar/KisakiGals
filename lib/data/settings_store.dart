@@ -82,6 +82,7 @@ class SettingsStore {
   static const kAiBaseUrl = 'ai.baseUrl';
   static const kAiApiKey = 'ai.apiKey';
   static const kAiModel = 'ai.model';
+  static const kAiMaxTokens = 'ai.maxTokens';
 
   /// Locale Emulator 的 LEProc.exe 路径（日文游戏转区启动用）
   static const kLePath = 'runtime.le_path';

@@ -883,12 +883,36 @@ class _AiSection extends ConsumerStatefulWidget {
   ConsumerState<_AiSection> createState() => _AiSectionState();
 }
 
+/// AI 服务商预设：选定后自动填入 Base URL 与推荐模型，
+/// 用户只需再填 API Key（也可切到「自定义」手填任意 OpenAI 兼容端点）。
+class _AiPreset {
+  final String label;
+  final String baseUrl;
+  final String model;
+  final String hint;
+  const _AiPreset(this.label, this.baseUrl, this.model, this.hint);
+}
+
+const _kAiPresets = <_AiPreset>[
+  _AiPreset('DeepSeek', 'https://api.deepseek.com', 'deepseek-flash',
+      '注意：deepseek-flash 为推理模型，会先消耗推理额度，建议最大回复长度 ≥ 2000'),
+  _AiPreset('OpenAI', 'https://api.openai.com/v1', 'gpt-4o-mini', ''),
+  _AiPreset('阿里云通义', 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      'qwen-plus', ''),
+  _AiPreset('智谱 GLM', 'https://open.bigmodel.cn/api/paas/v4', 'glm-4-flash', ''),
+  _AiPreset('本地 Ollama', 'http://127.0.0.1:11434/v1', 'qwen2.5:7b',
+      '需先 ollama serve；本地端点无需 API Key，可填任意占位符'),
+  _AiPreset('本地 LM Studio', 'http://127.0.0.1:1234/v1', 'local-model', ''),
+  _AiPreset('自定义', '', '', '任意 OpenAI 兼容端点，请填到 /v1 或由服务商指定的根路径'),
+];
+
 class _AiSectionState extends ConsumerState<_AiSection> {
   final _baseUrl = TextEditingController();
   final _apiKey = TextEditingController();
   final _model = TextEditingController();
   String _testStatus = '';
   bool _testing = false;
+  int _maxTokens = 4000;
 
   @override
   void initState() {
@@ -909,6 +933,7 @@ class _AiSectionState extends ConsumerState<_AiSection> {
     _baseUrl.text = await s.getString(SettingsStore.kAiBaseUrl, '');
     _apiKey.text = await s.getString(SettingsStore.kAiApiKey, '');
     _model.text = await s.getString(SettingsStore.kAiModel, '');
+    _maxTokens = await s.getInt(SettingsStore.kAiMaxTokens, 4000);
     if (mounted) setState(() {});
   }
 
@@ -917,12 +942,58 @@ class _AiSectionState extends ConsumerState<_AiSection> {
       apiKey: _apiKey.text.trim(),
       model: _model.text.trim());
 
+  /// 当前匹配到的服务商（用于显示提示文案）
+  _AiPreset? get _matchedPreset {
+    final base = _baseUrl.text.trim().replaceAll(RegExp(r'/+$'), '');
+    for (final p in _kAiPresets) {
+      if (p.baseUrl.isNotEmpty &&
+          p.baseUrl.replaceAll(RegExp(r'/+$'), '') == base) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _applyPreset(_AiPreset p) async {
+    final s = AppServices.I.settings;
+    if (p.baseUrl.isNotEmpty) {
+      _baseUrl.text = p.baseUrl;
+      await s.setString(SettingsStore.kAiBaseUrl, p.baseUrl);
+    }
+    if (p.model.isNotEmpty) {
+      _model.text = p.model;
+      await s.setString(SettingsStore.kAiModel, p.model);
+    }
+    if (mounted) setState(() => _testStatus = '已选择「${p.label}」，请填写 API Key');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SettingsGroup(title: 'AI 服务（OpenAI 兼容）', children: [
+          SettingRow(
+            title: '服务商',
+            subtitle: '选择后自动填入 Base URL 与推荐模型，只需再填 API Key',
+            trailing: SizedBox(
+              width: 260,
+              child: DropdownButtonFormField<String>(
+                initialValue: _matchedPreset?.label ?? '自定义',
+                isDense: true,
+                decoration: const InputDecoration(isDense: true),
+                items: [
+                  for (final p in _kAiPresets)
+                    DropdownMenuItem(value: p.label, child: Text(p.label)),
+                ],
+                onChanged: (label) {
+                  final p = _kAiPresets.firstWhere((e) => e.label == label,
+                      orElse: () => _kAiPresets.last);
+                  _applyPreset(p);
+                },
+              ),
+            ),
+          ),
           SettingRow(
             title: 'Base URL',
             subtitle: '例：https://api.openai.com/v1、https://api.deepseek.com/v1 或本地 Ollama/LM Studio 端点',
@@ -966,6 +1037,35 @@ class _AiSectionState extends ConsumerState<_AiSection> {
               ),
             ),
           ),
+          SettingRow(
+            title: '最大回复长度',
+            subtitle: '推理模型（如 deepseek-flash）会先消耗推理额度，'
+                '给少了会出现"有思考没正文"，建议 ≥ 2000',
+            trailing: SizedBox(
+              width: 260,
+              child: TextField(
+                controller: TextEditingController(text: '$_maxTokens')
+                  ..selection = TextSelection.collapsed(
+                      offset: '$_maxTokens'.length),
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(isDense: true),
+                onChanged: (v) async {
+                  final n = int.tryParse(v.trim());
+                  if (n == null || n < 64) return;
+                  setState(() => _maxTokens = n);
+                  await AppServices.I.settings
+                      .setInt(SettingsStore.kAiMaxTokens, n);
+                },
+              ),
+            ),
+          ),
+          if (_matchedPreset != null && _matchedPreset!.hint.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(_matchedPreset!.hint,
+                  style: Type.caption.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ),
         ]),
         SettingsGroup(title: '连接', children: [
           SettingRow(
@@ -989,12 +1089,24 @@ class _AiSectionState extends ConsumerState<_AiSection> {
                         _testing = true;
                         _testStatus = '测试中…';
                       });
-                      final r = await AppServices.I.ai.chat(
-                        config: config,
-                        system: '你是 KisakiGals 的连接测试助手。',
-                        user: '请只回复：连接成功',
-                        maxTokens: 20,
-                      );
+                      AiResult r;
+                      try {
+                        r = await AppServices.I.ai.chat(
+                          config: config,
+                          system: '你是 KisakiGals 的连接测试助手。',
+                          user: '请只回复：连接成功',
+                          // 不要用极小的上限：推理模型会先把额度用在思考上，
+                          // 正文为空会被误判为失败
+                          maxTokens: _maxTokens < 512 ? 512 : _maxTokens,
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        setState(() {
+                          _testing = false;
+                          _testStatus = '测试异常：$e';
+                        });
+                        return;
+                      }
                       if (!mounted) return;
                       setState(() {
                         _testing = false;
