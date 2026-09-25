@@ -1,25 +1,26 @@
-/// 探索页：「探索」（元数据榜单）与「资源」（资源站搜索）两种模式合一。
+/// 探索页：找游戏的**唯一入口**。
 ///
-/// **信息架构**：侧栏原先有「探索」与「资源搜索」两项，但两者本质都是
-/// 「找游戏」——前者是不知道玩什么时看榜单（无关键词，按评分/年份/标签翻页），
-/// 后者是有目标地找下载页（关键词 → 聚合发布页）。因此合并成一页，用页内的
-/// 模式切换（[DiscoverMode]）区分，侧栏只剩「探索」一项：
+/// **一条流程**：搜索 / 浏览 VNDB（及 Bangumi）作品 → 点开某部作品 →
+/// 详情里自动查出它的资源下载链接 → 打开下载页或一键入库。
 ///
-/// - **探索**：VNDB / Bangumi 榜单浏览。来源 / 排序 / 最低评分 / 年份 /
-///   标签 / R18 全部收进右侧筛选栏（[FilterSidebar]，与游戏库同一个组件）；
-///   卡片网格、无限滚动、一键入库、详情弹窗。
-/// - **资源**：资源站发布页的关键词搜索（流式结果、相关度排序、打开下载页 /
-///   入库）。结果区是 [ResourceSearchPane]，每源错误独立提示。
-///
-/// 两种模式共享页面外壳：KPage 标题区 + 一个 KToolbar（模式切换、各模式一个
-/// 同宽搜索框、各模式的操作）+ FadeThroughSwitcher 做模式切换动效。
+/// 页内**没有模式切换**（改造前有「探索 / 资源」两种模式）：找作品与拿下载页
+/// 本来就是同一件事的两步，用户不该先决定"我要用哪个模式"。因此：
+/// - 工具条只有一个搜索框：**输入时**过滤已加载的条目（不发请求），
+///   **回车 / 点「搜索」时**向当前来源发起一次关键词查询——换关键词 = 换一批
+///   数据，所以关键词进 [DiscoverFilter]（见 `discover_filter_state.dart`）；
+/// - 来源 / 排序 / 最低评分 / 年份 / 标签 / R18 全在右侧筛选栏
+///   （[FilterSidebar]，与游戏库同一个组件），卡片网格、无限滚动、一键入库、
+///   骨架与失败态都保持原样；
+/// - 资源站搜索搬进详情弹窗（`resource_links.dart`）：以当前作品的名字变体
+///   （中文名 → 原名 → 别名）自动去查，用户不用再手敲资源关键词。
 ///
 /// **跨页约定**：主页的「找资源」入口（`home_page.dart` 的 `_openResourceSearch`）
-/// 会先把关键词写进 [resourceQueryProvider] 再切到本页；因此本页在挂载时若发现
-/// 该 provider 非空，就直接落在「资源」模式并把关键词预填进搜索框（见
-/// [_DiscoverPageState.initState] 与 build 里的 ref.listen）。这条链路是主页
-/// 推荐位 → 找资源的主要入口，改动本页模式默认值时必须一起考虑。
+/// 会先把关键词写进 [resourceQueryProvider] 再切到本页；本页把这个"待预填的
+/// 关键词"消费掉——写进搜索框并**立刻发起一次关键词搜索**，理由见
+/// [_DiscoverPageState._consumePendingQuery]。
 library;
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,14 +34,13 @@ import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../design.dart';
 import '../kit.dart';
-import '../search/resource_search_page.dart'
-    show ResourceSearchPane, ResourceSearchState, resourceSearchSessionProvider;
 import '../theme.dart';
 import '../widgets/common.dart' show CoverImage;
 import '../widgets/filter_sidebar.dart';
 import '../widgets/notifications.dart';
 import 'discover_filter_state.dart';
 import 'discover_state.dart';
+import 'resource_links.dart';
 
 /// 距底部多少像素开始预取下一页。
 /// 400 大约是「一行到一行半」的高度：滚动到底时下一页通常已经就位，
@@ -61,15 +61,22 @@ const SliverGridDelegate _kGridDelegate =
 /// 工具条搜索框宽度（与游戏库的搜索框同宽，两个页面的工具条节奏一致）。
 const double _kSearchWidth = 300;
 
-/// 页内模式。
-enum DiscoverMode {
-  explore('探索', Icons.travel_explore_rounded),
-  resource('资源', Icons.cloud_download_outlined);
+/// 详情弹窗尺寸：**固定 720×560**。
+///
+/// 为什么定死而不是"内容自适应"：这个弹窗里有两块会变的区域（简介长度、
+/// 资源条数），自适应会让每次打开的形状都不一样，同一个应用里同一种弹窗
+/// 长得不一样很廉价。720×560 在窗口最小尺寸 1080×680（见 `main.dart` 的
+/// `minimumSize`）下四周仍有余量，也不会顶到标题栏。
+const double _kDetailWidth = 720;
+const double _kDetailHeight = 560;
 
-  final String label;
-  final IconData icon;
-  const DiscoverMode(this.label, this.icon);
-}
+/// 弹窗左栏（元数据）宽度。
+///
+/// 取 208：弹窗内容宽 720-40=680，右栏（资源下载）因此拿到 680-208-16=456，
+/// 正好放得下「两行标题 + 标签徽标 + 下载页/入库两个按钮」的一行而不折行；
+/// 左栏 208 能放 148×222 的 2:3 封面 + 标题 + 徽标，正文窄一点可以接受
+/// （左栏自带滚动条）。
+const double _kDetailMetaWidth = 208;
 
 /// 只过滤**已加载**的条目（标题/中文名/别名/开发商/标签），不发请求。
 ///
@@ -100,39 +107,40 @@ class DiscoverPage extends ConsumerStatefulWidget {
 }
 
 class _DiscoverPageState extends ConsumerState<DiscoverPage> {
-  /// 当前模式（默认「探索」；带关键词从主页跳进来时直接进「资源」，见类注释）
-  late DiscoverMode _mode;
-
-  /// 探索模式的筛选栏是否展开（工具条上的筛选图标切换，持久化到设置）
+  /// 筛选栏是否展开（工具条上的筛选图标切换，持久化到设置）
   bool _sidebarVisible = true;
 
-  /// 探索模式的本地搜索词（只过滤已加载的条目，不重新请求）
-  final _localCtrl = TextEditingController();
-  String _localQuery = '';
-
-  /// 资源模式的关键词输入框（真正的搜索请求由 [ResourceSearchSession] 发起）
-  late final TextEditingController _resourceCtrl;
+  /// 搜索框：两层语义共用同一个输入框（见文件头）。
+  final _searchCtrl = TextEditingController();
+  final _searchFocus = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    // 主页「找资源」入口的握手：关键词已就位 → 直接进「资源」模式
-    _mode = ref.read(resourceQueryProvider).isEmpty
-        ? DiscoverMode.explore
-        : DiscoverMode.resource;
-    _resourceCtrl =
-        TextEditingController(text: ref.read(resourceQueryProvider));
     AppServices.I.settings
         .getBool(SettingsStore.kDiscoverSidebar, def: true)
         .then((v) {
       if (mounted) setState(() => _sidebarVisible = v);
     });
+
+    // 输入框初值：优先「待预填的关键词」（主页深链），否则沿用当前已提交的
+    // 关键词——切页/重建后回来时，框里的词必须和列表里的数据一致。
+    final pending = ref.read(resourceQueryProvider).trim();
+    _searchCtrl.text =
+        pending.isNotEmpty ? pending : ref.read(discoverFilterProvider).keyword;
+    if (pending.isNotEmpty) {
+      // 真正的搜索推到帧末：initState 里改 provider 会撞上 riverpod 的
+      // 「不能在 widget 生命周期里改 provider」断言（它靠 markNeedsBuild 检测）。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _consumePendingQuery(pending);
+      });
+    }
   }
 
   @override
   void dispose() {
-    _localCtrl.dispose();
-    _resourceCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -142,29 +150,63 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         .setBool(SettingsStore.kDiscoverSidebar, _sidebarVisible);
   }
 
-  void _setMode(DiscoverMode mode) {
-    if (mode == _mode) return;
-    setState(() => _mode = mode);
+  // ==================== 搜索框（关键词搜索 + 本地过滤） ====================
+
+  /// 提交关键词：回车 / 点「搜索」。
+  ///
+  /// 关键词没变时不重复请求（[DiscoverFeed.updateFilter] 内部也会短路），
+  /// 但仍要 setState 一次：本地过滤是否生效取决于「输入框内容 == 已提交
+  /// 关键词」，用户把多打的字删回原样时界面要跟着复位。
+  void _submitSearch() {
+    final kw = _searchCtrl.text.trim();
+    final filter = ref.read(discoverFilterProvider);
+    if (kw != filter.keyword) {
+      ref
+          .read(discoverFeedProvider.notifier)
+          .updateFilter(filter.withKeyword(kw));
+    }
+    setState(() {});
   }
 
-  void _clearLocalQuery() {
-    _localCtrl.clear();
-    setState(() => _localQuery = '');
+  /// 清空搜索：回到榜单浏览（筛选条件保持）。
+  void _clearSearch() {
+    _searchCtrl.clear();
+    final filter = ref.read(discoverFilterProvider);
+    if (filter.keyword.isNotEmpty) {
+      ref.read(discoverFeedProvider.notifier).updateFilter(filter.browse());
+    }
+    setState(() {});
+    _searchFocus.requestFocus();
   }
 
-  /// 发起资源搜索：关键词同时写回 [resourceQueryProvider]，
-  /// 让「主页 → 找资源」与「本页搜索」共用同一份状态（切走再回来还能预填）。
-  void _startResourceSearch() {
-    final keyword = _resourceCtrl.text.trim();
-    ref.read(resourceQueryProvider.notifier).state = keyword;
-    ref.read(resourceSearchSessionProvider.notifier).start(keyword);
-  }
-
-  /// 结果区「再搜一次」的回程：先把关键词同步进工具栏输入框，再走同一条
-  /// 搜索路径——否则会出现「输入框显示 A、结果却是 B」。
-  void _rerunResourceSearch(String keyword) {
-    if (_resourceCtrl.text != keyword) _resourceCtrl.text = keyword;
-    _startResourceSearch();
+  /// 消费一次「待预填的关键词」（主页 → 找资源）：
+  /// 填进搜索框并**立刻发起一次关键词搜索**（而不是只预填 + 聚焦）。
+  ///
+  /// 为什么自动搜而不是等用户再按一次回车：主页那个入口点的是「某部具体作品
+  /// 的找资源」，意图已经完全确定（就是要找这一部）；而且探索页很可能正显示着
+  /// 上一个关键词的结果，只预填不搜会让用户看到「框里是 A、列表是 B」的
+  /// 错位画面——那比多打一次回车糟糕得多。预填后文本全选，想改词直接输入。
+  ///
+  /// 消费完立刻把 provider 清空：[resourceQueryProvider] 的语义是"待预填的
+  /// 关键词"而不是常驻状态。清空还有个好处——用户回到主页对同一部作品再点
+  /// 一次时，StateProvider 的值会从 '' → 'xxx' 真正发生变化，本页的 listen
+  /// 才会再次触发（不清空的话值没变、监听不触发，第二次点像没反应）。
+  void _consumePendingQuery(String kw) {
+    if (_searchCtrl.text != kw) {
+      _searchCtrl.value = TextEditingValue(
+        text: kw,
+        selection: TextSelection(baseOffset: 0, extentOffset: kw.length),
+      );
+    }
+    ref.read(resourceQueryProvider.notifier).state = '';
+    final filter = ref.read(discoverFilterProvider);
+    if (filter.keyword != kw) {
+      ref
+          .read(discoverFeedProvider.notifier)
+          .updateFilter(filter.withKeyword(kw));
+    }
+    if (mounted) setState(() {});
+    _searchFocus.requestFocus();
   }
 
   // ==================== 构建 ====================
@@ -173,40 +215,58 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   Widget build(BuildContext context) {
     final filter = ref.watch(discoverFilterProvider);
     final feed = ref.watch(discoverFeedProvider);
-    final session = ref.watch(resourceSearchSessionProvider);
 
-    // 主页「找资源」入口在页面已挂载时（例如本次会话里已停在探索页）也要生效：
-    // 同步输入框并按需切到「资源」模式。相同值（本页自己发起的搜索）直接跳过。
+    // 深链的两条路：本页**重新挂载**时由 initState 读走（外壳切页会重建页面，
+    // 这是常规路径）；本页已经挂载时由这里兜住——比如将来把入口放进页内，
+    // 或切页动画期间两页并存时又写了一次关键词。相同值直接跳过（本页不再
+    // 往这个 provider 写回，写回已由 DiscoverFilter.keyword 承担）。
     ref.listen<String>(resourceQueryProvider, (prev, next) {
-      if (next.isEmpty || next == prev) return;
-      if (_resourceCtrl.text != next) _resourceCtrl.text = next;
-      if (_mode != DiscoverMode.resource) {
-        setState(() => _mode = DiscoverMode.resource);
-      }
+      final kw = next.trim();
+      if (kw.isEmpty || next == prev) return;
+      _consumePendingQuery(kw);
     });
 
-    // 只认「当前筛选条件下」拉到的数据：换源/换筛选/刷新期间一律当作还没数据
-    // （riverpod 在重建时会保留上一次的值，直接用会先闪一排上一个源的卡片）。
+    // 只认「当前筛选条件下」拉到的数据：换源/换筛选/换关键词/刷新期间一律当作
+    // 还没数据（riverpod 在重建时会保留上一次的值，直接用会先闪一排旧卡片）。
     final raw = feed.valueOrNull;
     final data = (raw != null && raw.filterKey == filter.key) ? raw : null;
     final items = data?.items ?? const <ScrapedGame>[];
-    final shown = _filterLoaded(items, _localQuery).length;
+
+    // 输入框内容与「已提交的关键词」一致时不做本地过滤：此时网格里的条目
+    // 就是数据源按这个关键词给出的答案（VNDB 的 search 会命中别名/日文原名，
+    // 返回条目的标题里未必出现关键词），再按名字过滤只会把正确答案藏起来。
+    // 用户继续打字（输入框偏离已提交关键词）时，多出来的字才当"在已加载
+    // 结果里再缩小范围"用。
+    final typed = _searchCtrl.text.trim();
+    final localQuery = typed == filter.keyword ? '' : typed;
+    final shown = _filterLoaded(items, localQuery).length;
 
     return KPage(
       title: '探索',
-      subtitle: _subtitle(session),
+      subtitle: _subtitle(data, filter),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _toolbar(data, items.length, shown, session),
+          _toolbar(data, items.length, shown, filter),
           Expanded(
-            child: FadeThroughSwitcher(
-              child: KeyedSubtree(
-                key: ValueKey(_mode),
-                child: _mode == DiscoverMode.resource
-                    ? ResourceSearchPane(onRerun: _rerunResourceSearch)
-                    : _exploreBody(feed, data, items),
-              ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _ExplorePane(
+                    feed: feed,
+                    data: data,
+                    items: items,
+                    query: localQuery,
+                    keyword: filter.keyword,
+                    onClearQuery: _clearSearch,
+                  ),
+                ),
+                if (_sidebarVisible) ...[
+                  const SizedBox(width: Gap.lg),
+                  const _DiscoverFilterSidebar(),
+                ],
+              ],
             ),
           ),
         ],
@@ -214,88 +274,67 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     );
   }
 
-  String _subtitle(ResourceSearchState session) => switch (_mode) {
-        DiscoverMode.explore => '浏览 VNDB / Bangumi 榜单，筛选后一键入库',
-        DiscoverMode.resource => session.started
-            ? '共 ${session.items.length} 条 · 按相关度排序'
-            : '聚合资源站发布页 · 只提供链接，不托管资源',
-      };
+  /// 副标题随"在浏览还是在搜索"变化：页面标题区是最先被看到的地方，
+  /// 这里说清楚当前这批数据是怎么来的。
+  String _subtitle(DiscoverFeedState? data, DiscoverFilter filter) {
+    if (filter.searching) {
+      if (data == null) return '正在搜索「${filter.keyword}」…';
+      return '关键词「${filter.keyword}」 · 已加载 ${data.items.length} 部'
+          '${data.hasMore ? '（可继续向下加载）' : ''}';
+    }
+    return '浏览 VNDB / Bangumi 榜单，点开作品可在详情里查资源下载链接';
+  }
 
-  // ==================== 工具条（两种模式共享） ====================
+  // ==================== 工具条 ====================
 
   Widget _toolbar(
     DiscoverFeedState? data,
     int loaded,
     int shown,
-    ResourceSearchState session,
+    DiscoverFilter filter,
   ) {
     return KToolbar(
       children: [
-        // 模式切换：看榜单（探索）/ 找下载页（资源）
-        for (final m in DiscoverMode.values) ...[
-          KChip(
-            label: m.label,
-            icon: m.icon,
-            selected: _mode == m,
-            onTap: () => _setMode(m),
-          ),
-          const SizedBox(width: Gap.sm),
-        ],
+        // 搜索框：宽度与游戏库工具条的搜索框一致（300）。
+        // 输入 = 过滤已加载条目；回车 = 按关键词向当前来源搜索。
+        SizedBox(width: _kSearchWidth, child: _searchField()),
         const SizedBox(width: Gap.sm),
-        // 搜索框：两种模式同宽同位（探索=过滤已加载条目，资源=关键词搜索）。
-        // 宽度与游戏库工具条的搜索框一致（300）。
-        SizedBox(
-          width: _kSearchWidth,
-          child: FadeThroughSwitcher(
-            child: KeyedSubtree(
-              key: ValueKey(_mode),
-              child: _mode == DiscoverMode.explore
-                  ? _localSearchField()
-                  : _resourceSearchField(),
-            ),
-          ),
+        KPill(
+          label: '搜索',
+          icon: Icons.search_rounded,
+          onTap: _submitSearch,
         ),
-        const SizedBox(width: Gap.md),
-        // 探索：视图操作一律右对齐（与游戏库的工具条同一个布局节奏）；
-        // 资源：「搜索」是主操作，紧贴输入框，进度徽标放右端。
-        if (_mode == DiscoverMode.explore) ...[
-          const Spacer(),
-          ..._exploreActions(data, loaded, shown),
-        ] else ...[
-          _resourcePill(session),
-          if (session.started) ...[
-            const Spacer(),
-            _resourceBadge(session),
-          ],
+        if (filter.searching) ...[
+          const SizedBox(width: Gap.xs),
+          KIconAction(
+            icon: Icons.close_rounded,
+            tooltip: '清空关键词，回到榜单浏览（筛选条件保留）',
+            onTap: _clearSearch,
+          ),
         ],
+        // 视图操作一律右对齐（与游戏库的工具条同一个布局节奏）
+        const Spacer(),
+        ..._exploreActions(data, loaded, shown),
       ],
     );
   }
 
-  Widget _localSearchField() => TextField(
-        controller: _localCtrl,
-        onChanged: (v) => setState(() => _localQuery = v),
+  Widget _searchField() => TextField(
+        controller: _searchCtrl,
+        focusNode: _searchFocus,
+        textInputAction: TextInputAction.search,
+        onChanged: (_) => setState(() {}),
+        onSubmitted: (_) => _submitSearch(),
         decoration: InputDecoration(
-          hintText: '搜索已加载的条目',
+          hintText: '搜索游戏名（回车按关键词搜索）',
           prefixIcon: const Icon(Icons.search_rounded, size: 20),
-          suffixIcon: _localQuery.isEmpty
+          suffixIcon: _searchCtrl.text.isEmpty
               ? null
               : IconButton(
-                  tooltip: '清空搜索',
+                  tooltip: '清空搜索（回到榜单浏览）',
                   icon: const Icon(Icons.close_rounded, size: 18),
-                  onPressed: _clearLocalQuery,
+                  onPressed: _clearSearch,
                 ),
-          isDense: true,
-        ),
-      );
-
-  Widget _resourceSearchField() => TextField(
-        controller: _resourceCtrl,
-        textInputAction: TextInputAction.search,
-        onSubmitted: (_) => _startResourceSearch(),
-        decoration: const InputDecoration(
-          hintText: '搜索游戏名（中文名效果最好）',
-          prefixIcon: Icon(Icons.search_rounded, size: 20),
           isDense: true,
         ),
       );
@@ -322,63 +361,16 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       ),
       KIconAction(
         icon: Icons.refresh_rounded,
-        tooltip: '刷新榜单（跳过 24 小时缓存重新拉第一页）',
+        tooltip: '重新加载（跳过 24 小时缓存，从第一页重拉）',
         onTap: () => ref.read(discoverFeedProvider.notifier).refresh(),
       ),
     ];
   }
-
-  /// 资源模式的进度/计数徽标（搜索中显示 n / N，完成后显示结果条数）。
-  Widget _resourceBadge(ResourceSearchState s) {
-    final scheme = Theme.of(context).colorScheme;
-    return KBadge(
-      icon: s.busy
-          ? Icons.cloud_download_outlined
-          : Icons.check_circle_outline_rounded,
-      text: s.busy ? '${s.completed} / ${s.total}' : '共 ${s.items.length} 条',
-      color: s.busy ? scheme.primary : scheme.onSurfaceVariant,
-    );
-  }
-
-  /// 资源模式的主操作：实心药丸（与游戏库的「添加游戏」同一套原语）。
-  Widget _resourcePill(ResourceSearchState s) => KPill(
-        label: s.busy ? '搜索中…' : '搜索',
-        icon: s.busy ? null : Icons.search_rounded,
-        onTap: s.busy ? null : _startResourceSearch,
-      );
-
-  // ==================== 探索模式的内容区 ====================
-
-  /// 网格 + 筛选栏（筛选栏与游戏库共用 [FilterSidebar]，布局也一致）。
-  Widget _exploreBody(
-    AsyncValue<DiscoverFeedState> feed,
-    DiscoverFeedState? data,
-    List<ScrapedGame> items,
-  ) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: _ExplorePane(
-            feed: feed,
-            data: data,
-            items: items,
-            query: _localQuery,
-            onClearQuery: _clearLocalQuery,
-          ),
-        ),
-        if (_sidebarVisible) ...[
-          const SizedBox(width: Gap.lg),
-          const _DiscoverFilterSidebar(),
-        ],
-      ],
-    );
-  }
 }
 
-// ==================== 探索模式：榜单网格 ====================
+// ==================== 榜单网格 ====================
 
-/// 榜单网格：骨架 / 空态 / 失败态 / 无限滚动 / 入库 / 详情弹窗。
+/// 网格：骨架 / 空态 / 失败态 / 无限滚动 / 入库 / 详情弹窗。
 class _ExplorePane extends ConsumerStatefulWidget {
   final AsyncValue<DiscoverFeedState> feed;
 
@@ -386,8 +378,13 @@ class _ExplorePane extends ConsumerStatefulWidget {
   final DiscoverFeedState? data;
   final List<ScrapedGame> items;
 
-  /// 本地搜索词（由页面工具条维护）
+  /// 本地过滤词（= 输入框内容；与已提交关键词一致时为空串，见页面 build）
   final String query;
+
+  /// 已提交的关键词（空串 = 榜单浏览）：空态文案要据此区分
+  final String keyword;
+
+  /// 清空搜索（既清输入框也清关键词）
   final VoidCallback onClearQuery;
 
   const _ExplorePane({
@@ -395,6 +392,7 @@ class _ExplorePane extends ConsumerStatefulWidget {
     required this.data,
     required this.items,
     required this.query,
+    required this.keyword,
     required this.onClearQuery,
   });
 
@@ -474,6 +472,9 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
     final filter = ref.watch(discoverFilterProvider);
     final scheme = Theme.of(context).colorScheme;
     final hints = <String>[
+      if (filter.searching)
+        '搜索按源站相关度排序（VNDB searchrank / Bangumi match）：'
+            '排序、评分、年份、标签在搜索时都不生效，清空搜索框后回车即回到榜单浏览',
       if (filter.source == DiscoverSource.bgm && filter.tagIds.isNotEmpty)
         'Bangumi 不支持标签筛选，已忽略标签条件',
       if (filter.source == DiscoverSource.bgm &&
@@ -492,8 +493,12 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
         children: [
           KBadge(
             text: filter.summary,
-            icon: Icons.filter_alt_rounded,
-            color: filter.hasActiveFilters ? scheme.primary : scheme.secondary,
+            icon: filter.searching
+                ? Icons.search_rounded
+                : Icons.filter_alt_rounded,
+            color: filter.hasActiveFilters || filter.searching
+                ? scheme.primary
+                : scheme.secondary,
           ),
           for (final h in hints)
             Text(h, style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
@@ -502,8 +507,9 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
     );
   }
 
-  /// [data] 为 null 表示「当前筛选条件下还没有数据」（首次加载 / 刚换条件 /
-  /// 刚刷新），此时用骨架占位；`widget.feed.hasError` 则说明这个条件是拉失败了。
+  /// [data] 为 null 表示「当前条件下还没有数据」（首次加载 / 刚换条件 /
+  /// 刚换关键词 / 刚刷新），此时用骨架占位；`widget.feed.hasError` 则说明
+  /// 这个条件是拉失败了。
   Widget _body(
     DiscoverFeedState? data,
     List<ScrapedGame> items,
@@ -517,6 +523,7 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
     }
     // 没有任何结果（数据源确实没有匹配项）
     if (items.isEmpty) {
+      if (widget.keyword.isNotEmpty) return _searchEmptyState(data);
       // 注意区分两种「空」：数据源真的没有匹配（hasMore=false），
       // 与「本地补筛把开头几页都筛空了」（hasMore=true）——后者还能继续往后翻，
       // 直接说「没有作品」会把人堵死在空页上（Bangumi 的年份区间尤其容易这样）。
@@ -573,6 +580,33 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
         final g = visible[index];
         return _tile(g, inLibrary: library.containsKey(discoverLibraryKey(g)));
       },
+    );
+  }
+
+  /// 关键词搜索没有任何结果：把话说到点上——
+  /// 换名字、或是 R18 被默认筛掉了（这是最常见的"明明存在却搜不到"）。
+  Widget _searchEmptyState(DiscoverFeedState data) {
+    final filter = ref.watch(discoverFilterProvider);
+    final canContinue = data.hasMore;
+    final notes = <String>[
+      if (canContinue) '搜索结果还不止这些，可以继续往后加载'
+      else '试试原名/日文名，或换一个来源（筛选栏 → 来源）',
+      if (filter.onlySfw) '若这是一部 R18 作品，请把筛选栏的「显示内容」改为「含 R18」',
+    ];
+    return KEmpty(
+      icon: canContinue
+          ? Icons.hourglass_empty_rounded
+          : Icons.search_off_rounded,
+      title: canContinue
+          ? '前几页里没有「${widget.keyword}」'
+          : '没有找到与「${widget.keyword}」相关的作品',
+      subtitle: notes.join('；'),
+      actionLabel: canContinue ? '继续加载' : '清空搜索',
+      actionIcon:
+          canContinue ? Icons.expand_more_rounded : Icons.close_rounded,
+      onAction: canContinue
+          ? () => ref.read(discoverFeedProvider.notifier).loadMore()
+          : widget.onClearQuery,
     );
   }
 
@@ -721,7 +755,7 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
   // ==================== 入库 ====================
 
   /// 入库：insertGame → ScrapeApplier.apply（下载封面 / 写标签 / 登记各源评分）。
-  /// 与资源搜索、添加页走的是同一条落库路径。
+  /// 与添加页走的是同一条落库路径；详情弹窗（含资源行的「入库」）也调它。
   Future<void> _addToLibrary(ScrapedGame g) async {
     final key = discoverLibraryKey(g);
     if (_adding.contains(key)) return;
@@ -797,7 +831,14 @@ class _DiscoverSkeletonCard extends StatelessWidget {
 
 // ==================== 详情弹窗 ====================
 
-/// 条目详情：封面 + 元信息 + 简介 + 标签 + 入库。
+/// 条目详情：**左栏元数据 + 右栏资源下载**，底部一行操作。
+///
+/// 布局取舍（小窗口 1080×680 下也不挤）：弹窗 720×560 里**竖向空间是稀缺
+/// 资源**（560 减去内边距只剩 ~470），而资源列表的长度是不封顶的（5 个来源
+/// × 若干条 + 每源错误）。因此把不封顶的那一块放进右侧自适应列、给它自己的
+/// 常驻滚动条；左栏（封面 + 名称 + 徽标 + 开发商 + 标签 + 简介）是有界的，
+/// 固定 208 宽、自己滚动。两块各滚各的，简介再长也不会把资源列表挤没，
+/// 资源再多也不会让封面区变形——这比"上下两段"更适合矮而宽的桌面弹窗。
 ///
 /// 自己 watch 已在库索引（而不是从页面传一个 bool 进来）：入库成功后
 /// libraryVersionProvider 自增会刷新索引，弹窗里的按钮立刻变成「已在库」。
@@ -813,9 +854,11 @@ class _DiscoverDetailDialog extends ConsumerStatefulWidget {
 }
 
 class _DiscoverDetailDialogState extends ConsumerState<_DiscoverDetailDialog> {
+  /// 正在入库（底部按钮与资源行的入库按钮共用这一个状态）
   bool _busy = false;
 
   Future<void> _add() async {
+    if (_busy) return;
     setState(() => _busy = true);
     await widget.onAdd(widget.game);
     if (mounted) setState(() => _busy = false);
@@ -824,164 +867,193 @@ class _DiscoverDetailDialogState extends ConsumerState<_DiscoverDetailDialog> {
   @override
   Widget build(BuildContext context) {
     final g = widget.game;
-    final scheme = Theme.of(context).colorScheme;
     final library = ref.watch(discoverLibraryIndexProvider).valueOrNull ??
         const <String, Game>{};
     final inLibrary = library.containsKey(discoverLibraryKey(g));
+
+    return LayoutBuilder(builder: (context, c) {
+      // 固定 720×560，但按可用空间收缩（系统缩放把窗口变得极小时不溢出）
+      final w =
+          math.min(_kDetailWidth, math.max(320.0, c.maxWidth - Gap.xl * 2));
+      final h =
+          math.min(_kDetailHeight, math.max(260.0, c.maxHeight - Gap.xl * 2));
+      return Center(
+        child: SizedBox(
+          width: w,
+          height: h,
+          child: KCard(
+            borderRadius: Radii.sheet,
+            padding: const EdgeInsets.all(Gap.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: _kDetailMetaWidth,
+                        child: _meta(g, inLibrary),
+                      ),
+                      const SizedBox(width: Gap.lg),
+                      // 资源下载区：进入即查（有内存缓存则直接复用），
+                      // 每个来源的错误单独显示（见 resource_links.dart）
+                      Expanded(
+                        child: ResourceLinkSection(
+                          game: g,
+                          onAdd: _add,
+                          inLibrary: inLibrary,
+                          adding: _busy,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: Gap.md),
+                _footer(g, inLibrary),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  /// 左栏：封面（2:3）+ 名称 + 基本信息徽标 + 开发商 + 标签 + 简介 + 别名。
+  /// 内容长了就在本栏内滚动（常驻滚动条）。
+  Widget _meta(ScrapedGame g, bool inLibrary) {
+    final scheme = Theme.of(context).colorScheme;
     final source = KisakiSources.labels[g.source] ?? g.source;
     final year =
         g.releaseDate.length < 4 ? null : g.releaseDate.substring(0, 4);
-
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
-        child: KCard(
-          borderRadius: Radii.sheet,
-          padding: const EdgeInsets.all(Gap.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return KScrollArea(
+      // 不要底部渐隐：渐隐用的是页面底色，在弹窗卡片底色上会露出一条色差
+      bottomFade: false,
+      padding: const EdgeInsets.only(right: Gap.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: SizedBox(
+              // 2:3 封面：左栏 208 宽下的舒适尺寸（再大就把标题挤到折叠线以下）
+              width: 148,
+              height: 222,
+              child: CoverImage(
+                path: '',
+                networkUrl: g.coverUrl,
+                nsfw: g.nsfw,
+                borderRadius: BorderRadius.circular(Radii.md),
+              ),
+            ),
+          ),
+          const SizedBox(height: Gap.md),
+          Text(g.displayName,
+              maxLines: 3, overflow: TextOverflow.ellipsis, style: Type.title),
+          if (g.name.isNotEmpty && g.name != g.displayName) ...[
+            const SizedBox(height: 2),
+            Text(g.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+          ],
+          const SizedBox(height: Gap.md),
+          Wrap(
+            spacing: Gap.sm,
+            runSpacing: Gap.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 150,
-                    height: 225, // 2:3
-                    child: CoverImage(
-                      path: '',
-                      networkUrl: g.coverUrl,
-                      nsfw: g.nsfw,
-                      borderRadius: BorderRadius.circular(Radii.md),
-                    ),
-                  ),
-                  const SizedBox(width: Gap.lg),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(g.displayName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Type.title),
-                        if (g.name.isNotEmpty && g.name != g.displayName) ...[
-                          const SizedBox(height: 2),
-                          Text(g.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Type.caption
-                                  .copyWith(color: scheme.onSurfaceVariant)),
-                        ],
-                        const SizedBox(height: Gap.md),
-                        Wrap(
-                          spacing: Gap.sm,
-                          runSpacing: Gap.xs,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            KBadge(text: source, icon: Icons.public_rounded),
-                            if (g.rating > 0)
-                              KBadge(
-                                text: '评分 ${g.rating.toStringAsFixed(1)}',
-                                icon: Icons.star_rounded,
-                                color: KisakiColors.star,
-                              ),
-                            if (g.voteCount > 0)
-                              KBadge(text: '${g.voteCount} 票'),
-                            if (year != null) KBadge(text: '$year 年'),
-                            if (g.nsfw)
-                              const KBadge(
-                                  text: 'R18',
-                                  icon: Icons.block_rounded,
-                                  color: KisakiColors.danger),
-                            if (inLibrary)
-                              const KBadge(
-                                  text: '已在库',
-                                  icon: Icons.check_rounded,
-                                  color: KisakiColors.success),
-                          ],
-                        ),
-                        if (g.developer.isNotEmpty) ...[
-                          const SizedBox(height: Gap.md),
-                          Text('开发商：${g.developer}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Type.caption
-                                  .copyWith(color: scheme.onSurfaceVariant)),
-                        ],
-                        if (g.tags.isNotEmpty) ...[
-                          const SizedBox(height: Gap.md),
-                          Wrap(
-                            spacing: Gap.xs + 2,
-                            runSpacing: Gap.xs,
-                            children: [
-                              for (final t in g.tags.take(8))
-                                KBadge(text: t.name, color: scheme.secondary),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: Gap.lg),
-              const KSectionTitle('简介', padding: EdgeInsets.only(bottom: 6)),
-              // 长简介自己滚动，不把弹窗撑爆
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Text(
-                      g.summary.isEmpty ? '（该数据源没有提供简介）' : g.summary,
-                      style: Type.body,
-                    ),
-                  ),
+              KBadge(text: source, icon: Icons.public_rounded),
+              if (g.rating > 0)
+                KBadge(
+                  text: '评分 ${g.rating.toStringAsFixed(1)}',
+                  icon: Icons.star_rounded,
+                  color: KisakiColors.star,
                 ),
-              ),
-              const SizedBox(height: Gap.md),
-              Row(
-                children: [
-                  if (g.aliases.isNotEmpty)
-                    Expanded(
-                      child: Text(
-                        '别名：${g.aliases.take(3).join(" / ")}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            Type.micro.copyWith(color: scheme.onSurfaceVariant),
-                      ),
-                    )
-                  else
-                    const Spacer(),
-                  KPill(
-                    label: '关闭',
-                    filled: false,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                  const SizedBox(width: Gap.sm),
-                  if (_busy)
-                    const SizedBox(
-                        width: 96, height: 36, child: KLoading(size: 18))
-                  else
-                    KPill(
-                      label: inLibrary ? '已在库' : '入库',
-                      icon: inLibrary
-                          ? Icons.check_rounded
-                          : Icons.library_add_rounded,
-                      onTap: inLibrary ? null : _add,
-                    ),
-                ],
-              ),
+              if (g.voteCount > 0) KBadge(text: '${g.voteCount} 票'),
+              if (year != null) KBadge(text: '$year 年'),
+              if (g.nsfw)
+                const KBadge(
+                    text: 'R18',
+                    icon: Icons.block_rounded,
+                    color: KisakiColors.danger),
+              if (inLibrary)
+                const KBadge(
+                    text: '已在库',
+                    icon: Icons.check_rounded,
+                    color: KisakiColors.success),
             ],
           ),
-        ),
+          if (g.developer.isNotEmpty) ...[
+            const SizedBox(height: Gap.md),
+            Text('开发商：${g.developer}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+          ],
+          if (g.tags.isNotEmpty) ...[
+            const SizedBox(height: Gap.md),
+            Wrap(
+              spacing: Gap.xs + 2,
+              runSpacing: Gap.xs,
+              children: [
+                for (final t in g.tags.take(8))
+                  KBadge(text: t.name, color: scheme.secondary),
+              ],
+            ),
+          ],
+          const SizedBox(height: Gap.md),
+          const KSectionTitle('简介', padding: EdgeInsets.only(bottom: 6)),
+          Text(
+            g.summary.isEmpty ? '（该数据源没有提供简介）' : g.summary,
+            style: Type.body,
+          ),
+          if (g.aliases.isNotEmpty) ...[
+            const SizedBox(height: Gap.md),
+            Text('别名：${g.aliases.join(" / ")}',
+                style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
+          ],
+        ],
       ),
+    );
+  }
+
+  /// 底部一行：别名摘要（左）+ 关闭 / 入库（右）。
+  Widget _footer(ScrapedGame g, bool inLibrary) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '资源链接来自各资源站的发布页，只提供链接、不托管资源',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Type.micro.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ),
+        KPill(
+          label: '关闭',
+          filled: false,
+          onTap: () => Navigator.of(context).pop(),
+        ),
+        const SizedBox(width: Gap.sm),
+        if (_busy)
+          const SizedBox(
+              width: 96, height: 36, child: KLoading(size: 18))
+        else
+          KPill(
+            label: inLibrary ? '已在库' : '入库',
+            icon:
+                inLibrary ? Icons.check_rounded : Icons.library_add_rounded,
+            onTap: inLibrary ? null : _add,
+          ),
+      ],
     );
   }
 }
 
 // ==================== 筛选边栏 ====================
 
-/// 探索模式的筛选边栏：来源 / 排序 / 最低评分 / 年份 / 显示内容 / 标签。
+/// 探索页的筛选边栏：来源 / 排序 / 最低评分 / 年份 / 显示内容 / 标签。
 ///
 /// 原先这些条件在一个筛选弹窗里（改完点「应用」才生效），现在搬进与游戏库
 /// 同一个 [FilterSidebar]：点一下即生效、条件始终可见、有生效条件时置顶
@@ -1057,7 +1129,7 @@ class _DiscoverFilterSidebarState
     _toHadFocus = has;
   }
 
-  /// 失焦也会在「切模式 / 关页面」时被动发生（元素被移出树）。推到帧末再提交：
+  /// 失焦也会在「切页 / 关页面」时被动发生（元素被移出树）。推到帧末再提交：
   /// 那时已卸载就直接放弃（那时再读 provider 没有意义，也不该触发网络请求）。
   void _scheduleCommit() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1152,7 +1224,7 @@ class _DiscoverFilterSidebarState
     _syncYearFields(filter);
 
     return FilterSidebar(
-      // 「清除全部筛选」置顶，仅在筛选生效时显示（保留来源与排序）
+      // 「清除全部筛选」置顶，仅在筛选生效时显示（保留来源、排序与关键词）
       leading: filter.hasActiveFilters
           ? FilterClearButton(
               onTap: () {
@@ -1178,6 +1250,11 @@ class _DiscoverFilterSidebarState
         ),
         FilterSection(
           title: '排序',
+          // 关键词搜索时两个源都按各自的相关度排（VNDB searchrank /
+          // Bangumi match），排序条件不生效——如实说明，别让人以为点了没反应
+          hint: filter.searching
+              ? '有关键词时按源站相关度排序，此条件不生效'
+              : null,
           children: [
             for (final s in DiscoverSort.values)
               KChip(
@@ -1189,6 +1266,7 @@ class _DiscoverFilterSidebarState
         ),
         FilterSection(
           title: '最低评分',
+          hint: filter.searching ? '搜索时此条件不生效（只按关键词）' : null,
           children: [
             for (final r in _ratings)
               KChip(
@@ -1200,6 +1278,7 @@ class _DiscoverFilterSidebarState
         ),
         FilterSection(
           title: '年份',
+          hint: filter.searching ? '搜索时此条件不生效（只按关键词）' : null,
           children: [
             for (final r in _ranges)
               KChip(
@@ -1276,7 +1355,9 @@ class _DiscoverFilterSidebarState
           title: '标签',
           hint: filter.source == DiscoverSource.bgm
               ? 'Bangumi 不支持标签筛选，此条件不生效'
-              : '多选为「同时满足」',
+              : (filter.searching
+                  ? '搜索时此条件不生效（只按关键词）'
+                  : '多选为「同时满足」'),
           trailing: _tagToggle(),
           // 标签搜索框：数量多时先过滤再选
           above: TextField(

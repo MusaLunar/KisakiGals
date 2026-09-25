@@ -75,6 +75,13 @@ class VndbAdapter extends SourceAdapter {
   /// VNDB 的 10-100 整数；[tagIds] 为 VNDB 标签 id（如 `g505`），
   /// 多标签之间是「与」关系（与 VNDB 的 tag 过滤器语义一致）。
   ///
+  /// [keyword] 非空时走**关键词搜索**（与 [search] 同一条服务端能力）：
+  /// 加 `['search','=',kw]` 谓词并改用 `searchrank` 排序——`search` 谓词
+  /// 命中标题/别名，`searchrank` 就是"与关键词的相关度"，两者搭配正是
+  /// [search] 一直在用的组合（本机实测可用）。此时 [sort]/[reverse] 不再
+  /// 下发：用户要在搜索结果里按评分排是另一件事，而混着用会先按评分排完
+  /// 再分页，让最相关的结果散在后面几页。
+  ///
   /// 返回本页条目；「是否还有下一页」写入 [lastBrowseHasMore]
   /// （取响应里的 `more`，不是「条数 == results」的推断——VNDB 的
   /// `more` 才是权威答案，且末页条数常常刚好等于 results）。
@@ -87,10 +94,16 @@ class VndbAdapter extends SourceAdapter {
     int? yearFrom,
     int? yearTo,
     List<String>? tagIds,
+    String? keyword,
   }) async {
+    final kw = (keyword ?? '').trim();
+    final searching = kw.isNotEmpty;
+
     // 过滤谓词。注意：VNDB 的 `and` 必须是**扁平**形式 `["and", f1, f2]`，
     // 写成 `["and", [f1, f2]]` 会直接 400（本机实测），文档示例也是扁平写法。
-    final predicates = <List<dynamic>>[];
+    final predicates = <List<dynamic>>[
+      if (searching) ['search', '=', kw],
+    ];
     if (minRating != null && minRating > 0) {
       final r = (minRating * 10).round().clamp(10, 100);
       predicates.add(['rating', '>=', r]);
@@ -116,8 +129,12 @@ class VndbAdapter extends SourceAdapter {
           // 无条件时**不带** filters 字段（API 里所有成员可选，缺省即不过滤）
           if (filters != null) 'filters': filters,
           'fields': _browseFields,
-          'sort': browseSorts.contains(sort) ? sort : 'rating',
-          'reverse': reverse,
+          // 关键词搜索：按相关度（searchrank 只在带了 search 谓词时才有意义，
+          // 因此这两个字段必须成对出现，且搜索时不接受用户的排序条件）
+          'sort': searching
+              ? 'searchrank'
+              : (browseSorts.contains(sort) ? sort : 'rating'),
+          'reverse': searching ? false : reverse,
           'page': requestedPage,
           'results': results.clamp(1, 100),
         },

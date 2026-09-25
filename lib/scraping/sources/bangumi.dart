@@ -58,13 +58,19 @@ class BangumiAdapter extends SourceAdapter {
   /// [year] 只接受**单一年份**（BGM 没有年份区间参数，区间筛选由 UI 侧在
   /// 客户端补筛）；[tag] 参数 BGM 浏览接口不支持，这里做客户端名称过滤，
   /// 仅作为兜底能力（探索页的标签选择是 VNDB 标签 id，BGM 下不会传）。
+  ///
+  /// [keyword] 非空时改用 `POST /v0/search/subjects`（见 [_searchBrowse]）：
+  /// 浏览接口本身没有关键词参数，硬拼 filter 既不稳也不准。
   Future<List<ScrapedGame>> browse({
     String sort = 'rank',
     int page = 1,
     int limit = 50,
     int? year,
     String? tag,
+    String? keyword,
   }) async {
+    final kw = (keyword ?? '').trim();
+    if (kw.isNotEmpty) return _searchBrowse(kw, page: page, limit: limit);
     final safeLimit = limit.clamp(1, 50);
     final safePage = page < 1 ? 1 : page;
     final offset = (safePage - 1) * safeLimit;
@@ -97,6 +103,54 @@ class BangumiAdapter extends SourceAdapter {
           .toList();
     }
     return games;
+  }
+
+  /// 关键词浏览：`POST /v0/search/subjects` + 分页（探索页搜索框的入口）。
+  ///
+  /// 与 [search] 的区别只有两点：
+  /// - 带上 `limit`/`offset`，返回的是「第 page 页」而不是固定的前 20 条；
+  /// - 排序用 `match`（匹配程度）。BGM 的搜索排序只支持
+  ///   match/heat/rank/score，其中只有 match 是「与关键词的相关度」，
+  ///   与 VNDB 侧的 `searchrank` 对齐（探索页有关键词时排序条件不生效，
+  ///   两个源都按各自的相关度排）。
+  ///
+  /// `filter` 里带 `nsfw: true`（与 [search] 一致）：R18 由客户端按
+  /// 用户设置补筛，服务端先"都给"，避免把成人向作品静默藏掉。
+  /// 年份区间同样是客户端补筛——探索页在关键词搜索时不做年份/评分补筛
+  /// （见 `discover_state.dart` 的 `_passes`），因为那会把用户明确要找的
+  /// 那部作品筛没（BGM 里新条目的 score 常为 0）。
+  ///
+  /// **每页上限 20**：实测这个接口无论 `limit` 传 20/30/50 都只回 20 条
+  /// （浏览用的 GET 接口没这个限制）。`offset` 是按请求的 limit 步进的，
+  /// 所以这里必须按 20 截断，否则「请求 30 拿到 20、下一页 offset=30」
+  /// 每翻一页漏掉中间 10 条。
+  Future<List<ScrapedGame>> _searchBrowse(
+    String keyword, {
+    required int page,
+    required int limit,
+  }) async {
+    final safeLimit = limit.clamp(1, 20);
+    final safePage = page < 1 ? 1 : page;
+    final offset = (safePage - 1) * safeLimit;
+    final response = await limitedPost(
+        '$base/v0/search/subjects?limit=$safeLimit&offset=$offset',
+        data: {
+          'keyword': keyword,
+          'sort': 'match',
+          'filter': {'type': [4], 'nsfw': true},
+        },
+        headers: _headers);
+    if (response.statusCode != 200) {
+      lastBrowseHasMore = false;
+      return const [];
+    }
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final list = (data['data'] as List?) ?? const [];
+    final total = (data['total'] as num?)?.toInt() ?? 0;
+    final realOffset = (data['offset'] as num?)?.toInt() ?? offset;
+    // 与浏览接口同一套判断：total 是权威的，位置 + 本页条数 < total 才有下一页
+    lastBrowseHasMore = list.isNotEmpty && realOffset + list.length < total;
+    return list.map(_parse).toList();
   }
 
   @override

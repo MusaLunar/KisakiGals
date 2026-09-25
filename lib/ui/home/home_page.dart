@@ -502,7 +502,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _switchTab(int index) =>
       ref.read(tabIndexProvider.notifier).state = index;
 
-  /// 跳到探索页并落在「资源」模式（可带关键词预填）。
+  /// 跳到探索页并**按该作品名发起一次关键词搜索**（榜单里找到它 → 点开详情
+  /// 就能看到资源下载链接）。
+  ///
+  /// 只负责把关键词写进 [resourceQueryProvider]（语义 = 待预填的关键词）并切页：
+  /// 探索页会消费它——填进搜索框并立刻发起搜索，消费完把 provider 清空，
+  /// 这样对同一部作品再点一次仍然会真正触发（值从 '' 变化才触发监听）。
   void _openResourceSearch(String query) {
     if (query.isNotEmpty) {
       ref.read(resourceQueryProvider.notifier).state = query;
@@ -843,8 +848,9 @@ class _Bone extends StatelessWidget {
 //
 // 索引已集中到 `lib/ui/shell/tabs.dart`（[Tabs]）：这里只保留这几个别名，
 // 免得页面里再出现裸数字（新增页面时索引一变就会全线错位）。
-// 「资源搜索」已并入「探索」页的「资源」模式：这里的入口会先把关键词写进
-// `resourceQueryProvider`，探索页据此直接落在「资源」模式并预填关键词。
+// 探索页现在只有一种形态（没有「资源」模式了）：这里的入口会先把关键词写进
+// `resourceQueryProvider`，探索页据此预填搜索框并**立刻发起一次关键词搜索**，
+// 资源下载链接则由该作品的详情弹窗自动去查。
 const int _kLibraryTab = Tabs.library;
 const int _kSearchTab = Tabs.discover;
 const int _kStatsTab = Tabs.stats;

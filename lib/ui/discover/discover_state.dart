@@ -26,6 +26,16 @@ const int kDiscoverPageSize = 30;
 /// 空页自动续拉的页数上限（原因见 [DiscoverFeed._load]）。
 const int _kMaxAutoPages = 3;
 
+/// Bangumi **搜索**接口的每页条数（实测上限）。
+///
+/// `POST /v0/search/subjects` 硬性每页最多 20 条：无论 `limit` 传 20/30/50，
+/// 都只回 20 条（浏览接口 `GET /v0/subjects` 没这个限制，传 30 就回 30）。
+/// 而 `offset` 是按**我们请求的 limit** 步进的，所以搜索时必须真的按 20 去要，
+/// 否则「请求 30 → 拿到 20 → 下一页从 offset=30 开始」，每翻一页都会漏掉
+/// 中间 10 条。20 同时也让 `MetadataFetcher` 冷启动时的「整页 ⇒ 还有下一页」
+/// 推断（`_pageLooksFull`）继续成立。
+const int kBangumiSearchPageSize = 20;
+
 /// 探索页筛选条件（页面顶部的「筛选」面板写它，信息流 watch 它）。
 final discoverFilterProvider =
     StateProvider<DiscoverFilter>((ref) => const DiscoverFilter());
@@ -221,7 +231,29 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
   ///   年份倒着翻，翻到区间内要几百页，因此跨年区间强制用 `rank` 浏览，
   ///   年份条件交给本地补筛（summary 里会如实显示区间）；
   /// - 评分下限、标签：BGM 不支持，本地补筛 / 不生效（页面会提示）。
+  ///
+  /// `keyword` 非空时两源都进入关键词搜索（各自在适配器里换接口/换排序），
+  /// 此时**只下发关键词**：评分下限/年份区间/标签一概不带。它们都是"逛榜单"
+  /// 时的收窄条件，用在一部已经明确知道名字的作品上只会把用户要找的那条筛掉
+  /// （VNDB 服务端 rating ≥ 8 会把评分 6.5 的本命作品滤掉），而且能避免
+  /// "VNDB 生效、Bangumi 不生效"的口径差异（页面摘要里会如实提示）。
   static Map<String, dynamic> _paramsFor(DiscoverFilter f, int page) {
+    if (f.searching) {
+      // 每页条数按各源搜索接口的真实上限要（BGM 是 20，见
+      // [kBangumiSearchPageSize]；VNDB 沿用榜单的 30）
+      if (f.source == DiscoverSource.vndb) {
+        return {
+          'page': page,
+          'keyword': f.keyword,
+          'results': kDiscoverPageSize,
+        };
+      }
+      return {
+        'page': page,
+        'keyword': f.keyword,
+        'limit': kBangumiSearchPageSize,
+      };
+    }
     if (f.source == DiscoverSource.vndb) {
       return {
         'sort': f.sort.value,
@@ -246,6 +278,11 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
 
   /// 本地补筛。
   ///
+  /// - **关键词搜索**：只保留 R18 这一项。评分下限 / 年份区间是「逛榜单」时
+  ///   用来收窄范围的，对「我已经知道要找哪一部」的关键词搜索没有意义，而且
+  ///   会把用户明确要找的那条筛掉（Bangumi 里新条目的 score 常为 0，一勾
+  ///   「评分 ≥ 7」搜索结果就直接空了）。数据源本身也已经按关键词过滤过，
+  ///   再做名称级补筛只会把「中文名命中、列表里显示日文名」的条目藏起来。
   /// - `onlySfw`：两个源都没有服务端 R18 开关（VNDB 连 R18 标记字段都没有，
   ///   判定见 `VndbAdapter._looksNsfw`；Bangumi 的列表里带 `nsfw`），一律本地过滤；
   /// - Bangumi：评分下限与年份区间是它的浏览接口不支持的参数，本地过滤
@@ -256,6 +293,7 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
   ///   小数点口径出现细微差异、把服务端放行的条目又筛掉。
   static bool _passes(DiscoverFilter f, ScrapedGame g) {
     if (f.onlySfw && g.nsfw) return false;
+    if (f.searching) return true;
     if (f.source != DiscoverSource.bgm) return true;
     if (f.minRating > 0 && g.rating < f.minRating) return false;
     final year = _yearOf(g.releaseDate);

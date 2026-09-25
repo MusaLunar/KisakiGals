@@ -227,8 +227,8 @@ class AppSidebar extends ConsumerWidget {
 
   /// 侧栏条目（顺序必须与 [Tabs] 的索引一一对应）。
   ///
-  /// 「资源搜索」已并入「探索」页（页内「探索 / 资源」模式切换），
-  /// 因此这里是 6 项。
+  /// 「资源搜索」已并入「探索」页：搜索/浏览作品后点开某部，即可在详情里
+  /// 自动查出它的资源下载链接（只提供链接，不托管资源），因此这里是 6 项。
   static const items = [
     (Icons.home_rounded, '主页', Tabs.home),
     (Icons.videogame_asset_rounded, '游戏库', Tabs.library),

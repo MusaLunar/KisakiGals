@@ -91,7 +91,12 @@ class LibraryFilter {
 /// 游戏库排版：`grid` = 大封面网格；`list` = 紧凑列表（左封面右名称，一页看更多）
 final libraryLayoutProvider = StateProvider<String>((ref) => 'grid');
 
-/// 探索页「资源」模式的关键词（供主页入口跨页跳转预填）
+/// 「待预填的关键词」：主页的「找资源」入口写入，探索页消费。
+///
+/// 语义是**一次性**的：探索页读走后会立刻把它清空（写进搜索框并马上发起一次
+/// 关键词搜索），这样用户对同一部作品再点一次时值仍会从 '' 变化，探索页的
+/// 监听才会再次触发。因此不要把它当成"当前搜索词"来读——当前的搜索状态在
+/// `discoverFilterProvider` 的 `keyword` 字段里。
 final resourceQueryProvider = StateProvider<String>((ref) => '');
 
 final libraryFilterProvider =

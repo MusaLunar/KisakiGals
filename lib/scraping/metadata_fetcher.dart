@@ -424,6 +424,7 @@ class MetadataFetcher {
   /// [params] 是**请求参数**（由 UI 侧按数据源能力拼装），vndb 形如
   /// `{'sort':'rating','reverse':true,'page':1,'results':30,'minRating':8}`，
   /// bgm 形如 `{'sort':'rank','page':1,'limit':30,'year':2020}`。
+  /// 带 `'keyword': '千恋万花'` 时该次浏览变成关键词搜索（见 [_browseRun]）。
   ///
   /// 缓存：沿用 24h 的 [MetadataCache]，key 由 sourceId + 全部参数拼成，
   /// 形如 `discover:vndb:page=1:results=30:reverse=true:sort=rating`。
@@ -482,6 +483,11 @@ class MetadataFetcher {
   }
 
   /// 把通用参数映射到各适配器的强类型签名（适配器只认自己支持的参数）。
+  ///
+  /// `keyword` 非空即「关键词搜索」：vndb 加 search 谓词 + searchrank 排序，
+  /// bgm 改走 POST /v0/search/subjects（各自的实现细节见适配器注释）。
+  /// 参数表里多出来的 key 也参与 [browseCacheKey]，因此「同一关键词 + 同页码」
+  /// 会命中同一份 24h 缓存，而「同一页码、不同关键词」不会串味。
   Future<List<ScrapedGame>> _browseRun(
       SourceAdapter adapter, String sourceId, Map<String, dynamic> params) {
     if (adapter is VndbAdapter) {
@@ -494,6 +500,7 @@ class MetadataFetcher {
         yearFrom: _asInt(params['yearFrom']),
         yearTo: _asInt(params['yearTo']),
         tagIds: (params['tagIds'] as List?)?.map((e) => '$e').toList(),
+        keyword: params['keyword'] as String?,
       );
     }
     if (adapter is BangumiAdapter) {
@@ -503,6 +510,7 @@ class MetadataFetcher {
         limit: _asInt(params['limit']) ?? 30,
         year: _asInt(params['year']),
         tag: params['tag'] as String?,
+        keyword: params['keyword'] as String?,
       );
     }
     throw StateError('数据源 $sourceId 暂不支持榜单浏览');
