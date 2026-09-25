@@ -93,20 +93,101 @@ class KPage extends StatelessWidget {
               constraints: BoxConstraints(
                   maxWidth: maxContentWidth ?? double.infinity),
               child: scrollable
-                  ? Scrollbar(
-                      // 桌面端默认滚动条只在滚动时出现；这里常驻显示，避免
-                      // 「内容被裁但看不出还能滚」的观感问题
-                      thumbVisibility: true,
-                      child: SingleChildScrollView(
-                        primary: true,
-                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
-                        child: child,
-                      ),
-                    )
+                  ? KScrollArea(child: child)
                   : Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+                      padding: const EdgeInsets.fromLTRB(Gap.pageH, 0, Gap.pageH, 0),
                       child: child,
                     ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 滚动区域：常驻滚动条 + 可选底部渐隐。
+///
+/// 桌面端默认滚动条只在滚动时出现，长内容被裁时用户不知道还能往下滚；
+/// 底部渐隐则提示"下面还有内容"，滚到底自动淡出（否则最后一条一直蒙灰）。
+/// 各长页面（主页/统计/设置）此前各写一遍 Stack，现统一到这里。
+class KScrollArea extends StatefulWidget {
+  final Widget child;
+  final EdgeInsets padding;
+  final bool bottomFade;
+  final double fadeHeight;
+
+  const KScrollArea({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.fromLTRB(Gap.pageH, 0, Gap.pageH, Gap.xl),
+    this.bottomFade = true,
+    this.fadeHeight = 36,
+  });
+
+  @override
+  State<KScrollArea> createState() => _KScrollAreaState();
+}
+
+class _KScrollAreaState extends State<KScrollArea> {
+  final _controller = ScrollController();
+  bool _atEnd = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_controller.hasClients) return;
+    final pos = _controller.position;
+    final atEnd = pos.pixels >= pos.maxScrollExtent - 8;
+    if (atEnd != _atEnd) setState(() => _atEnd = atEnd);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_onScroll);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = KisakiColors.pageSurface(
+        Theme.of(context).brightness == Brightness.dark);
+    final scroll = Scrollbar(
+      controller: _controller,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _controller,
+        padding: widget.padding,
+        child: widget.child,
+      ),
+    );
+    if (!widget.bottomFade) return scroll;
+    return Stack(
+      children: [
+        scroll,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: widget.fadeHeight,
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: _atEnd ? 0 : 1,
+              duration: Motion.normal,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [surface.withValues(alpha: 0), surface],
+                  ),
+                ),
+              ),
             ),
           ),
         ),

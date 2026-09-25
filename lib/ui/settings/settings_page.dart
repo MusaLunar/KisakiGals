@@ -61,6 +61,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     return KPage(
+      maxContentWidth: 1440,
       title: '设置',
       subtitle: _sections[_section].$2,
       child: Row(

@@ -54,6 +54,8 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         );
 
     return KPage(
+      // 超宽屏下居中限宽，图表与卡片不被拉稀
+      maxContentWidth: 1600,
       title: '统计',
       subtitle: subtitle,
       child: Column(
