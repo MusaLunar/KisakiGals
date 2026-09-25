@@ -1,5 +1,10 @@
 /// AI 助手页：结合游玩数据/词云生成智能总结与作品推荐，
 /// 推荐结果以卡片展示，可一键刮削入库。
+///
+/// 本页只做「展示 + 触发」：生成状态、请求参数、游玩数据聚合全部在
+/// `lib/state/ai_state.dart`（app 级 Provider，不 autoDispose）。
+/// 因此切到别的页面时 AiPage 被销毁也不影响生成 —— 请求继续跑，完成后
+/// 写入状态并弹全局通知，回到本页结果仍在。
 library;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -7,61 +12,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_services.dart';
-import '../../core/constants.dart';
-import '../../core/utils.dart';
-import '../../data/models.dart';
-import '../../data/settings_store.dart';
 import '../../providers.dart';
-import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../../services/ai_service.dart';
+import '../../state/ai_state.dart';
 import '../design.dart';
 import '../kit.dart';
 import '../theme.dart';
 
-class AiPage extends ConsumerStatefulWidget {
+class AiPage extends ConsumerWidget {
   const AiPage({super.key});
 
   @override
-  ConsumerState<AiPage> createState() => _AiPageState();
-}
-
-class _AiPageState extends ConsumerState<AiPage> {
-  String _summary = '';
-  String? _summaryError;
-  bool _summarizing = false;
-
-  List<AiRecommendation>? _recs;
-  String? _recsError;
-  bool _recommending = false;
-  /// 最大回复长度（推理模型需要余量，见设置 → AI）
-  int _maxTokens = 4000;
-  final _addState = <String, _RecAddState>{};
-
-  Future<AiConfig?> _loadConfig() async {
-    final s = AppServices.I.settings;
-    final config = AiConfig(
-      baseUrl: await s.getString(SettingsStore.kAiBaseUrl, ''),
-      apiKey: await s.getString(SettingsStore.kAiApiKey, ''),
-      model: await s.getString(SettingsStore.kAiModel, ''),
-    );
-    _maxTokens = await s.getInt(SettingsStore.kAiMaxTokens, 4000);
-    if (!mounted) return null;
-    if (!config.ready) {
-      setState(() {
-        _summaryError = '尚未配置 AI：请前往「设置 → AI」填写 Base URL、API Key 与模型名称';
-        _recsError = _summaryError;
-      });
-      return null;
-    }
-    return config;
-  }
-
-  void _jumpSettings() =>
-      jumpToSettingsSection(ref, 3); // 设置 → AI 分区
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     return KPage(
       title: 'AI 助手',
@@ -71,107 +34,97 @@ class _AiPageState extends ConsumerState<AiPage> {
           label: 'AI 设置',
           icon: Icons.settings_rounded,
           filled: false,
-          onTap: _jumpSettings,
+          onTap: () => jumpToSettingsSection(ref, 3), // 设置 → AI 分区
         ),
       ],
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
-          _summaryCard(),
+          const _SummaryCard(),
           const SizedBox(height: Gap.lg),
-          _recommendCard(),
+          const _RecommendCard(),
           const SizedBox(height: Gap.sm),
-          Text('提示：AI 输出仅供参考；推荐卡的「+」会先搜刮元数据再入库。',
+          Text('提示：AI 输出仅供参考；推荐卡的「加入」会先搜刮元数据再入库。',
               style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
         ],
       ),
     );
   }
+}
 
-  // ---------- 智能总结 ----------
+// ============================ 智能总结 ============================
 
-  Widget _summaryCard() {
+/// 游玩智能总结卡：生成按钮 / 生成中进度 / 结果（可选中复制）/ 错误提示。
+class _SummaryCard extends ConsumerWidget {
+  const _SummaryCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final ai = ref.watch(aiStateProvider);
     return KCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(Radii.sm),
-                  color: KisakiColors.pink.withValues(alpha: 0.12),
-                ),
-                child: const Icon(Icons.insights_rounded,
-                    size: 18, color: KisakiColors.pink),
-              ),
+              const _IconTile(icon: Icons.insights_rounded),
               const SizedBox(width: Gap.sm),
               Text('游玩智能总结', style: Type.section),
               const Spacer(),
+              if (ai.summarizing) ...[
+                const SizedBox(width: 16, height: 16, child: KLoading(size: 16)),
+                const SizedBox(width: Gap.sm),
+              ],
               KPill(
-                label: _summarizing ? '生成中…' : '生成总结',
+                label: ai.summarizing ? '生成中…' : '生成总结',
                 icon: Icons.auto_awesome_rounded,
-                onTap: _summarizing ? null : _generateSummary,
+                onTap: ai.summarizing
+                    ? null
+                    : () => ref.read(aiStateProvider.notifier).generateSummary(),
               ),
             ],
           ),
           const SizedBox(height: Gap.md),
-          if (_summary.isNotEmpty)
-            Container(
+          if (ai.summarizing) const _ProgressLine('正在结合游玩数据生成总结…'),
+          if (ai.summarizing) const SizedBox(height: Gap.md),
+          // 失败时把原因放在结果上方：既保留上一次的结果，也不会让错误被吞掉
+          if (ai.summaryError != null) _ErrorBox(ai.summaryError!),
+          if (ai.summaryError != null && ai.hasSummary)
+            const SizedBox(height: Gap.md),
+          if (ai.hasSummary)
+            SizedBox(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(Radii.md),
+              child: KCard(
+                flat: true,
                 color: scheme.surfaceContainer,
-                border: Border.all(color: Elev.border(
-                    Theme.of(context).brightness == Brightness.dark)),
+                borderRadius: BorderRadius.circular(Radii.md),
+                padding: const EdgeInsets.all(16),
+                child: SelectableText(ai.summary,
+                    style: Type.body.copyWith(height: 1.75)),
               ),
-              child: SelectableText(_summary,
-                  style: Type.body.copyWith(height: 1.75)),
-            )
-          else if (_summaryError != null)
-            _errorBox(_summaryError!)
-          else
-            Text('点击「生成总结」，AI 将结合总时长、活跃天数、最常玩作品与标签词云给出一段点评。',
-                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+            ),
+          if (!ai.summarizing && !ai.hasSummary && ai.summaryError == null)
+            Text(
+              '点击「生成总结」，AI 将结合总时长、活跃天数、最常玩作品与标签词云给出一段点评。',
+              style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+            ),
         ],
       ),
     );
   }
+}
 
-  Future<void> _generateSummary() async {
-    final config = await _loadConfig();
-    if (config == null) return;
-    setState(() {
-      _summarizing = true;
-      _summaryError = null;
-    });
-    final data = await _gatherPlayData();
-    final r = await AppServices.I.ai.chat(
-      config: config,
-      system: '你是 galgame 游戏库管理器「KisakiGals」的助手，语气轻松友好，用简体中文回答。',
-      user: '请根据以下玩家游玩数据，写一段 120-200 字的游玩总结：概括游玩习惯（时段/频率）、'
-          '偏好题材（结合标签词云）、点评 1-2 部最常玩或高分作品，最后给一句轻松的鼓励。\n\n$data',
-      maxTokens: _maxTokens,
-    );
-    if (!mounted) return;
-    setState(() {
-      _summarizing = false;
-      if (r.ok) {
-        _summary = r.content;
-      } else {
-        _summaryError = r.message;
-      }
-    });
-  }
+// ============================ 作品推荐 ============================
 
-  // ---------- 作品推荐 ----------
+/// 作品推荐卡：获取按钮 / 加载进度 + 空态骨架 / 推荐条目网格 / 错误提示。
+class _RecommendCard extends ConsumerWidget {
+  const _RecommendCard();
 
-  Widget _recommendCard() {
-    final recs = _recs;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ai = ref.watch(aiStateProvider);
+    final recs = ai.recommendations;
     return KCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,32 +133,36 @@ class _AiPageState extends ConsumerState<AiPage> {
             children: [
               const Icon(Icons.recommend_rounded, color: KisakiColors.lavender),
               const SizedBox(width: Gap.sm),
-              Text('作品推荐',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800)),
+              Text('作品推荐', style: Type.title),
               const Spacer(),
-              FilledButton.icon(
-                onPressed: _recommending ? null : _generateRecommendations,
-                icon: _recommending
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.explore_rounded, size: 18),
-                label: Text(_recommending ? '推荐中…' : '获取推荐'),
+              if (ai.loadingRecommendations) ...[
+                const SizedBox(width: 16, height: 16, child: KLoading(size: 16)),
+                const SizedBox(width: Gap.sm),
+              ],
+              KPill(
+                label: ai.loadingRecommendations ? '推荐中…' : '获取推荐',
+                icon: Icons.explore_rounded,
+                onTap: ai.loadingRecommendations
+                    ? null
+                    : () => ref
+                        .read(aiStateProvider.notifier)
+                        .generateRecommendations(),
               ),
             ],
           ),
           const SizedBox(height: Gap.md),
-          if (_recommending)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (recs != null && recs.isNotEmpty)
+          if (ai.loadingRecommendations) ...[
+            const _ProgressLine('AI 正在挑选作品，并核对库内是否已有…'),
+            const SizedBox(height: Gap.md),
+            // 空态骨架：加载时用占位块撑住版面，避免高度跳动
+            const KSkeleton(
+                width: double.infinity, height: 72, radius: Radii.lg),
+            const SizedBox(height: Gap.md),
+            const KSkeleton(
+                width: double.infinity, height: 72, radius: Radii.lg),
+          ] else if (ai.recommendationsError != null)
+            _ErrorBox(ai.recommendationsError!)
+          else if (recs.isNotEmpty)
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -216,309 +173,257 @@ class _AiPageState extends ConsumerState<AiPage> {
                 childAspectRatio: 2.6,
               ),
               itemCount: recs.length,
-              itemBuilder: (context, i) =>
-                  _RecCard(rec: recs[i], page: this),
+              itemBuilder: (context, i) => _RecCard(rec: recs[i]),
             )
-          else if (_recsError != null)
-            _errorBox(_recsError!)
           else
-            Text('点击「获取推荐」，AI 将根据你的库内作品与高频标签推荐 6 部新作品；点击卡片按钮即可搜刮入库。',
-                style: TextStyle(
-                    fontSize: 12.5,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            const KEmpty(
+              compact: true,
+              icon: Icons.explore_rounded,
+              title: '还没有推荐',
+              subtitle: '点击右上角「获取推荐」，AI 将结合库内作品与高频标签推荐 6 部新作品；'
+                  '点击条目即可搜刮入库。',
+            ),
         ],
       ),
     );
   }
-
-  Future<void> _generateRecommendations() async {
-    final config = await _loadConfig();
-    if (config == null) return;
-    setState(() {
-      _recommending = true;
-      _recsError = null;
-      _addState.clear();
-    });
-    final data = await _gatherPlayData();
-    final r = await AppServices.I.ai.chat(
-      config: config,
-      system: '你是 galgame（美少女游戏）领域的资深推荐者，只输出 JSON，不输出任何解释文字。',
-      user: '根据以下玩家资料推荐 6 部该玩家大概率会喜欢、且库中尚未拥有的 galgame 作品'
-          '（经典或近年作品均可）。只输出 JSON 数组，格式：\n'
-          '[{"title":"作品官方译名或日文原名","reason":"40字内推荐理由","tags":["标签1","标签2"]}]\n\n'
-          '玩家资料：\n$data',
-      temperature: 0.9,
-      maxTokens: _maxTokens,
-    );
-    if (!mounted) return;
-    if (!r.ok) {
-      setState(() {
-        _recommending = false;
-        _recsError = r.message;
-      });
-      return;
-    }
-    final recs = AppServices.I.ai.parseRecommendations(r.content);
-    setState(() {
-      _recommending = false;
-      if (recs.isEmpty) {
-        _recsError = 'AI 返回内容无法解析为推荐列表，请重试或换用支持 JSON 输出的模型';
-      } else {
-        _recs = recs;
-      }
-    });
-  }
-
-  // ---------- 推荐入库 ----------
-
-  Future<void> _addRecommendation(AiRecommendation rec) async {
-    if (_addState[rec.title] == _RecAddState.working) return;
-    setState(() => _addState[rec.title] = _RecAddState.working);
-    try {
-      final repo = AppServices.I.repo;
-      final existing = await repo.findGameByTitle(rec.title);
-      if (existing != null) {
-        setState(() => _addState[rec.title] = _RecAddState.exists);
-        return;
-      }
-      final best = await AppServices.I.fetcher.fetchBest(rec.title);
-      if (best == null || best.source.isEmpty) {
-        setState(() {
-          _addState[rec.title] = _RecAddState.failed;
-        });
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('「${rec.title}」未搜到元数据，可手动到添加页搜索')));
-        return;
-      }
-      final all = await AppServices.I.fetcher.mergeAcrossSources(
-          best,
-          kw: rec.title);
-      final g = Game(
-        name: best.name,
-        nameCn: best.nameCn,
-        aliases: best.aliases,
-        developer: best.developer,
-        releaseDate: best.releaseDate,
-        summary: best.summary,
-        nsfw: best.nsfw,
-        screenshots: best.screenshots,
-      );
-      await repo.insertGame(g);
-      await ScrapeApplier(repo, AppServices.I.fetcher).apply(g, all);
-      ref.read(libraryVersionProvider.notifier).state++;
-      if (!mounted) return;
-      setState(() => _addState[rec.title] = _RecAddState.added);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              '已添加「${g.displayName}」到游戏库（${all.length} 个数据源）')));
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _addState[rec.title] = _RecAddState.failed);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('添加失败：$e')));
-    }
-  }
-
-  // ---------- 数据收集 ----------
-
-  Future<String> _gatherPlayData() async {
-    final repo = AppServices.I.repo;
-    final stats = await repo.stats(period: StatsPeriod.all);
-    final cloud = await repo.tagCloud(period: StatsPeriod.all);
-    final games = await repo.listGames();
-
-    final buf = StringBuffer();
-    buf.writeln('- 库内作品数：${games.length}');
-    buf.writeln('- 总时长：${fmtDuration(stats.totalSeconds)}，活跃天数：${stats.activeDays}，会话数：${stats.sessionCount}');
-    if (stats.topGames.isNotEmpty) {
-      buf.writeln('- 最常玩：${stats.topGames.take(5).map((t) => '${t.name}（${fmtDuration(t.seconds)}）').join('、')}');
-    }
-    final rated = games.where((g) => g.userRating > 0).take(8).toList();
-    if (rated.isNotEmpty) {
-      buf.writeln('- 我的评分：${rated.map((g) => '${g.displayName} ${g.userRating.toStringAsFixed(0)}/10').join('、')}');
-    }
-    final favs = games.where((g) => g.isFavorite).take(6).toList();
-    if (favs.isNotEmpty) {
-      buf.writeln('- 收藏：${favs.map((g) => g.displayName).join('、')}');
-    }
-    if (cloud.isNotEmpty) {
-      buf.writeln('- 高频标签词云：${cloud.take(12).map((t) => '${t.name}(${t.weight.toStringAsFixed(0)})').join(' ')}');
-    }
-    buf.writeln('- 库内作品：${games.take(30).map((g) => g.displayName).join('、')}');
-    return buf.toString();
-  }
-
-  Widget _errorBox(String msg) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Radii.sm + 2),
-          color: KisakiColors.pinkContainer,
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.info_outline_rounded,
-                size: 18, color: KisakiColors.pink),
-            const SizedBox(width: Gap.sm),
-            Expanded(
-              child: Text(msg,
-                  style: const TextStyle(
-                      fontSize: 12.5, color: KisakiColors.onPinkContainer)),
-            ),
-            TextButton(
-              onPressed: _jumpSettings,
-              child: const Text('去配置'),
-            ),
-          ],
-        ),
-      );
 }
 
-enum _RecAddState { idle, working, added, exists, failed }
-
-/// 推荐封面的懒搜刮缓存：按标题复用同一 Future，
-/// 避免卡片每次重建都重新发起多源网络搜索（有 24h 磁盘缓存兜底）。
-final Map<String, Future<ScrapedGame?>> _recCoverCache = {};
-
-Future<ScrapedGame?> _coverFuture(String title) =>
-    _recCoverCache.putIfAbsent(title, () => AppServices.I.fetcher.fetchBest(title));
-
-/// 推荐卡片：封面（懒搜刮）+ 标题 + 理由 + 标签 + 添加按钮。
+/// 推荐条目：封面（懒搜刮）+ 标题 + 理由 + 标签 + 右侧入库按钮。
 class _RecCard extends ConsumerWidget {
   final AiRecommendation rec;
-  final _AiPageState page;
-  const _RecCard({required this.rec, required this.page});
+  const _RecCard({required this.rec});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final state = page._addState[rec.title] ?? _RecAddState.idle;
-    return Material(
-      color: dark ? KisakiColors.nightBg.withValues(alpha: 0.5) : const Color(0xFFFDF6F1),
-      borderRadius: BorderRadius.circular(Radii.lg),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(Radii.lg),
-        onTap: state == _RecAddState.working ? null : () => page._addRecommendation(rec),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
+    final scheme = Theme.of(context).colorScheme;
+    // 只订阅「本条」的入库状态：其他条目/总结的状态变化不会重建这张卡
+    final st = ref.watch(aiStateProvider.select((s) => s.addStateOf(rec.title)));
+    void add() => ref.read(aiStateProvider.notifier).addRecommendation(rec);
+    return KCard(
+      flat: true,
+      color: dark
+          ? KisakiColors.nightBg.withValues(alpha: 0.5)
+          : const Color(0xFFFDF6F1),
+      padding: const EdgeInsets.all(10),
+      onTap: st == RecAddState.working ? null : add,
+      child: Row(
+        children: [
+          _RecCover(title: rec.title),
+          const SizedBox(width: Gap.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(rec.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.body.copyWith(fontWeight: FontWeight.w700)),
+                if (rec.reason.isNotEmpty) ...[
+                  const SizedBox(height: Gap.xs),
+                  Text(rec.reason,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Type.caption
+                          .copyWith(height: 1.4, color: scheme.onSurfaceVariant)),
+                ],
+                if (rec.tags.isNotEmpty) ...[
+                  const SizedBox(height: Gap.xs),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 3,
+                    children: [
+                      for (final t in rec.tags.take(3))
+                        KBadge(text: t, color: KisakiColors.lavender),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          _AddControl(state: st, onTap: add),
+        ],
+      ),
+    );
+  }
+}
+
+/// 推荐封面（懒搜刮）：同一标题复用同一个 Future，避免卡片每次重建都重新
+/// 发起多源网络搜索（搜刮结果本身有 24h 磁盘缓存兜底）。
+/// 缓存放在文件级而不是页面 State —— 与生成状态同理，切页销毁页面后仍有效。
+final Map<String, Future<ScrapedGame?>> _recCoverCache = {};
+
+Future<ScrapedGame?> _coverFuture(String title) =>
+    _recCoverCache.putIfAbsent(title, () async {
+      try {
+        return await AppServices.I.fetcher.fetchBest(title);
+      } catch (_) {
+        return null; // 搜刮失败：只影响封面，不影响条目本身与入库操作
+      }
+    });
+
+class _RecCover extends StatelessWidget {
+  final String title;
+  const _RecCover({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 46,
+      height: 64,
+      child: FutureBuilder<ScrapedGame?>(
+        future: _coverFuture(title),
+        builder: (context, snap) {
+          final url = snap.data?.coverUrl ?? '';
+          if (url.isEmpty) {
+            // 未搜到封面（仍在搜刮 / 搜不到）：粉色占位块
+            return KCard(
+              flat: true,
+              padding: EdgeInsets.zero,
+              color: KisakiColors.pinkContainer,
+              borderRadius: BorderRadius.circular(Radii.thumb),
+              child: const Icon(Icons.local_florist_rounded,
+                  size: 18, color: KisakiColors.pink),
+            );
+          }
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(Radii.thumb),
+            child: CachedNetworkImage(
+              imageUrl: url,
+              fit: BoxFit.cover,
+              placeholder: (context, url) => const KSkeleton(
+                  width: double.infinity, height: 64, radius: Radii.thumb),
+              errorWidget: (context, url, error) => const Icon(
+                  Icons.broken_image_rounded,
+                  size: 18,
+                  color: KisakiColors.pink),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 条目右侧的入库按钮：idle「加入」/ working 转圈 / added「已加入」/
+/// exists「已在库」/ failed「重试」。用 KChip（kit 里可着色的小按钮原语）
+/// 承载，图标 + 短文案同时表达状态（纯图标按钮在 kit 里无法着色）。
+class _AddControl extends StatelessWidget {
+  final RecAddState state;
+  final VoidCallback onTap;
+  const _AddControl({required this.state, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    switch (state) {
+      case RecAddState.working:
+        return const SizedBox(width: 26, height: 26, child: KLoading(size: 16));
+      case RecAddState.added:
+        return const KChip(
+          label: '已加入',
+          icon: Icons.check_circle_rounded,
+          color: KisakiColors.pink,
+          selected: true,
+        );
+      case RecAddState.exists:
+        return const KChip(label: '已在库', icon: Icons.library_books_rounded);
+      case RecAddState.failed:
+        return KChip(
+          label: '重试',
+          icon: Icons.refresh_rounded,
+          color: KisakiColors.pink,
+          selected: true,
+          onTap: onTap,
+        );
+      case RecAddState.idle:
+        return KChip(
+          label: '加入',
+          icon: Icons.add_circle_rounded,
+          color: KisakiColors.pink,
+          selected: true,
+          onTap: onTap,
+        );
+    }
+  }
+}
+
+// ============================ 公用小组件 ============================
+
+/// 卡片标题左侧的图标底（kit 原语拼装，避免裸 Container + BoxDecoration）。
+class _IconTile extends StatelessWidget {
+  final IconData icon;
+  const _IconTile({required this.icon});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 36,
+        height: 36,
+        child: KCard(
+          flat: true,
+          padding: EdgeInsets.zero,
+          color: KisakiColors.pink.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(Radii.sm),
+          child: Icon(icon, size: 18, color: KisakiColors.pink),
+        ),
+      );
+}
+
+/// 生成中的进度行（小转圈 + 说明文字）。
+class _ProgressLine extends StatelessWidget {
+  final String text;
+  const _ProgressLine(this.text);
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          const SizedBox(width: 16, height: 16, child: KLoading(size: 16)),
+          const SizedBox(width: Gap.sm),
+          Expanded(
+            child: Text(text,
+                style: Type.caption.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ),
+        ],
+      );
+}
+
+/// 错误 / 未配置提示（粉色语义底 + 「去配置」入口）。
+class _ErrorBox extends ConsumerWidget {
+  final String message;
+  const _ErrorBox(this.message);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => SizedBox(
+        width: double.infinity,
+        child: KCard(
+          flat: true,
+          color: KisakiColors.pinkContainer,
+          borderColor: KisakiColors.pink.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(Radii.md),
+          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // 封面：懒搜刮（结果有 24h 缓存，添加时复用）
-              SizedBox(
-                width: 46,
-                height: 64,
-                child: FutureBuilder<ScrapedGame?>(
-                  future: _coverFuture(rec.title),
-                  builder: (context, snap) {
-                    final url = snap.data?.coverUrl ?? '';
-                    if (url.isEmpty) {
-                      return Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(Radii.xs),
-                          color: KisakiColors.pinkContainer,
-                        ),
-                        child: const Icon(Icons.local_florist_rounded,
-                            size: 18, color: KisakiColors.pink),
-                      );
-                    }
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(Radii.xs),
-                      child: CachedNetworkImage(
-                          imageUrl: url, fit: BoxFit.cover),
-                    );
-                  },
-                ),
-              ),
+              const Icon(Icons.info_outline_rounded,
+                  size: 18, color: KisakiColors.pink),
               const SizedBox(width: Gap.sm),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(rec.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 13)),
-                    if (rec.reason.isNotEmpty) ...[
-                      const SizedBox(height: Gap.xs),
-                      Text(rec.reason,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 11.5,
-                              height: 1.4,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant)),
-                    ],
-                    if (rec.tags.isNotEmpty) ...[
-                      const SizedBox(height: Gap.xs),
-                      Wrap(
-                        spacing: 4,
-                        runSpacing: 3,
-                        children: [
-                          for (final t in rec.tags.take(3))
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(6),
-                                color: dark
-                                    ? KisakiColors.lavender.withValues(alpha: 0.18)
-                                    : KisakiColors.lavenderContainer,
-                              ),
-                              child: Text(t,
-                                  style: const TextStyle(fontSize: 10)),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
+                child: Text(message,
+                    style: const TextStyle(
+                        fontSize: 12.5,
+                        height: 1.5,
+                        color: KisakiColors.onPinkContainer)),
               ),
-              const SizedBox(width: 6),
-              _addButton(context, state),
+              const SizedBox(width: Gap.sm),
+              KPill(
+                label: '去配置',
+                filled: false,
+                onTap: () => jumpToSettingsSection(ref, 3), // 设置 → AI 分区
+              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _addButton(BuildContext context, _RecAddState state) {
-    final l = state;
-    if (l == _RecAddState.idle) {
-      return IconButton(
-        tooltip: '搜刮并加入游戏库',
-        icon: const Icon(Icons.add_circle_rounded, size: 24, color: KisakiColors.pink),
-        onPressed: () => page._addRecommendation(rec),
       );
-    }
-    if (l == _RecAddState.working) {
-      return const SizedBox(
-          width: 26,
-          height: 26,
-          child: CircularProgressIndicator(strokeWidth: 2));
-    }
-    if (l == _RecAddState.added) {
-      return const Icon(Icons.check_circle_rounded,
-          color: KisakiColors.pink, size: 24);
-    }
-    if (l == _RecAddState.exists) {
-      return const Icon(Icons.library_books_rounded,
-          size: 22, color: Colors.grey);
-    }
-    return IconButton(
-      tooltip: '搜刮并加入游戏库',
-      icon: Icon(
-        l == _RecAddState.failed ? Icons.refresh_rounded : Icons.add_circle_rounded,
-        size: 24,
-        color: l == _RecAddState.failed ? Colors.grey : KisakiColors.pink,
-      ),
-      onPressed: () => page._addRecommendation(rec),
-    );
-  }
 }

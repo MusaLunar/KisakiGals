@@ -41,7 +41,6 @@ class HomePage extends ConsumerStatefulWidget {
 }
 
 class _HomePageState extends ConsumerState<HomePage> {
-  int _heroIndex = 0;
   List<ScrapedGame>? _recommendations;
   bool _loadingRecommendations = false;
 
@@ -174,23 +173,31 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  // ================= 2. 最近游玩 Hero =================
+  // ================= 2. 最近游玩（紧凑横排，同屏可见多部） =================
 
   Widget _heroSection(HomeData data) {
     final games = data.recentGames;
-    final index = games.isEmpty ? 0 : _heroIndex.clamp(0, games.length - 1);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         KSectionTitle(
           '最近游玩',
-          trailing: games.length > 1 ? _heroPager(games.length, index) : null,
+          reserveSlot: true,
+          trailing: Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => _switchTab(_kLibraryTab),
+              child: const Text('全部作品'),
+            ),
+          ),
         ),
         if (games.isEmpty)
           KCard(
+            dense: true,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: Gap.xl),
+              padding: const EdgeInsets.symmetric(vertical: Gap.lg),
               child: KEmpty(
+                compact: true,
                 icon: Icons.videogame_asset_off_rounded,
                 title: '还没有游玩记录',
                 subtitle: '从游戏库挑一部开始新的故事吧',
@@ -201,43 +208,31 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
           )
         else
-          _HeroCard(
-            game: games[index],
-            onContinue: _continueGame,
-            onOpen: games[index].id == null
-                ? null
-                : () => _openGameDetail(games[index].id!,
-                    initial: games[index]),
+          // 横向滚动的一排小卡：一屏能看到 6-8 部（原先一个大 Hero 只显示一部）
+          SizedBox(
+            height: _kRecentTileHeight,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.zero,
+              itemCount: games.length,
+              separatorBuilder: (_, __) => const SizedBox(width: Gap.md),
+              itemBuilder: (context, i) => _RecentTile(
+                game: games[i],
+                primary: i == 0,
+                onContinue: () => _continueGame(games[i]),
+                onOpen: games[i].id == null
+                    ? null
+                    : () => _openGameDetail(games[i].id!,
+                        initial: games[i]),
+              ),
+            ),
           ),
       ],
     );
   }
 
-  Widget _heroPager(int total, int index) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        KIconAction(
-          icon: Icons.chevron_left_rounded,
-          tooltip: '上一部',
-          onTap: () => _switchHero((index - 1 + total) % total),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Gap.xxs),
-          child: Text(
-            '${index + 1} / $total',
-            style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ),
-        KIconAction(
-          icon: Icons.chevron_right_rounded,
-          tooltip: '下一部',
-          onTap: () => _switchHero((index + 1) % total),
-        ),
-      ],
-    );
-  }
+  /// 最近游玩卡片的整体高度（封面 84 + 标题/副标题两行 + 内边距）
+  static const double _kRecentTileHeight = 84 / (2 / 3) + 62;
 
   // ================= 3. 动态 + 推荐 =================
 
@@ -503,10 +498,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  // ================= 交互 =================
-
-  void _switchHero(int index) => setState(() => _heroIndex = index);
-
   void _switchTab(int index) =>
       ref.read(tabIndexProvider.notifier).state = index;
 
@@ -564,183 +555,124 @@ class _HomePageState extends ConsumerState<HomePage> {
 // ================= Hero 卡 =================
 
 /// 最近游玩 Hero：封面 + 元信息 + 继续游戏；正在计时时右侧显示本局实时时长。
-class _HeroCard extends ConsumerWidget {
+/// 最近游玩卡片：竖向小卡（封面 2:3 + 名称 + 上次游玩）。
+///
+/// 与旧版区别：旧版是一个大 Hero（一屏只显示一部，还要左右翻页），
+/// 现在是一排可横向滚动的小卡，同屏可见 6-8 部，鼠标悬停即出现启动按钮。
+class _RecentTile extends ConsumerStatefulWidget {
   final Game game;
-  final ValueChanged<Game> onContinue;
 
-  /// 打开详情（无 id 时为 null，按钮与整卡都不可点）。
+  /// 最近一次游玩的那部：加主色描边并常驻启动按钮
+  final bool primary;
+  final VoidCallback onContinue;
   final VoidCallback? onOpen;
 
-  const _HeroCard({
+  const _RecentTile({
     required this.game,
     required this.onContinue,
-    required this.onOpen,
+    this.onOpen,
+    this.primary = false,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final tracking = game.id != null && ref.watch(trackingGameProvider) == game.id;
-    return KCard(
-      padding: const EdgeInsets.all(18),
-      onTap: onOpen,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CoverImage(
-            path: game.coverPath,
-            nsfw: game.nsfw,
-            width: 108,
-            height: 162,
-            borderRadius: BorderRadius.circular(Radii.md),
-          ),
-          const SizedBox(width: Gap.xl),
-          Expanded(
+  ConsumerState<_RecentTile> createState() => _RecentTileState();
+}
+
+class _RecentTileState extends ConsumerState<_RecentTile> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final game = widget.game;
+    final running = ref.watch(trackingGameProvider) == game.id;
+
+    return SizedBox(
+      width: 124,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onOpen,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.enter,
+            transform: Matrix4.identity()
+              ..translateByDouble(0, _hover ? -2.0 : 0.0, 0, 1),
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: dark ? KisakiColors.nightCard : Colors.white,
+              borderRadius: BorderRadius.circular(Radii.md),
+              border: Border.all(
+                color: running || widget.primary
+                    ? scheme.primary.withValues(alpha: 0.45)
+                    : (_hover
+                        ? scheme.primary.withValues(alpha: 0.30)
+                        : Elev.border(dark)),
+              ),
+              boxShadow:
+                  _hover ? Elev.cardHover(dark, scheme.primary) : Elev.card(dark, scheme.primary),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: CoverImage(
+                          path: game.coverPath,
+                          nsfw: game.nsfw,
+                          borderRadius: BorderRadius.circular(Radii.thumb),
+                        ),
+                      ),
+                      // 悬停/最近游玩：在封面右下角浮出启动按钮
+                      if (_hover || widget.primary || running)
+                        Positioned(
+                          right: 4,
+                          bottom: 4,
+                          child: KOverlayIconButton(
+                            icon: running
+                                ? Icons.sports_esports_rounded
+                                : Icons.play_arrow_rounded,
+                            tooltip: running ? '游玩中' : '启动游戏',
+                            color: running ? KisakiColors.pink : Colors.white,
+                            onTap: running ? widget.onOpen : widget.onContinue,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
                 Text(
                   game.displayName,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Type.title.copyWith(fontSize: 19),
+                  style: Type.caption.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: dark ? KisakiColors.nightInk : KisakiColors.ink),
                 ),
-                const SizedBox(height: Gap.md),
-                _HeroMeta(
-                  '上次游玩',
-                  game.lastPlayedAt == null
-                      ? '—'
-                      : fmtRelative(game.lastPlayedAt!),
-                ),
-                _HeroMeta('总时长', fmtDuration(game.totalSeconds)),
-                if (game.developer.isNotEmpty)
-                  _HeroMeta('开发商', game.developer),
-                const SizedBox(height: Gap.lg),
-                Row(
-                  children: [
-                    KPill(
-                      label: game.lastPlayedAt == null ? '开始游戏' : '继续游戏',
-                      icon: Icons.play_arrow_rounded,
-                      onTap: () => onContinue(game),
-                    ),
-                    const SizedBox(width: Gap.md),
-                    KPill(
-                      label: '查看详情',
-                      icon: Icons.menu_book_rounded,
-                      filled: false,
-                      onTap: onOpen,
-                    ),
-                  ],
+                const SizedBox(height: 1),
+                Text(
+                  running
+                      ? '游玩中'
+                      : (game.lastPlayedAt == null
+                          ? game.playStatus.label
+                          : fmtRelativeShort(game.lastPlayedAt!)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.micro.copyWith(
+                      color: running
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
+                      fontWeight: running ? FontWeight.w700 : FontWeight.w400),
                 ),
               ],
             ),
           ),
-          if (tracking && game.id != null) ...[
-            const SizedBox(width: Gap.lg),
-            _LiveSessionPanel(key: ValueKey(game.id)),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Hero 元信息行：左标签 + 右数值。
-class _HeroMeta extends StatelessWidget {
-  final String label;
-  final String value;
-  const _HeroMeta(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 5),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 66,
-            child: Text(
-              label,
-              style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Type.label,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 本局实时时长（每秒刷新；数字用等宽数字，避免逐秒跳动时宽度抖动）。
-class _LiveSessionPanel extends StatefulWidget {
-  const _LiveSessionPanel({super.key});
-
-  @override
-  State<_LiveSessionPanel> createState() => _LiveSessionPanelState();
-}
-
-class _LiveSessionPanelState extends State<_LiveSessionPanel> {
-  Timer? _ticker;
-  int _seconds = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _seconds = AppServices.I.tracker.liveSeconds;
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _seconds = AppServices.I.tracker.liveSeconds);
-    });
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final h = _seconds ~/ 3600;
-    final m = (_seconds % 3600) ~/ 60;
-    final s = _seconds % 60;
-    final text = h > 0 ? '$h:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
-    return SizedBox(
-      width: 116,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.fiber_manual_record_rounded,
-                  size: 9, color: scheme.primary),
-              const SizedBox(width: 5),
-              Text(
-                '游玩中',
-                style: Type.micro.copyWith(
-                    color: scheme.primary, fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-          const SizedBox(height: Gap.xs),
-          Text(
-            text,
-            style: Type.numeric.copyWith(fontSize: 22, color: scheme.primary),
-          ),
-          const SizedBox(height: Gap.xxs),
-          Text(
-            '本次时长',
-            style: Type.micro.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ],
+        ),
       ),
     );
   }
