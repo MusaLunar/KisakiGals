@@ -16,6 +16,7 @@ import 'data/models.dart';
 import 'data/settings_store.dart';
 import 'scraping/metadata_fetcher.dart';
 import 'scraping/tag_translator.dart';
+import 'services/auto_backup_scheduler.dart';
 import 'services/autostart.dart';
 
 import 'scraping/cover_candidates.dart';
@@ -120,6 +121,7 @@ class AppServices {
   late AutostartService autostart;
   late AiService ai;
   late PathRelocator relocator;
+  late AutoBackupScheduler autoBackup;
   PluginContext? pluginContext;
 
   bool get ready => _ready;
@@ -214,6 +216,7 @@ class AppServices {
     // 设备识别与路径重定位（换机/换盘导入数据库后自动找回游戏目录）
     s.relocator = PathRelocator(s.settings, s.repo);
     s.autostart = AutostartService();
+    s.autoBackup = AutoBackupScheduler();
     s.ai = AiService(proxy: s.fetcher.proxy);
 
     // 修复历史遗留的封面/背景绝对路径（换设备迁移后按文件名找回）
@@ -232,6 +235,11 @@ class AppServices {
     try {
       final r = await s.relocator.relocateMissing();
       lastRelocateResult = r;
+    } catch (_) {}
+
+    // 常驻定时备份调度（是否启用由设置决定，未启用则不排期）
+    try {
+      await s.autoBackup.start();
     } catch (_) {}
 
     s._ready = true;

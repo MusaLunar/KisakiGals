@@ -137,8 +137,17 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
     }
   }
 
-  /// 应用退出前的资源收尾（幂等）。
+  /// 应用退出前的资源收尾（幂等）：
+  /// 1) 按设置做一次「退出备份」（受最小间隔约束）
+  /// 2) 挂起定时调度器并等待运行中的备份结束，避免写到一半被杀
+  /// 3) 收尾服务（会话落库、关库触发 WAL checkpoint）
   Future<void> _shutdown() async {
+    try {
+      final scheduler = AppServices.I.autoBackup;
+      await scheduler.backupOnExitIfDue();
+      scheduler.suspend();
+      await scheduler.waitForRunning();
+    } catch (_) {}
     try {
       await AppServices.I.dispose();
     } catch (_) {}

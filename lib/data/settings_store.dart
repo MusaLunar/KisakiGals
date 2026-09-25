@@ -74,6 +74,14 @@ class SettingsStore {
   static const kSourceOrder = 'sources.order';
   static const kDataDir = 'data.dir';
   static const kAutoBackup = 'plugin.auto_backup';
+
+  // 常驻定时备份（参考 ReinaManager 0.30 的调度器）
+  static const kBackupAutoEnabled = 'backup.auto_enabled';
+  static const kBackupAutoHours = 'backup.auto_interval_hours';
+  static const kBackupOnExit = 'backup.on_exit';
+  static const kBackupExitMinHours = 'backup.exit_min_hours';
+  static const kBackupLastSuccess = 'backup.last_success_at';
+  static const kBackupLastAttempt = 'backup.last_attempt_at';
   static const kBackupKeep = 'plugin.backup_keep';
   static const kIdleReminder = 'plugin.idle_reminder';
   static const kIdleMinutes = 'plugin.idle_minutes';
