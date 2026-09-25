@@ -53,9 +53,10 @@ const double _kWideBreakpoint = 1100;
 /// maxContentWidth 同一思路，取值贴合默认窗口 1280）。
 const double _kContentMaxWidth = 1280;
 
-/// Hero 封面尺寸：宽布局 220×310、窄布局 160×240（封面标准 2:3）。
-const double _kCoverWidthWide = 220;
-const double _kCoverHeightWide = 310;
+/// Hero 封面尺寸：宽布局 240×360、窄布局 160×240（封面标准 2:3）。
+/// 宽屏取 240 是评审后调整：220 时右侧信息列较短、留白过大显得重心偏轻。
+const double _kCoverWidthWide = 240;
+const double _kCoverHeightWide = 360;
 const double _kCoverWidthNarrow = 160;
 const double _kCoverHeightNarrow = 240;
 
@@ -224,8 +225,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                                     // 避免元素按位置复用导致重复/漏播进场
                                     key: const ValueKey('hero'),
                                     index: stagger++,
-                                    child: _hero(game, sources, tracking, wide, tags,
-                                        glass),
+                                    child: _hero(game, sources, tracking, wide,
+                                        tags, glass),
                                   ),
                                   const SizedBox(height: Gap.sectionGap),
                                   // ---- 分区：游玩记录 ----
@@ -246,8 +247,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                                   StaggeredFadeIn(
                                     key: const ValueKey('summary'),
                                     index: stagger++,
-                                    child: _summaryTrendSection(
-                                        game, wide, glass),
+                                    child:
+                                        _summaryTrendSection(game, wide, glass),
                                   ),
                                   // 标签已并入 Hero 信息列（信息行下方、操作按钮上方），
                                   // 不再单独占一个分区
@@ -256,7 +257,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                                   StaggeredFadeIn(
                                     key: const ValueKey('sources'),
                                     index: stagger++,
-                                    child: _sourcesSection(game, sources, glass),
+                                    child:
+                                        _sourcesSection(game, sources, glass),
                                   ),
                                 ],
                               ),
@@ -349,8 +351,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                 PopupMenuItem(value: 'rescan', child: Text('重新刮削')),
                 PopupMenuItem(
                     value: 'delete',
-                    child:
-                        Text('删除游戏', style: TextStyle(color: Colors.red))),
+                    child: Text('删除游戏', style: TextStyle(color: Colors.red))),
               ],
             ),
           ),
@@ -363,9 +364,11 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   /// （游戏名、原名副标题、评分与徽标行、作品信息行、操作按钮）。
   ///
   /// 两列都顶对齐；间距 Gap.xl 让封面与信息列成组，而不是松散并排。
+  /// 信息列最大宽度：超宽屏下限制行宽，避免「标签—值」被拉成一条长线
+  static const double _kInfoMaxWidth = 780;
+
   Widget _hero(Game game, List<SourceRecord> sources, bool tracking, bool wide,
-      List<TagItem> tags,
-      bool glass) {
+      List<TagItem> tags, bool glass) {
     final scheme = Theme.of(context).colorScheme;
     final coverW = wide ? _kCoverWidthWide : _kCoverWidthNarrow;
     final coverH = wide ? _kCoverHeightWide : _kCoverHeightNarrow;
@@ -383,9 +386,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
         PlatformRatingChip(label: '我的', rating: game.userRating),
       if (game.isFavorite)
         const KBadge(
-            text: '收藏',
-            color: KisakiColors.pink,
-            icon: Icons.favorite_rounded),
+            text: '收藏', color: KisakiColors.pink, icon: Icons.favorite_rounded),
       if (game.nsfw)
         const KBadge(
             text: 'R18',
@@ -405,106 +406,113 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
         ),
         const SizedBox(width: Gap.xl),
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                game.displayName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Type.display,
-              ),
-              // 显示中文名为主标题时，副标题补上原始名称（二者不同才显示）
-              if (game.name.isNotEmpty && game.name != game.displayName)
-                Padding(
-                  padding: const EdgeInsets.only(top: Gap.xs),
-                  child: Text(
-                    game.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Type.body.copyWith(color: scheme.onSurfaceVariant),
-                  ),
-                ),
-              if (chips.isNotEmpty) ...[
-                const SizedBox(height: Gap.md),
-                Wrap(
-                  spacing: Gap.sm,
-                  runSpacing: Gap.sm,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: chips,
-                ),
-              ],
-              const SizedBox(height: Gap.lg),
-              // 作品信息：紧凑单行，标签列固定宽度使四行数值左对齐
-              _MetaLine(
-                icon: Icons.business_rounded,
-                label: '开发商',
-                value: game.developer.isEmpty ? '未知' : game.developer,
-                placeholder: game.developer.isEmpty,
-                onTap: game.developer.isEmpty
-                    ? null
-                    : () => _jumpLibrary(developer: game.developer),
-              ),
-              _MetaLine(
-                icon: Icons.event_rounded,
-                label: '发售日期',
-                value: game.releaseDate.isEmpty ? '未知' : game.releaseDate,
-                placeholder: game.releaseDate.isEmpty,
-              ),
-              _MetaLine(
-                icon: Icons.history_rounded,
-                label: '上次游玩',
-                value: game.lastPlayedAt == null
-                    ? '尚未游玩'
-                    : fmtDateTime(game.lastPlayedAt!),
-                placeholder: game.lastPlayedAt == null,
-              ),
-              _MetaLine(
-                icon: Icons.folder_rounded,
-                label: '目录',
-                value: game.directory.isEmpty ? '未指定' : game.directory,
-                placeholder: game.directory.isEmpty,
-              ),
-              // 标签并入信息列（原先单独占一个整宽分区，离作品信息太远）
-              if (tags.isNotEmpty) ...[
-                const SizedBox(height: Gap.md),
-                _tagChips(tags),
-              ],
-              const SizedBox(height: Gap.lg),
-              // 操作按钮：启动/继续（计时中禁用）、打开目录、评分评价
-              Wrap(
-                spacing: Gap.sm,
-                runSpacing: Gap.sm,
-                crossAxisAlignment: WrapCrossAlignment.center,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _kInfoMaxWidth),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  KPill(
-                    label: tracking
-                        ? '正在游戏中'
-                        : (game.lastPlayedAt == null ? '启动游戏' : '继续游戏'),
-                    icon: tracking
-                        ? Icons.hourglass_top_rounded
-                        : Icons.play_arrow_rounded,
-                    onTap: tracking ? null : () => _launch(game),
+                  Text(
+                    game.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.display,
                   ),
-                  KPill(
-                    // 次要按钮：文字用 onSurface（outlined 在浅色玻璃上原偏灰），
-                    // 描边加深以保证可辨
-                    label: '打开目录',
-                    icon: Icons.folder_open_rounded,
-                    filled: false,
-                    onTap: game.directory.isEmpty
+                  // 显示中文名为主标题时，副标题补上原始名称（二者不同才显示）
+                  if (game.name.isNotEmpty && game.name != game.displayName)
+                    Padding(
+                      padding: const EdgeInsets.only(top: Gap.xs),
+                      child: Text(
+                        game.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Type.body.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                  if (chips.isNotEmpty) ...[
+                    const SizedBox(height: Gap.md),
+                    Wrap(
+                      spacing: Gap.sm,
+                      runSpacing: Gap.sm,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: chips,
+                    ),
+                  ],
+                  const SizedBox(height: Gap.lg),
+                  // 作品信息：紧凑单行，标签列固定宽度使四行数值左对齐
+                  _MetaLine(
+                    icon: Icons.business_rounded,
+                    label: '开发商',
+                    value: game.developer.isEmpty ? '未知' : game.developer,
+                    placeholder: game.developer.isEmpty,
+                    onTap: game.developer.isEmpty
                         ? null
-                        : () => GameLauncher.openDirectory(game.directory),
+                        : () => _jumpLibrary(developer: game.developer),
                   ),
-                  KPill(
-                    label: '评分 / 评价',
-                    icon: Icons.rate_review_rounded,
-                    filled: false,
-                    onTap: () => _openRateDialog(game, sources),
+                  _MetaLine(
+                    icon: Icons.event_rounded,
+                    label: '发售日期',
+                    value: game.releaseDate.isEmpty ? '未知' : game.releaseDate,
+                    placeholder: game.releaseDate.isEmpty,
+                  ),
+                  _MetaLine(
+                    icon: Icons.history_rounded,
+                    label: '上次游玩',
+                    value: game.lastPlayedAt == null
+                        ? '尚未游玩'
+                        : fmtDateTime(game.lastPlayedAt!),
+                    placeholder: game.lastPlayedAt == null,
+                  ),
+                  _MetaLine(
+                    icon: Icons.folder_rounded,
+                    label: '目录',
+                    value: game.directory.isEmpty ? '未指定' : game.directory,
+                    placeholder: game.directory.isEmpty,
+                  ),
+                  // 标签并入信息列（原先单独占一个整宽分区，离作品信息太远）
+                  if (tags.isNotEmpty) ...[
+                    const SizedBox(height: Gap.md),
+                    _tagChips(tags),
+                  ],
+                  const SizedBox(height: Gap.lg),
+                  // 操作按钮：启动/继续（计时中禁用）、打开目录、评分评价
+                  Wrap(
+                    spacing: Gap.sm,
+                    runSpacing: Gap.sm,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      KPill(
+                        label: tracking
+                            ? '正在游戏中'
+                            : (game.lastPlayedAt == null ? '启动游戏' : '继续游戏'),
+                        icon: tracking
+                            ? Icons.hourglass_top_rounded
+                            : Icons.play_arrow_rounded,
+                        onTap: tracking ? null : () => _launch(game),
+                      ),
+                      KPill(
+                        // 次要按钮：文字用 onSurface（outlined 在浅色玻璃上原偏灰），
+                        // 描边加深以保证可辨
+                        label: '打开目录',
+                        icon: Icons.folder_open_rounded,
+                        filled: false,
+                        onTap: game.directory.isEmpty
+                            ? null
+                            : () => GameLauncher.openDirectory(game.directory),
+                      ),
+                      KPill(
+                        label: '评分 / 评价',
+                        icon: Icons.rate_review_rounded,
+                        filled: false,
+                        onTap: () => _openRateDialog(game, sources),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ],
@@ -674,7 +682,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除游戏'),
-        content: Text('确定要从游戏库中删除「${game.displayName}」吗？\n游玩记录与统计将一并删除（游戏文件不受影响）。'),
+        content:
+            Text('确定要从游戏库中删除「${game.displayName}」吗？\n游玩记录与统计将一并删除（游戏文件不受影响）。'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -704,8 +713,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   }
 
   Future<void> _openEditSheet(Game game) async {
-    await Navigator.of(context).push(
-        FadeThroughRoute.builder(builder: (_) => EditSheet(game: game)));
+    await Navigator.of(context)
+        .push(FadeThroughRoute.builder(builder: (_) => EditSheet(game: game)));
     Future.delayed(const Duration(milliseconds: 450), () {
       if (mounted) ref.read(libraryVersionProvider.notifier).state++;
     });
@@ -911,9 +920,8 @@ class _PlaytimeStatsState extends State<_PlaytimeStats> {
         accent: KisakiColors.pink,
         label: '总时长',
         value: g.totalSeconds > 0 ? fmtDuration(g.totalSeconds) : _kEmptyValue,
-        hint: g.lastPlayedAt == null
-            ? '暂无记录'
-            : '上次 ${fmtDate(g.lastPlayedAt!)}',
+        hint:
+            g.lastPlayedAt == null ? '暂无记录' : '上次 ${fmtDate(g.lastPlayedAt!)}',
       ),
       KStat(
         glass: widget.glass,
@@ -984,8 +992,7 @@ class _DailyTrendCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _CardHeader(
-              icon: Icons.show_chart_rounded, text: '近 30 天游玩趋势'),
+          const _CardHeader(icon: Icons.show_chart_rounded, text: '近 30 天游玩趋势'),
           const SizedBox(height: Gap.md),
           SizedBox(
             height: _kTrendChartHeight,
@@ -995,15 +1002,14 @@ class _DailyTrendCard extends ConsumerWidget {
                 final points = snap.data ?? const <DailyPoint>[];
                 final spots = <FlSpot>[];
                 for (var i = 0; i < points.length; i++) {
-                  spots.add(
-                      FlSpot(i.toDouble(), points[i].seconds / 3600.0));
+                  spots.add(FlSpot(i.toDouble(), points[i].seconds / 3600.0));
                 }
                 final color = scheme.primary;
                 if (spots.isEmpty || spots.every((s) => s.y == 0)) {
                   return Center(
                     child: Text('这段时间还没有游玩记录',
-                        style:
-                            Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+                        style: Type.caption
+                            .copyWith(color: scheme.onSurfaceVariant)),
                   );
                 }
                 return LineChart(
@@ -1081,7 +1087,8 @@ class _DailyTrendCard extends ConsumerWidget {
 }
 
 /// 游玩数据变化后让详情页趋势缓存失效（会话结束/删除记录时调用）。
-void invalidateDailyTrend(int gameId) => _DailyTrendCard._trendCache.remove(gameId);
+void invalidateDailyTrend(int gameId) =>
+    _DailyTrendCard._trendCache.remove(gameId);
 
 // ============================ 运行态 ============================
 
