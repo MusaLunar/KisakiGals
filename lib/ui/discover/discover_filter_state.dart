@@ -116,7 +116,7 @@ class DiscoverFilter {
     this.minRating = 0,
     this.yearFrom,
     this.yearTo,
-    this.onlySfw = true,
+    this.onlySfw = false,
     this.tagIds = const [],
     this.keyword = '',
   });

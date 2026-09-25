@@ -235,15 +235,10 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     final data = (raw != null && raw.filterKey == filter.key) ? raw : null;
     final items = data?.items ?? const <ScrapedGame>[];
 
-    // 输入框内容与「已提交的关键词」一致时不做本地过滤：此时网格里的条目
-    // 就是数据源按这个关键词给出的答案（VNDB 的 search 会命中别名/日文原名，
-    // 返回条目的标题里未必出现关键词），再按名字过滤只会把正确答案藏起来。
-    // 用户继续打字（输入框偏离已提交关键词）时，多出来的字才当"在已加载
-    // 结果里再缩小范围"用。
-    // 输入不即时筛选：本地过滤只认「已提交的关键词」（见 _submitSearch）。
-    // 之前逐字符过滤会把刚搜到的结果立刻筛掉（例如搜「千恋万花」时 VNDB 返回的
-    // 条目名是「千恋＊万花」，含全角星号，逐字符匹配不上 → 看起来像搜不到）。
-    final shown = _filterLoaded(items, filter.keyword).length;
+    // 搜索框只负责查数据源，**不对结果做本地过滤**：
+    // 源站是按相关度匹配别名的（搜「千恋万花」返回「千恋＊万花」「Senren * Banka」，
+    // 标题里未必逐字包含关键词），再按标题过滤会把正确答案筛掉，表现为「搜不到」。
+    final shown = items.length;
 
     return KPage(
       title: '探索',
@@ -548,8 +543,13 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
     if (visible.isEmpty) {
       return KEmpty(
         icon: Icons.search_off_rounded,
-        title: '已加载的条目里没有「${widget.query}」',
-        subtitle: '本地搜索只过滤已加载的条目，继续向下滚动可以加载更多',
+        title: widget.keyword.isEmpty
+            ? '这个来源暂时没有返回条目'
+            : '没有找到「${widget.keyword}」',
+        subtitle: widget.keyword.isEmpty
+            ? '可以切换来源（VNDB / Bangumi），或用右侧筛选栏调整条件'
+            : '源站按别名/原名匹配：可换日文原名或罗马音再试，'
+                '或切换来源（VNDB / Bangumi）；也可勾选「含 R18」放宽范围',
         actionLabel: '清空搜索',
         actionIcon: Icons.close_rounded,
         onAction: widget.onClearQuery,
