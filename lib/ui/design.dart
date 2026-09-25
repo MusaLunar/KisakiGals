@@ -151,32 +151,50 @@ class Type {
   static const nums = [FontFeature.tabularFigures()];
 
   static const display = TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,
     fontSize: 24,
     fontWeight: FontWeight.w700,
     height: 1.35,
   );
   static const title = TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,
     fontSize: 17,
     fontWeight: FontWeight.w700,
     height: 1.35,
   );
   static const section = TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,
     fontSize: 13.5,
     fontWeight: FontWeight.w700,
     height: 1.4,
   );
-  static const body = TextStyle(fontSize: 13.5, height: 1.6);
+  static const body = TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,fontSize: 13.5, height: 1.6);
   static const label =
-      TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.4);
+      TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.4);
 
   /// 表单行标签（设置项/编辑项的行标题）
   static const formLabel =
-      TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.45);
-  static const caption = TextStyle(fontSize: 11.5, height: 1.5);
-  static const micro = TextStyle(fontSize: 10.5, height: 1.4);
+      TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,fontSize: 13, fontWeight: FontWeight.w600, height: 1.45);
+  static const caption = TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,fontSize: 11.5, height: 1.5);
+  static const micro = TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,fontSize: 10.5, height: 1.4);
 
   /// 时长/计数：等宽数字 + 稍紧的行高
   static const numeric = TextStyle(
+    fontFamily: fontFamily,
+    fontFamilyFallback: fontFallback,
     fontSize: 16,
     fontWeight: FontWeight.w700,
     height: 1.25,

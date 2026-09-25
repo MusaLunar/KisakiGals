@@ -10,6 +10,7 @@ import 'package:window_manager/window_manager.dart';
 import 'app_services.dart';
 import 'data/settings_store.dart';
 import 'providers.dart';
+import 'ui/design.dart';
 import 'ui/shell/app_shell.dart';
 import 'ui/theme.dart';
 import 'ui/widgets/notifications.dart';
@@ -190,15 +191,30 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
         ThemeModePref.light => ThemeMode.light,
         ThemeModePref.dark => ThemeMode.dark,
       },
-      builder: (context, child) => Stack(
-        children: [
-          RepaintBoundary(
-            key: shotBoundaryKey,
-            child: child ?? const SizedBox.shrink(),
+      // 兜底：MaterialApp 会把 Flutter 的「错误文字样式」（红字 + 黄下划线，
+      // 见 flutter/lib/src/material/app.dart 的 _errorTextStyle）作为根
+      // DefaultTextStyle。任何没有 Material 祖先的文字都会继承它 —— 既难看，
+      // 又会落到 monospace 字体上（这正是界面里出现黄下划线与字体不一致的原因）。
+      // 这里在 Navigator 之上补一层透明 Material + 应用自己的默认文字样式，
+      // 使全应用（含通知浮层、对话框、弹层）都有确定的字体与颜色。
+      builder: (context, child) {
+        final scheme = Theme.of(context).colorScheme;
+        return Material(
+          type: MaterialType.transparency,
+          child: DefaultTextStyle(
+            style: Type.body.copyWith(color: scheme.onSurface),
+            child: Stack(
+              children: [
+                RepaintBoundary(
+                  key: shotBoundaryKey,
+                  child: child ?? const SizedBox.shrink(),
+                ),
+                const NoticeHost(),
+              ],
+            ),
           ),
-          const NoticeHost(),
-        ],
-      ),
+        );
+      },
       home: const AppShell(),
     );
   }

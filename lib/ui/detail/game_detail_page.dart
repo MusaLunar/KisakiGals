@@ -346,12 +346,14 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                   await _rescan(game);
                 }
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'save', child: Text('存档备份')),
-                PopupMenuItem(value: 'rescan', child: Text('重新刮削')),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'save', child: Text('存档备份')),
+                const PopupMenuItem(value: 'rescan', child: Text('重新刮削')),
                 PopupMenuItem(
                     value: 'delete',
-                    child: Text('删除游戏', style: TextStyle(color: Colors.red))),
+                    child: Text('删除游戏',
+                        style:
+                            Type.body.copyWith(color: KisakiColors.danger))),
               ],
             ),
           ),

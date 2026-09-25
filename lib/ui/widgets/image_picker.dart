@@ -60,17 +60,15 @@ class ImagePickerRow extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text(title,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w700, fontSize: 13.5)),
+            Text(title, style: Type.section),
+            // Type token：全应用同一套字号与字体（原先硬编码 13.5/w700）
             const SizedBox(width: 8),
             if (subtitle.isNotEmpty)
               Expanded(
                 child: Text(subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 11.5,
+                    style: Type.caption.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant)),
               ),
             if (options.length > 4)
@@ -272,7 +270,7 @@ class ImagePickerDialog extends StatelessWidget {
                   Text(o.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11)),
+                      style: Type.caption),
                 ],
               ),
             );
