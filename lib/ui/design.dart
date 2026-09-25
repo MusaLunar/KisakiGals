@@ -136,9 +136,10 @@ class Motion {
 /// - 中文行高需要比西文更大（正文 1.6、标题 1.35），否则密排发闷；
 /// - 数字统一用等宽字形（tabular），时长/计数在多行之间才能对齐。
 class Type {
-  /// 字体族：拉丁与数字用 Segoe UI（Windows 原生、清晰），
-  /// 中文回退到微软雅黑（见 [fontFallback]）。
-  static const fontFamily = 'Segoe UI';
+  /// 字体族：**内置思源黑体**（Source Han Sans / Noto Sans SC 同源设计，
+  /// 简体子集），中英文与数字字形统一、字重齐备（400/500/700）。
+  /// 回退链保证极端情况下（字体资源缺失）仍有可用字形。
+  static const fontFamily = 'NotoSansSC';
   static const fontFallback = <String>[
     'Microsoft YaHei UI',
     'Microsoft YaHei',

@@ -39,6 +39,10 @@ void jumpToSettingsSection(WidgetRef ref, int section) {
   ref.read(tabIndexProvider.notifier).state = 5;
 }
 
+/// 库筛选栏展开信号：从详情页点开发商/标签跳转时置 true，
+/// 游戏库页监听到后自动展开筛选栏（用户可见"跳过来就是为了筛选"）。
+final librarySidebarProvider = StateProvider<bool>((ref) => false);
+
 /// 刷新信号：任何库变更后自增，通知各页重新读取。
 final libraryVersionProvider = StateProvider<int>((ref) => 0);
 
@@ -144,6 +148,10 @@ void jumpToLibraryFiltered(
     ..status = null
     ..favoriteOnly = false;
   ref.read(tabIndexProvider.notifier).state = 1;
+  // 跳过来是为了按开发商/标签筛选 → 自动展开筛选栏
+  if (developer != null || tag != null || source != null) {
+    ref.read(librarySidebarProvider.notifier).state = true;
+  }
   ref.read(libraryVersionProvider.notifier).state++;
 }
 

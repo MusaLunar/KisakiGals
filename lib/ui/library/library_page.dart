@@ -49,6 +49,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   void initState() {
     super.initState();
+    // 从详情页跳转过来时，providers 会把 librarySidebarProvider 置 true，
+    // build 中监听并展开筛选栏（见下方 build）
     AppServices.I.settings.getBool('library.sidebar', def: true).then((v) {
       if (mounted) setState(() => _sidebarVisible = v);
     });
@@ -131,6 +133,17 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final filter = ref.watch(libraryFilterProvider);
     final games = ref.watch(gamesProvider);
     final layout = ref.watch(libraryLayoutProvider);
+
+    // 从详情页点开发商/标签跳转过来时自动展开筛选栏
+    // （展开后把信号复位，避免用户手动收起又被强制打开）
+    if (ref.watch(librarySidebarProvider) && !_sidebarVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _sidebarVisible = true);
+        AppServices.I.settings.setBool('library.sidebar', true);
+        ref.read(librarySidebarProvider.notifier).state = false;
+      });
+    }
 
     // 外部重置筛选（如「清除全部筛选」）时同步输入框
     if (_searchCtrl.text != filter.query) {
