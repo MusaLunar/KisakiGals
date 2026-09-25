@@ -151,33 +151,54 @@ class SaveBackupService {
         .toIso8601String()
         .replaceAll(RegExp(r'[:.]'), '-')
         .substring(0, 19);
-    final name = auto ? 'auto-$stamp' : stamp;
-    final target = Directory(p.join(_root(gameId), name));
-    if (target.existsSync()) {
-      // 同秒重复备份：追加后缀而不是静默覆盖（参考实现的缺陷）
-      return backup(gameId, savePath,
-          auto: auto, keep: keep);
+    // 同秒重复备份：用序号后缀避让，而不是递归重试 ——
+    // 原实现 `return backup(...)` 会因为时间戳仍是同一秒而无限递归（栈溢出），
+    // 且真正落盘前看不到任何进展。这里改为最多 999 次序号探测。
+    // （参考 ReinaManager d2570a6 的 next_backup_id 做法）
+    final base = auto ? 'auto-$stamp' : stamp;
+    var name = base;
+    var target = Directory(p.join(_root(gameId), name));
+    for (var i = 1; target.existsSync() && i < 1000; i++) {
+      name = '$base-${i.toString().padLeft(3, '0')}';
+      target = Directory(p.join(_root(gameId), name));
     }
-    target.createSync(recursive: true);
+    // 先写到 .creating 临时目录，全部写完后原子改名为正式目录：
+    // 中途失败/应用被杀不会留下"看起来像备份"的半成品。
+    final staging = Directory('${target.path}.creating');
+    if (staging.existsSync()) staging.deleteSync(recursive: true);
+    staging.createSync(recursive: true);
 
     final files = <Map<String, String>>[];
     var bytes = 0;
-    for (final e in src.listSync(recursive: true, followLinks: false)) {
-      if (e is! File) continue;
-      final rel = p.relative(e.path, from: src.path);
-      final dst = File(p.join(target.path, rel));
-      dst.parent.createSync(recursive: true);
-      e.copySync(dst.path);
-      bytes += e.lengthSync();
-      files.add({'rel': rel, 'src': e.path});
+    try {
+      for (final e in src.listSync(recursive: true, followLinks: false)) {
+        if (e is! File) continue;
+        final rel = p.relative(e.path, from: src.path);
+        final dst = File(p.join(staging.path, rel));
+        dst.parent.createSync(recursive: true);
+        e.copySync(dst.path);
+        bytes += e.lengthSync();
+        files.add({'rel': rel.replaceAll('\\', '/'), 'src': e.path});
+      }
+      File(p.join(staging.path, 'backup.json')).writeAsStringSync(
+        jsonEncode({
+          'time': DateTime.now().toIso8601String(),
+          'source': savePath,
+          'auto': auto,
+          'bytes': bytes,
+          'files': files,
+        }),
+        flush: true,
+      );
+      // 原子发布（同卷 rename；目标已被上面避让，不会覆盖）
+      staging.renameSync(target.path);
+    } catch (e) {
+      // 失败清理临时目录，避免留下半成品
+      try {
+        if (staging.existsSync()) staging.deleteSync(recursive: true);
+      } catch (_) {}
+      rethrow;
     }
-    File(p.join(target.path, 'backup.json')).writeAsStringSync(jsonEncode({
-      'time': DateTime.now().toIso8601String(),
-      'source': savePath,
-      'auto': auto,
-      'bytes': bytes,
-      'files': files,
-    }));
 
     // 保留份数上限
     final all = list(gameId);

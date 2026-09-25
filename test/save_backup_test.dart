@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:kisakigals/services/save_backup.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// 存档目录探测（纯文件系统逻辑，不依赖 AppServices）
@@ -116,6 +117,31 @@ void main() {
     test('存档目录不存在时抛错而不是静默成功', () async {
       await expectLater(
           svc.backup(1, '${saves.path}/nope'), throwsA(isA<StateError>()));
+    });
+
+    test('同一秒内连续备份不会重名覆盖（序号后缀）', () async {
+      // 原实现用递归重试，时间戳仍为同一秒 → 无限递归/栈溢出
+      final names = <String>[];
+      for (var i = 0; i < 3; i++) {
+        names.add(await svc.backup(1, saves.path));
+      }
+      expect(names.toSet().length, 3, reason: '三次备份应得到三个不同目录');
+      expect(svc.list(1).length, 3);
+      // 内容都应完整（原子发布后 backup.json 才可见）
+      for (final n in names) {
+        final meta = File(p.join(data.path, 'saves', '1', n, 'backup.json'));
+        expect(meta.existsSync(), isTrue, reason: '$n 缺少 backup.json');
+      }
+    });
+
+    test('备份过程中不留下 .creating 半成品', () async {
+      await svc.backup(1, saves.path);
+      final dir = Directory(p.join(data.path, 'saves', '1'));
+      final leftovers = dir
+          .listSync()
+          .where((e) => e.path.endsWith('.creating'))
+          .toList();
+      expect(leftovers, isEmpty, reason: '临时目录应在发布后被改名');
     });
   });
 }

@@ -66,14 +66,19 @@ class KunAdapter extends SourceAdapter {
       if ((m['name_original'] ?? '').toString().trim().isNotEmpty)
         (m['name_original'] as String).trim(),
     ];
-    String summary = '';
-    for (final lang in (m['introduction'] as List?) ?? []) {
-      if (lang is! Map) continue;
-      final lm = Map<String, dynamic>.from(lang);
-      final text = (lm['intro'] ?? '').toString();
-      if (text.isEmpty) continue;
-      summary = text;
-      if (lm['lang'] == 'zh-Hans') break;
+    // 简介：新版 API 用标量 intro_text，旧版是多语言数组 introduction
+    // （参考 ReinaManager 995fdae 的字段适配：markdown 已删除、intro_text 新增）
+    var summary = (m['intro_text'] ?? '').toString().trim();
+    if (summary.isEmpty) {
+      for (final lang in (m['introduction'] as List?) ?? []) {
+        if (lang is! Map) continue;
+        final lm = Map<String, dynamic>.from(lang);
+        final text = (lm['intro'] ?? '').toString();
+        if (text.isEmpty) continue;
+        summary = text;
+        if (lm['lang'] == 'zh-Hans') break;
+      }
+      summary = summary.trim();
     }
     final tags = ((m['tags'] as List?) ?? [])
         .whereType<Map>()
@@ -82,6 +87,9 @@ class KunAdapter extends SourceAdapter {
         .where((t) => t.name.isNotEmpty)
         .take(10)
         .toList();
+    // R18 判定：鲲是原先唯一没填 nsfw 的源（content_limit/age_limit 两个字段）
+    final nsfw = (m['content_limit'] ?? '') == 'nsfw' ||
+        (m['age_limit'] ?? '') == 'r18';
     return ScrapedGame(
       source: KisakiSources.kun,
       sourceId: (m['id'] ?? 0).toString(),
@@ -96,6 +104,7 @@ class KunAdapter extends SourceAdapter {
       rating: normalizeRatingNum(m['rating']),
       voteCount: (m['rating_count'] ?? 0) as int,
       tags: tags,
+      nsfw: nsfw,
     );
   }
 
