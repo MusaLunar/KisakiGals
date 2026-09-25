@@ -24,6 +24,7 @@ import '../../services/game_launch_service.dart';
 import '../design.dart';
 import '../detail/game_detail_page.dart';
 import '../kit.dart';
+import '../shell/tabs.dart';
 import '../theme.dart';
 import '../widgets/common.dart' show CoverImage;
 
@@ -838,8 +839,11 @@ class _Bone extends StatelessWidget {
   }
 }
 
-// ================= 侧栏 Tab 索引（与 app_shell 导航表一致） =================
-
-const int _kLibraryTab = 1;
-const int _kSearchTab = 2;
-const int _kStatsTab = 3;
+// ================= 侧栏 Tab 索引 =================
+//
+// 索引已集中到 `lib/ui/shell/tabs.dart`（[Tabs]）：这里只保留这几个别名，
+// 免得页面里再出现裸数字（新增页面时索引一变就会全线错位）。
+// 注意 [Tabs.discover] 是新增的「探索」页，插在「游戏库」之后。
+const int _kLibraryTab = Tabs.library;
+const int _kSearchTab = Tabs.search;
+const int _kStatsTab = Tabs.stats;

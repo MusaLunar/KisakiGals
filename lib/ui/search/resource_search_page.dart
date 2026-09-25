@@ -19,6 +19,7 @@ import '../../services/resource_search.dart';
 import '../add/add_game_page.dart';
 import '../design.dart';
 import '../kit.dart';
+import '../shell/tabs.dart';
 import '../theme.dart';
 import '../widgets/notifications.dart';
 
@@ -130,7 +131,7 @@ class _ResourceSearchPageState extends ConsumerState<ResourceSearchPage> {
     if (existing != null) {
       showNotice('「${existing.displayName}」已在库中，已为你打开游戏库');
       ref.read(libraryVersionProvider.notifier).state++;
-      ref.read(tabIndexProvider.notifier).state = 1;
+      ref.read(tabIndexProvider.notifier).state = Tabs.library;
       return;
     }
     await Navigator.of(context).push(FadeThroughRoute.builder(

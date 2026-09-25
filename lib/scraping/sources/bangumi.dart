@@ -19,6 +19,9 @@ class BangumiAdapter extends SourceAdapter {
   @override
   bool get needsToken => false;
 
+  /// 最近一次 [browse] 之后是否还有下一页（由响应里的 `total` 推算）。
+  bool lastBrowseHasMore = false;
+
   Map<String, String> get _headers => {
         'User-Agent': 'MusaLunar/KisakiGals/0.1.0 (Metadata Scraper)',
         'Accept': 'application/json',
@@ -38,6 +41,62 @@ class BangumiAdapter extends SourceAdapter {
     final data = Map<String, dynamic>.from(response.data as Map);
     final list = (data['data'] as List?) ?? [];
     return list.map(_parse).toList();
+  }
+
+  /// 榜单浏览：GET /v0/subjects（type=4 游戏，sort=rank|date）。
+  ///
+  /// 为什么选 GET 浏览接口而不是 POST /v0/search/subjects：
+  /// 1) 浏览榜单没有关键词，GET 的 sort/limit/offset/year 与「榜单 + 年份」
+  ///    的语义一一对应；POST 搜索要自己拼 filter（{type, nsfw, ...}），
+  ///    且无 keyword 的纯 filter 请求行为不稳定（不同时段/条目类型差异大）；
+  /// 2) GET 会返回 `total`，可以直接推算「还有没有下一页」；
+  /// 3) 实测（本机）GET 返回的是**完整 Subject**：date / platform / images /
+  ///    summary / tags / infobox / rating{score,rank,total} / nsfw，
+  ///    因此能直接复用 [_parse]，字段/评分口径与搜索、详情完全一致。
+  ///
+  /// [sort] 只支持 `rank`（按排名）与 `date`（按发售日，新→旧）；
+  /// [year] 只接受**单一年份**（BGM 没有年份区间参数，区间筛选由 UI 侧在
+  /// 客户端补筛）；[tag] 参数 BGM 浏览接口不支持，这里做客户端名称过滤，
+  /// 仅作为兜底能力（探索页的标签选择是 VNDB 标签 id，BGM 下不会传）。
+  Future<List<ScrapedGame>> browse({
+    String sort = 'rank',
+    int page = 1,
+    int limit = 50,
+    int? year,
+    String? tag,
+  }) async {
+    final safeLimit = limit.clamp(1, 50);
+    final safePage = page < 1 ? 1 : page;
+    final offset = (safePage - 1) * safeLimit;
+    final response = await limitedGet('$base/v0/subjects',
+        query: {
+          'type': 4, // 4 = 游戏
+          'sort': sort == 'date' ? 'date' : 'rank',
+          if (year != null && year > 0) 'year': year,
+          'limit': safeLimit,
+          'offset': offset,
+        },
+        headers: _headers);
+    if (response.statusCode != 200) {
+      lastBrowseHasMore = false;
+      return [];
+    }
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final list = (data['data'] as List?) ?? const [];
+    final total = (data['total'] as num?)?.toInt() ?? 0;
+    final realOffset = (data['offset'] as num?)?.toInt() ?? offset;
+    // 分页依据：BGM 给的是 total（总条数），因此「当前位置 + 本页条数 < total」
+    // 就是权威的「还有下一页」判断，不需要额外请求。
+    lastBrowseHasMore = list.isNotEmpty && realOffset + list.length < total;
+    var games = list.map(_parse).toList();
+    final tagName = (tag ?? '').trim().toLowerCase();
+    if (tagName.isNotEmpty) {
+      games = games
+          .where((g) =>
+              g.tags.any((t) => t.name.toLowerCase().contains(tagName)))
+          .toList();
+    }
+    return games;
   }
 
   @override

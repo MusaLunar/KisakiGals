@@ -7,6 +7,7 @@ import 'dart:io';
 import '../core/constants.dart';
 import '../data/models.dart';
 import 'process_monitor.dart';
+import 'save_write_watcher.dart';
 
 class PlaytimeTracker {
   Timer? _timer;
@@ -14,6 +15,10 @@ class PlaytimeTracker {
 
   /// 会话结束事件流。
   Stream<PlaySessionEnd> get onSessionEnd => _controller.stream;
+
+  /// 存档写入监视：游戏运行期间「往哪些目录写过文件」是识别存档目录的最强
+  /// 证据，因此在会话的开始/结束处跟着启停（UI 从 SaveWriteWatcher.lastHits 读）。
+  final SaveWriteWatcher saveWatcher = SaveWriteWatcher();
 
   int? _gameId;
   String _exeName = '';
@@ -44,6 +49,9 @@ class PlaytimeTracker {
     _countedSeconds = 0;
     _misses = 0;
     _sawProcess = false;
+
+    // 存档写入监视：以会话开始时间为界，只统计运行期间新写入的文件
+    saveWatcher.start(gameId, gameDir: directory, since: _startedAt!);
 
     _exeName = exePath.split(Platform.pathSeparator).last.toLowerCase();
     _watchNames = {_exeName};
@@ -96,6 +104,9 @@ class PlaytimeTracker {
   void stopTracking({bool saveSession = true}) {
     _timer?.cancel();
     _timer = null;
+    // 监视器自己会取消定时器并补最后一轮扫描，命中记入 lastHits；
+    // 这里不 await（stopTracking 是同步 API，且它绝不抛异常）
+    unawaited(saveWatcher.stop());
     final game = _gameId;
     final start = _startedAt;
     _gameId = null;

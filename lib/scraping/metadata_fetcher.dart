@@ -408,9 +408,140 @@ class MetadataFetcher {
         nsfw: full.nsfw || summary.nsfw,
       );
 
+  // ==================== 榜单浏览（探索页） ====================
+  //
+  // 与搜索的区别：搜索是「有目标地找一个作品」，浏览是「不知道玩什么，
+  // 先看看榜单」。因此这里不复用 searchAll（它按关键词并发多源、失败静默），
+  // 而是单源、可分页、失败必须让用户看见。
+
+  /// 已浏览过的请求 → 「是否还有下一页」。MetadataCache 只存结果数组，
+  /// 存不下 `more`，所以这一位单独在内存里记（冷启动缓存命中时按
+  /// [_pageLooksFull] 推断，见 [browse]）。
+  final Map<String, bool> _browseMore = {};
+
+  /// 榜单浏览：按 [params] 向 [sourceId]（vndb / bgm）拉一页。
+  ///
+  /// [params] 是**请求参数**（由 UI 侧按数据源能力拼装），vndb 形如
+  /// `{'sort':'rating','reverse':true,'page':1,'results':30,'minRating':8}`，
+  /// bgm 形如 `{'sort':'rank','page':1,'limit':30,'year':2020}`。
+  ///
+  /// 缓存：沿用 24h 的 [MetadataCache]，key 由 sourceId + 全部参数拼成，
+  /// 形如 `discover:vndb:page=1:results=30:reverse=true:sort=rating`。
+  /// 参数**按 key 排序**后拼接 → 同样的请求永远得到同一个 key（与 Map 的
+  /// 插入顺序无关），翻页/改筛选都不会互相串味。
+  ///
+  /// 失败**直接抛异常**：浏览是用户主动发起的操作，必须把原因显示出来
+  /// （不像后台刮削可以静默）。若当前配了代理，第一次失败会按既有策略
+  /// 判定代理失效并改直连重试一次（与 [searchAll] 的降级一致）。
+  Future<List<ScrapedGame>> browse(
+      String sourceId, Map<String, dynamic> params) async {
+    final adapter = _adapters[sourceId];
+    if (adapter == null) throw StateError('未注册的数据源：$sourceId');
+
+    final key = browseCacheKey(sourceId, params);
+    final cached = cache.get(key);
+    if (cached != null) {
+      final items = cached.map(ScrapedGame.fromJson).toList();
+      // 冷启动命中缓存时没有 `more` 可用，只能保守推断：整页返回 ⇒ 当作
+      // 还有下一页（宁可多请求一页空的，也不少显示条目）。
+      _browseMore.putIfAbsent(key, () => _pageLooksFull(items.length, params));
+      return items;
+    }
+
+    Future<List<ScrapedGame>> run() => _browseRun(adapter, sourceId, params);
+    List<ScrapedGame> items;
+    try {
+      items = await run();
+    } catch (e) {
+      if (_proxy == null || _proxyDisabled) rethrow;
+      // 代理半死不活（端口在、但请求全挂）时自动改直连：否则探索页只会
+      // 显示「网络失败」，用户完全看不出是代理的问题
+      _proxyDisabled = true;
+      lastProxyProbeResult = '$_proxy 请求失败，已自动改为直连';
+      items = await run();
+    }
+
+    _browseMore[key] = _adapterHasMore(adapter);
+    cache.put(key, items.map((g) => g.toJson()).toList());
+    return items;
+  }
+
+  /// 某次浏览请求之后是否还有下一页（与 [browse] 用同一个 key）。
+  /// 页面在 `browse` 之后调用它决定还要不要继续触发 loadMore。
+  bool browseHasMore(String sourceId, Map<String, dynamic> params) =>
+      _browseMore[browseCacheKey(sourceId, params)] ?? false;
+
+  /// 缓存 key：`discover:<source>:<参数按 key 升序拼接>`。
+  static String browseCacheKey(String sourceId, Map<String, dynamic> params) {
+    final keys = params.keys.toList()..sort();
+    final parts = <String>[
+      for (final k in keys)
+        if (params[k] != null) '$k=${_keyValue(params[k])}',
+    ];
+    return 'discover:$sourceId:${parts.join(':')}';
+  }
+
+  /// 把通用参数映射到各适配器的强类型签名（适配器只认自己支持的参数）。
+  Future<List<ScrapedGame>> _browseRun(
+      SourceAdapter adapter, String sourceId, Map<String, dynamic> params) {
+    if (adapter is VndbAdapter) {
+      return adapter.browse(
+        sort: '${params['sort'] ?? 'rating'}',
+        reverse: params['reverse'] != false,
+        page: _asInt(params['page']) ?? 1,
+        results: _asInt(params['results']) ?? 30,
+        minRating: _asDouble(params['minRating']),
+        yearFrom: _asInt(params['yearFrom']),
+        yearTo: _asInt(params['yearTo']),
+        tagIds: (params['tagIds'] as List?)?.map((e) => '$e').toList(),
+      );
+    }
+    if (adapter is BangumiAdapter) {
+      return adapter.browse(
+        sort: '${params['sort'] ?? 'rank'}',
+        page: _asInt(params['page']) ?? 1,
+        limit: _asInt(params['limit']) ?? 30,
+        year: _asInt(params['year']),
+        tag: params['tag'] as String?,
+      );
+    }
+    throw StateError('数据源 $sourceId 暂不支持榜单浏览');
+  }
+
+  bool _adapterHasMore(SourceAdapter adapter) {
+    if (adapter is VndbAdapter) return adapter.lastBrowseHasMore;
+    if (adapter is BangumiAdapter) return adapter.lastBrowseHasMore;
+    return false;
+  }
+
+  /// 「本页条数 == 请求的每页条数」这一保守推断（仅用于缓存命中的冷启动）。
+  static bool _pageLooksFull(int count, Map<String, dynamic> params) {
+    final size = _asInt(params['results']) ?? _asInt(params['limit']) ?? 0;
+    return size > 0 && count >= size;
+  }
+
+  static String _keyValue(Object? v) {
+    if (v is List) return v.map((e) => '$e').join('+');
+    return '$v';
+  }
+
+  static int? _asInt(Object? v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v == null) return null;
+    return int.tryParse('$v');
+  }
+
+  static double? _asDouble(Object? v) {
+    if (v is num) return v.toDouble();
+    if (v == null) return null;
+    return double.tryParse('$v');
+  }
+
   /// 下载封面到本地，返回本地路径；失败返回空串。
   Future<String> downloadCover(ScrapedGame g, int gameId) =>
       downloadImage(g.coverUrl, 'game_$gameId');
+
 
   /// 下载任意图片到 covers 目录；[fileName] 不含扩展名。
   /// 与刮削请求**共用同一套代理策略**（含失效降级直连）——旧实现用的是

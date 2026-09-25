@@ -24,6 +24,7 @@ import '../../services/save_backup.dart';
 import '../ai/ai_page.dart';
 import '../design.dart';
 import '../detail/game_detail_page.dart';
+import '../discover/discover_page.dart';
 import '../home/home_page.dart';
 import '../kit.dart';
 import '../library/library_page.dart';
@@ -32,6 +33,7 @@ import '../settings/settings_page.dart';
 import '../stats/stats_page.dart';
 import '../theme.dart';
 import '../widgets/notifications.dart';
+import 'tabs.dart';
 import 'title_bar.dart';
 
 class AppShell extends ConsumerStatefulWidget {
@@ -199,21 +201,23 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     );
   }
 
-  /// 页面路由表（新增页面只需在此登记 + 侧栏加一项）。
+  /// 页面路由表（新增页面只需在此登记 + 侧栏加一项 + `tabs.dart` 加索引）。
   Widget _pageFor(int tab) {
     switch (tab) {
-      case 0:
-        return const HomePage(key: ValueKey(0));
-      case 1:
-        return const LibraryPage(key: ValueKey(1));
-      case 2:
-        return const ResourceSearchPage(key: ValueKey(2));
-      case 3:
-        return const StatsPage(key: ValueKey(3));
-      case 4:
-        return const AiPage(key: ValueKey(4));
+      case Tabs.home:
+        return const HomePage(key: ValueKey(Tabs.home));
+      case Tabs.library:
+        return const LibraryPage(key: ValueKey(Tabs.library));
+      case Tabs.discover:
+        return const DiscoverPage(key: ValueKey(Tabs.discover));
+      case Tabs.search:
+        return const ResourceSearchPage(key: ValueKey(Tabs.search));
+      case Tabs.stats:
+        return const StatsPage(key: ValueKey(Tabs.stats));
+      case Tabs.ai:
+        return const AiPage(key: ValueKey(Tabs.ai));
       default:
-        return const SettingsPage(key: ValueKey(5));
+        return const SettingsPage(key: ValueKey(Tabs.settings));
     }
   }
 }
@@ -224,13 +228,15 @@ class AppSidebar extends ConsumerWidget {
   final ValueChanged<int> onSelect;
   const AppSidebar({super.key, required this.current, required this.onSelect});
 
+  /// 侧栏条目（顺序必须与 [Tabs] 的索引一一对应）。
   static const items = [
-    (Icons.home_rounded, '主页'),
-    (Icons.videogame_asset_rounded, '游戏库'),
-    (Icons.travel_explore_rounded, '资源搜索'),
-    (Icons.insights_rounded, '统计'),
-    (Icons.auto_awesome_rounded, 'AI 助手'),
-    (Icons.settings_rounded, '设置'),
+    (Icons.home_rounded, '主页', Tabs.home),
+    (Icons.videogame_asset_rounded, '游戏库', Tabs.library),
+    (Icons.travel_explore_rounded, '探索', Tabs.discover),
+    (Icons.manage_search_rounded, '资源搜索', Tabs.search),
+    (Icons.insights_rounded, '统计', Tabs.stats),
+    (Icons.auto_awesome_rounded, 'AI 助手', Tabs.ai),
+    (Icons.settings_rounded, '设置', Tabs.settings),
   ];
 
   @override
@@ -243,13 +249,15 @@ class AppSidebar extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 6),
-          for (var i = 0; i < items.length; i++)
+          // 用条目自带的索引而不是循环下标：以后插入/重排条目时，
+          // 选中态与跳转目标不会跟着下标错位
+          for (final item in items)
             NavItem(
-              icon: items[i].$1,
-              label: items[i].$2,
-              selected: current == i,
+              icon: item.$1,
+              label: item.$2,
+              selected: current == item.$3,
               dark: dark,
-              onTap: () => onSelect(i),
+              onTap: () => onSelect(item.$3),
             ),
           const Spacer(),
           if (tracking != null) const _SidebarRunning(),

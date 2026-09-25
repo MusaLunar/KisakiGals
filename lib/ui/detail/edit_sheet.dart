@@ -20,13 +20,13 @@ import '../../providers.dart';
 import '../../scraping/apply.dart';
 import '../../scraping/cover_candidates.dart';
 import '../../services/game_launcher.dart';
-import '../../services/save_backup.dart';
 import '../design.dart';
 import '../kit.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/image_picker.dart';
 import '../widgets/notifications.dart';
+import '../widgets/save_dir_picker_dialog.dart';
 import '../widgets/scrape_search_sheet.dart';
 
 class EditSheet extends riverpod.ConsumerStatefulWidget {
@@ -89,19 +89,20 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     });
   }
 
-  /// 自动识别存档目录（参考 ChronoTide 的关键词扫描思路）。
+  /// 智能识别存档目录：汇总多个来源的候选（游戏目录关键词 / 用户目录同名 /
+  /// 注册表 / 游玩期间写入），由用户在候选对话框里挑选。
+  /// 旧实现直接静默采用「游戏目录内第一个像存档夹的目录」，对把存档放到
+  /// `%APPDATA%` 或注册表里记录路径的游戏完全失效。
   Future<void> _detectSavePath() async {
     final dir = widget.game.directory;
     if (dir.isEmpty || !Directory(dir).existsSync()) {
       showNotice('请先设置游戏目录', error: true);
       return;
     }
-    final found = SaveScanner.detectSaveDir(dir, widget.game.displayName);
-    if (found.isEmpty) {
-      showNotice('未在游戏目录中找到 savedata / save / セーブ 之类的存档文件夹', error: true);
-      return;
-    }
-    setState(() => _savePathCtrl.text = found);
+    final picked = await SaveDirPickerDialog.show(context, widget.game);
+    if (picked == null || picked.isEmpty || !mounted) return;
+    setState(() => _savePathCtrl.text = picked);
+    showNotice('已选择存档目录：$picked');
   }
 
   Future<void> _pickSavePath() async {
@@ -403,7 +404,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
         const SizedBox(height: Gap.sm),
         KRow(
           title: '存档目录',
-          subtitle: '用于备份 / 恢复（可自动识别）',
+          subtitle: '用于备份 / 恢复（可智能识别候选）',
           trailing: SizedBox(
             width: 420,
             child: TextField(
@@ -416,7 +417,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                   children: [
                     KIconAction(
                       icon: Icons.auto_fix_high_rounded,
-                      tooltip: '自动识别存档目录',
+                      tooltip: '智能识别存档目录（列出候选供选择）',
                       onTap: _detectSavePath,
                     ),
                     KIconAction(

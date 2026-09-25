@@ -17,6 +17,7 @@ import '../design.dart';
 import '../kit.dart';
 import '../theme.dart';
 import 'notifications.dart';
+import 'save_dir_picker_dialog.dart';
 
 class SaveBackupDialog extends StatefulWidget {
   final Game game;
@@ -83,6 +84,15 @@ class _SaveBackupDialogState extends State<SaveBackupDialog> {
     g.savePath = _savePath;
     await AppServices.I.repo.updateGame(g);
     if (mounted) _setStatus('存档目录已保存');
+  }
+
+  /// 候选选择入口：与「编辑信息 → 启动与存档」里的智能识别是同一个对话框，
+  /// 让用户在备份对话框里也能直接换一个更可信的存档目录。
+  Future<void> _pickCandidate() async {
+    final picked = await SaveDirPickerDialog.show(context, widget.game);
+    if (picked == null || picked.isEmpty || !mounted) return;
+    setState(() => _savePath = picked);
+    await _saveDirToGame();
   }
 
   Future<void> _createBackup() async {
@@ -169,6 +179,15 @@ class _SaveBackupDialogState extends State<SaveBackupDialog> {
                             : scheme.onSurfaceVariant)),
               ),
               const SizedBox(width: Gap.sm),
+              // 未指定 / 已失效时才提示用候选识别，避免与「保存目录」抢注意力
+              if (_savePath.isEmpty || !Directory(_savePath).existsSync()) ...[
+                KPill(
+                    label: '识别候选…',
+                    icon: Icons.auto_fix_high_rounded,
+                    filled: false,
+                    onTap: _pickCandidate),
+                const SizedBox(width: Gap.sm),
+              ],
               KPill(
                   label: '保存目录',
                   filled: false,

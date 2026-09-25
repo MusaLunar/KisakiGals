@@ -8,6 +8,7 @@ import 'core/constants.dart';
 import 'data/models.dart';
 import 'data/settings_store.dart';
 import 'services/playtime_tracker.dart';
+import 'ui/shell/tabs.dart';
 
 // ---------- 应用配置 ----------
 
@@ -25,18 +26,19 @@ class ThemeController extends StateNotifier<ThemeModePref> {
 final themeProvider = StateNotifierProvider<ThemeController, ThemeModePref>(
     (ref) => ThemeController());
 
-final tabIndexProvider = StateProvider<int>((ref) => 0);
+final tabIndexProvider = StateProvider<int>((ref) => Tabs.home);
 
 /// 设置页分区索引（跨页跳转到「设置 → AI」等分区时设置）。
 final settingsSectionProvider = StateProvider<int>((ref) => 0);
 
-/// 跳转到设置页的指定分区（AI=3）。
-/// 跳到「设置」并定位到指定分区。
-/// 注意：侧栏顺序为 主页0 / 游戏库1 / 资源搜索2 / 统计3 / AI4 / 设置5，
-/// 这里必须是 5 —— 原先写成 4 会让按钮看起来「点了没反应」（跳到 AI 页）。
+/// 跳转到设置页的指定分区（设置页内部的分区编号，AI=3）。
+///
+/// 注意：这里的 [section] 是**设置页内部**的分区索引，和侧栏页面索引
+/// （[Tabs]）是两套编号，别混用；页面索引用 `Tabs.settings`。
+/// 历史上这里曾写成裸数字 4，正好落到「AI 助手」页，表现为「点了没反应」。
 void jumpToSettingsSection(WidgetRef ref, int section) {
   ref.read(settingsSectionProvider.notifier).state = section;
-  ref.read(tabIndexProvider.notifier).state = 5;
+  ref.read(tabIndexProvider.notifier).state = Tabs.settings;
 }
 
 /// 库筛选栏展开信号：从详情页点开发商/标签跳转时置 true，
@@ -147,7 +149,7 @@ void jumpToLibraryFiltered(
     ..source = source
     ..status = null
     ..favoriteOnly = false;
-  ref.read(tabIndexProvider.notifier).state = 1;
+  ref.read(tabIndexProvider.notifier).state = Tabs.library;
   // 跳过来是为了按开发商/标签筛选 → 自动展开筛选栏
   if (developer != null || tag != null || source != null) {
     ref.read(librarySidebarProvider.notifier).state = true;

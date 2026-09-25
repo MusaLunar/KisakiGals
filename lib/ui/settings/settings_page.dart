@@ -21,6 +21,7 @@ import '../../providers.dart';
 import '../../services/ai_service.dart';
 import '../../services/autostart.dart';
 import '../../services/cloud_sync.dart';
+import '../../services/auto_backup_scheduler.dart';
 import '../../services/plugin_system.dart';
 import '../../services/upload/upload.dart';
 import '../design.dart';
@@ -1137,7 +1138,10 @@ class _DataSection extends ConsumerStatefulWidget {
 class _DataSectionState extends ConsumerState<_DataSection> {
   String _dataDir = '';
   int _backupCount = 0;
-  bool _autoBackup = true;
+  bool _backupAutoEnabled = false;
+  int _backupAutoHours = 12;
+  bool _backupOnExit = false;
+  int _backupExitMinHours = 6;
 
   @override
   void initState() {
@@ -1147,8 +1151,14 @@ class _DataSectionState extends ConsumerState<_DataSection> {
 
   Future<void> _load() async {
     _dataDir = AppServices.I.paths.root;
-    _autoBackup = await AppServices.I.settings
-        .getBool(SettingsStore.kAutoBackup, def: true);
+    _backupAutoEnabled = await AppServices.I.settings
+        .getBool(SettingsStore.kBackupAutoEnabled, def: false);
+    _backupAutoHours = await AppServices.I.settings
+        .getInt(SettingsStore.kBackupAutoHours, 12);
+    _backupOnExit = await AppServices.I.settings
+        .getBool(SettingsStore.kBackupOnExit, def: false);
+    _backupExitMinHours = await AppServices.I.settings
+        .getInt(SettingsStore.kBackupExitMinHours, 6);
     final backups = AppServices.I.paths.backups;
     final dir = Directory(backups);
     _backupCount = dir.existsSync()
@@ -1188,14 +1198,88 @@ class _DataSectionState extends ConsumerState<_DataSection> {
         ]),
         SettingsGroup(title: '备份与恢复', children: [
           SettingSwitch(
-            title: '每日自动备份',
-            subtitle: '启动时若距上次备份超过 24 小时则自动创建',
-            value: _autoBackup,
+            title: '定时自动备份',
+            subtitle: _backupAutoEnabled
+                ? '每 $_backupAutoHours 小时自动备份一次（应用常驻或最小化到托盘期间持续生效）'
+                : '关闭时仅在启动检查；开启后按固定间隔自动备份',
+            value: _backupAutoEnabled,
             onChanged: (v) async {
               await AppServices.I.settings
-                  .setBool(SettingsStore.kAutoBackup, v);
-              setState(() => _autoBackup = v);
+                  .setBool(SettingsStore.kBackupAutoEnabled, v);
+              setState(() => _backupAutoEnabled = v);
+              // 设置变更后立即重排定时器
+              await AppServices.I.autoBackup.reschedule();
             },
+          ),
+          SettingRow(
+            title: '备份间隔（小时）',
+            subtitle: '最小 1 小时；建议 6-24 小时',
+            trailing: SizedBox(
+              width: 220,
+              child: TextField(
+                enabled: _backupAutoEnabled || _backupOnExit,
+                controller: TextEditingController(text: '$_backupAutoHours'),
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(isDense: true),
+                onChanged: (v) async {
+                  final n = int.tryParse(v.trim());
+                  if (n == null || n < 1) return;
+                  setState(() => _backupAutoHours = n);
+                  await AppServices.I.settings
+                      .setInt(SettingsStore.kBackupAutoHours, n);
+                  await AppServices.I.autoBackup.reschedule();
+                },
+              ),
+            ),
+          ),
+          SettingSwitch(
+            title: '退出时备份',
+            subtitle: '关闭应用/退出托盘前再备份一次（受下面的最小间隔约束）',
+            value: _backupOnExit,
+            onChanged: (v) async {
+              await AppServices.I.settings
+                  .setBool(SettingsStore.kBackupOnExit, v);
+              setState(() => _backupOnExit = v);
+            },
+          ),
+          SettingRow(
+            title: '退出备份最小间隔（小时）',
+            subtitle: '0 表示每次退出都备份',
+            trailing: SizedBox(
+              width: 220,
+              child: TextField(
+                enabled: _backupOnExit,
+                controller: TextEditingController(text: '$_backupExitMinHours'),
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(isDense: true),
+                onChanged: (v) async {
+                  final n = int.tryParse(v.trim());
+                  if (n == null || n < 0) return;
+                  setState(() => _backupExitMinHours = n);
+                  await AppServices.I.settings
+                      .setInt(SettingsStore.kBackupExitMinHours, n);
+                },
+              ),
+            ),
+          ),
+          SettingRow(
+            title: '立即运行一次自动备份',
+            subtitle: '用于验证配置；生成的文件带 kisakigals-auto- 前缀，'
+                '保留策略只清理这类文件，手动备份不会被自动删除',
+            trailing: KPill(
+              label: '立即备份',
+              icon: Icons.backup_rounded,
+              filled: false,
+              onTap: () async {
+                await AppServices.I.autoBackup.runNow();
+                await _load();
+                if (!mounted) return;
+                showNotice(lastAutoBackupError.isEmpty
+                    ? '自动备份完成'
+                    : '自动备份失败：$lastAutoBackupError',
+                    error: lastAutoBackupError.isNotEmpty);
+              },
+            ),
           ),
           SettingRow(
             title: '当前备份',
