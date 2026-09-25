@@ -71,8 +71,10 @@ class NoticeCenter extends ChangeNotifier {
 }
 
 /// 弹出右上角通知（可在任意位置调用：await 之后、页面 pop 之前都安全）。
-void showNotice(String message, {bool error = false}) =>
-    NoticeCenter.instance.show(message, error: error);
+/// [duration] 可指定停留时长：耗时任务（AI 生成等）完成时用户可能已切到
+/// 别的页面，默认 3.5 秒容易错过，这类提示建议给 8 秒左右。
+void showNotice(String message, {bool error = false, Duration? duration}) =>
+    NoticeCenter.instance.show(message, error: error, duration: duration);
 
 /// 挂在 MaterialApp builder 顶层：为通知浮层提供 **Overlay 祖先**。
 ///

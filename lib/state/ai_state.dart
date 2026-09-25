@@ -50,6 +50,10 @@ enum RecAddState {
 }
 
 /// AI 页的完整状态快照（不可变；每次变更整体替换）。
+/// AI 完成类通知的停留时长：生成往往需要数秒，用户可能已切到别的页面，
+/// 3500ms 的默认时长容易错过（此前验收截图即因此为空证据）。
+const Duration _kAiNoticeDuration = Duration(seconds: 8);
+
 class AiState {
   /// 游玩智能总结正文（空串 = 尚未生成）。
   final String summary;
@@ -157,7 +161,7 @@ class AiController extends StateNotifier<AiState> {
       if (r.ok) {
         _emit(state.copyWith(
             summarizing: false, summary: r.content, summaryError: null));
-        showNotice('AI 总结已生成');
+        showNotice('AI 总结已生成', duration: _kAiNoticeDuration);
       } else {
         _emit(state.copyWith(summarizing: false, summaryError: r.message));
         showNotice('生成失败：${r.message}', error: true);
@@ -212,7 +216,7 @@ class AiController extends StateNotifier<AiState> {
           loadingRecommendations: false,
           recommendations: recs,
           recommendationsError: null));
-      showNotice('AI 推荐已更新（${recs.length} 部）');
+      showNotice('AI 推荐已更新（${recs.length} 部）', duration: _kAiNoticeDuration);
     } catch (e) {
       _emit(state.copyWith(
           loadingRecommendations: false, recommendationsError: '生成失败：$e'));

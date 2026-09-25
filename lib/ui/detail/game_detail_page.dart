@@ -487,6 +487,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                     onTap: tracking ? null : () => _launch(game),
                   ),
                   KPill(
+                    // 次要按钮：文字用 onSurface（outlined 在浅色玻璃上原偏灰），
+                    // 描边加深以保证可辨
                     label: '打开目录',
                     icon: Icons.folder_open_rounded,
                     filled: false,
@@ -799,7 +801,10 @@ class _MetaLine extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: Gap.xs),
       child: Row(
         children: [
-          Icon(icon, size: 15, color: scheme.onSurfaceVariant),
+          // 次要信息也要看得清：onSurfaceVariant 在半透明卡/背景图之上偏灰，
+          // 这里提到 0.85 不透明度（评审实测对比度不足）
+          Icon(icon,
+              size: 15, color: scheme.onSurfaceVariant.withValues(alpha: 0.85)),
           const SizedBox(width: Gap.sm),
           SizedBox(
             width: _kMetaLabelWidth,
@@ -807,7 +812,8 @@ class _MetaLine extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+              style: Type.caption.copyWith(
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.85)),
             ),
           ),
           Expanded(
@@ -819,7 +825,8 @@ class _MetaLine extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: placeholder
-                    ? Type.caption.copyWith(color: scheme.onSurfaceVariant)
+                    ? Type.caption.copyWith(
+                        color: scheme.onSurfaceVariant.withValues(alpha: 0.85))
                     : Type.label,
               ),
             ),

@@ -114,7 +114,13 @@ ThemeData _theme(Brightness brightness) {
       style: OutlinedButton.styleFrom(
         shape: const StadiumBorder(),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-        side: BorderSide(color: outline),
+        // 描边与文字都加深：outlined 按钮常出现在毛玻璃卡/背景图之上，
+        // 过淡会看不清（视觉评审实测「评分 / 评价」对比度仅约 2:1）
+        side: BorderSide(
+            color: dark
+                ? Colors.white.withValues(alpha: 0.22)
+                : Colors.black.withValues(alpha: 0.16)),
+        foregroundColor: scheme.onSurface,
         textStyle: Type.label,
       ),
     ),
