@@ -28,7 +28,6 @@ import '../discover/discover_page.dart';
 import '../home/home_page.dart';
 import '../kit.dart';
 import '../library/library_page.dart';
-import '../search/resource_search_page.dart';
 import '../settings/settings_page.dart';
 import '../stats/stats_page.dart';
 import '../theme.dart';
@@ -210,8 +209,6 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
         return const LibraryPage(key: ValueKey(Tabs.library));
       case Tabs.discover:
         return const DiscoverPage(key: ValueKey(Tabs.discover));
-      case Tabs.search:
-        return const ResourceSearchPage(key: ValueKey(Tabs.search));
       case Tabs.stats:
         return const StatsPage(key: ValueKey(Tabs.stats));
       case Tabs.ai:
@@ -229,11 +226,13 @@ class AppSidebar extends ConsumerWidget {
   const AppSidebar({super.key, required this.current, required this.onSelect});
 
   /// 侧栏条目（顺序必须与 [Tabs] 的索引一一对应）。
+  ///
+  /// 「资源搜索」已并入「探索」页（页内「探索 / 资源」模式切换），
+  /// 因此这里是 6 项。
   static const items = [
     (Icons.home_rounded, '主页', Tabs.home),
     (Icons.videogame_asset_rounded, '游戏库', Tabs.library),
     (Icons.travel_explore_rounded, '探索', Tabs.discover),
-    (Icons.manage_search_rounded, '资源搜索', Tabs.search),
     (Icons.insights_rounded, '统计', Tabs.stats),
     (Icons.auto_awesome_rounded, 'AI 助手', Tabs.ai),
     (Icons.settings_rounded, '设置', Tabs.settings),

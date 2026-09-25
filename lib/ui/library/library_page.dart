@@ -21,6 +21,7 @@ import '../design.dart';
 import '../kit.dart';
 import '../theme.dart';
 import '../widgets/common.dart' show kCoverAspect;
+import '../widgets/filter_sidebar.dart';
 import '../widgets/notifications.dart';
 import 'game_card.dart';
 import 'game_card_actions.dart';
@@ -51,7 +52,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     super.initState();
     // 从详情页跳转过来时，providers 会把 librarySidebarProvider 置 true，
     // build 中监听并展开筛选栏（见下方 build）
-    AppServices.I.settings.getBool('library.sidebar', def: true).then((v) {
+    AppServices.I.settings
+        .getBool(SettingsStore.kLibrarySidebar, def: true)
+        .then((v) {
       if (mounted) setState(() => _sidebarVisible = v);
     });
   }
@@ -70,7 +73,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   Future<void> _toggleSidebar() async {
     setState(() => _sidebarVisible = !_sidebarVisible);
-    await AppServices.I.settings.setBool('library.sidebar', _sidebarVisible);
+    await AppServices.I.settings
+        .setBool(SettingsStore.kLibrarySidebar, _sidebarVisible);
   }
 
   /// 排版切换（网格 / 紧凑列表）并持久化到设置。
@@ -140,7 +144,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         setState(() => _sidebarVisible = true);
-        AppServices.I.settings.setBool('library.sidebar', true);
+        AppServices.I.settings.setBool(SettingsStore.kLibrarySidebar, true);
         ref.read(librarySidebarProvider.notifier).state = false;
       });
     }
@@ -359,8 +363,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 }
 
-/// 右侧筛选边栏：排序 / 状态 / 收藏 / 来源 / 开发商 / 标签，
-/// 全部用 KCard + KSectionTitle + KChip 组织（选中态统一由 KChip 提供）。
+/// 右侧筛选边栏：排序 / 状态 / 收藏 / 来源 / 开发商 / 标签。
+///
+/// 外壳（宽度、卡片、内边距、常驻滚动条、分组分隔、置顶的「清除全部筛选」）
+/// 全部走共享组件 [FilterSidebar]（探索页用的是同一个），这里只描述分组内容；
+/// 条件之间自动插入 Divider，条件项统一由 [FilterSection] 用 KChip 换行排版。
 class _FilterSidebar extends ConsumerWidget {
   final LibraryFilter filter;
 
@@ -380,150 +387,116 @@ class _FilterSidebar extends ConsumerWidget {
 
     void apply() => ref.read(libraryVersionProvider.notifier).state++;
 
-    return SizedBox(
-      width: 234,
-      child: KCard(
-        padding: const EdgeInsets.fromLTRB(Gap.md, Gap.md, Gap.md, Gap.lg),
-        child: ListView(
-          padding: EdgeInsets.zero,
+    return FilterSidebar(
+      // 「清除全部筛选」置顶（有筛选时才显示）
+      leading: filter.hasActive ? FilterClearButton(onTap: onClear) : null,
+      sections: [
+        FilterSection(
+          title: '排序',
           children: [
-            // 「清除全部筛选」置顶（有筛选时才显示）
-            if (filter.hasActive) ...[
-              KPill(
-                label: '清除全部筛选',
-                icon: Icons.filter_alt_off_rounded,
-                filled: false,
-                onTap: onClear,
+            for (final s in GameSort.values)
+              KChip(
+                label: s.label,
+                selected: filter.sort == s,
+                onTap: () {
+                  ref.read(libraryFilterProvider).sort = s;
+                  apply();
+                },
               ),
-              const SizedBox(height: Gap.md),
-            ],
-            const KSectionTitle('排序'),
-            Wrap(
-              spacing: Gap.xs + 2,
-              runSpacing: Gap.xs + 2,
-              children: [
-                for (final s in GameSort.values)
-                  KChip(
-                    label: s.label,
-                    selected: filter.sort == s,
-                    onTap: () {
-                      ref.read(libraryFilterProvider).sort = s;
-                      apply();
-                    },
-                  ),
-              ],
+          ],
+        ),
+        FilterSection(
+          title: '游玩状态',
+          children: [
+            for (final s in PlayStatus.values)
+              KChip(
+                label: s.label,
+                selected: filter.status == s,
+                onTap: () {
+                  filter.status = filter.status == s ? null : s;
+                  apply();
+                },
+              ),
+          ],
+        ),
+        FilterSection(
+          title: '收藏',
+          children: [
+            KChip(
+              label: '仅看收藏',
+              color: KisakiColors.pink,
+              selected: filter.favoriteOnly,
+              onTap: () {
+                filter.favoriteOnly = !filter.favoriteOnly;
+                apply();
+              },
             ),
-            const Divider(height: Gap.xxl),
-            const KSectionTitle('游玩状态'),
-            Wrap(
-              spacing: Gap.xs + 2,
-              runSpacing: Gap.xs + 2,
-              children: [
-                for (final s in PlayStatus.values)
-                  KChip(
-                    label: s.label,
-                    selected: filter.status == s,
-                    onTap: () {
-                      filter.status = filter.status == s ? null : s;
-                      apply();
-                    },
-                  ),
-              ],
-            ),
-            const Divider(height: Gap.xxl),
-            const KSectionTitle('收藏'),
-            Wrap(
-              spacing: Gap.xs + 2,
-              runSpacing: Gap.xs + 2,
-              children: [
+          ],
+        ),
+        if (sources.isNotEmpty)
+          FilterSection(
+            title: '数据来源',
+            children: [
+              for (final src in sources)
                 KChip(
-                  label: '仅看收藏',
-                  color: KisakiColors.pink,
-                  selected: filter.favoriteOnly,
+                  label: KisakiSources.labels[src] ?? src,
+                  selected: filter.source == src,
                   onTap: () {
-                    filter.favoriteOnly = !filter.favoriteOnly;
+                    filter.source = filter.source == src ? null : src;
                     apply();
                   },
                 ),
-              ],
-            ),
-            if (sources.isNotEmpty) ...[
-              const Divider(height: Gap.xxl),
-              const KSectionTitle('数据来源'),
-              Wrap(
-                spacing: Gap.xs + 2,
-                runSpacing: Gap.xs + 2,
-                children: [
-                  for (final src in sources)
+            ],
+          ),
+        if (devs.isNotEmpty)
+          FilterSection(
+            title: '开发商',
+            // 开发商数量可能很多，用「chip 触发 + 菜单选择」而不是铺满整屏 chip
+            children: [
+              PopupMenuButton<String>(
+                tooltip: '选择开发商',
+                onSelected: (d) {
+                  filter.developer =
+                      d.isEmpty || filter.developer == d ? null : d;
+                  apply();
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: '', child: Text('全部开发商')),
+                  for (final d in devs)
+                    PopupMenuItem(value: d, height: 34, child: Text(d)),
+                ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     KChip(
-                      label: KisakiSources.labels[src] ?? src,
-                      selected: filter.source == src,
-                      onTap: () {
-                        filter.source = filter.source == src ? null : src;
-                        apply();
-                      },
+                      label: filter.developer ?? '全部开发商',
+                      selected: filter.developer != null,
+                      onTap: null,
                     ),
-                ],
+                    const SizedBox(width: 2),
+                    Icon(Icons.expand_more_rounded,
+                        size: 16, color: scheme.onSurfaceVariant),
+                  ],
+                ),
               ),
             ],
-            if (devs.isNotEmpty) ...[
-              const Divider(height: Gap.xxl),
-              const KSectionTitle('开发商'),
-              // 开发商数量可能很多，用「chip 触发 + 菜单选择」而不是铺满整屏 chip
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  PopupMenuButton<String>(
-                    tooltip: '选择开发商',
-                    onSelected: (d) {
-                      filter.developer =
-                          d.isEmpty || filter.developer == d ? null : d;
-                      apply();
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: '', child: Text('全部开发商')),
-                      for (final d in devs)
-                        PopupMenuItem(value: d, height: 34, child: Text(d)),
-                    ],
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        KChip(
-                          label: filter.developer ?? '全部开发商',
-                          selected: filter.developer != null,
-                          onTap: null,
-                        ),
-                        const SizedBox(width: 2),
-                        Icon(Icons.expand_more_rounded,
-                            size: 16, color: scheme.onSurfaceVariant),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+          ),
+        if (tags.isNotEmpty)
+          FilterSection(
+            title: '标签',
+            children: [
+              for (final t in tags.take(40))
+                KChip(
+                  label: t.name,
+                  selected: filter.tag == t.name,
+                  onTap: () {
+                    filter.tag = filter.tag == t.name ? null : t.name;
+                    apply();
+                  },
+                ),
             ],
-            if (tags.isNotEmpty) ...[
-              const Divider(height: Gap.xxl),
-              const KSectionTitle('标签'),
-              Wrap(
-                spacing: Gap.xs + 2,
-                runSpacing: Gap.xs + 2,
-                children: [
-                  for (final t in tags.take(40))
-                    KChip(
-                      label: t.name,
-                      selected: filter.tag == t.name,
-                      onTap: () {
-                        filter.tag = filter.tag == t.name ? null : t.name;
-                        apply();
-                      },
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }

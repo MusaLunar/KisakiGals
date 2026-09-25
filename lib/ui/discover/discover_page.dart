@@ -1,12 +1,24 @@
-/// 探索页：浏览元数据站点（VNDB / Bangumi）的榜单，筛选、无限滚动、一键入库。
+/// 探索页：「探索」（元数据榜单）与「资源」（资源站搜索）两种模式合一。
 ///
-/// 与「资源搜索」的区别：资源搜索是**有目标地找下载页**（关键词 → 聚合结果），
-/// 探索页是**不知道玩什么时看榜单**（无关键词 → 按评分/年份/标签翻页浏览）。
-/// 卡片上的作品还不在库里，所以点击卡片打开的是详情弹窗（封面/简介/标签 +
-/// 入库按钮），而不是游戏库的详情页。
+/// **信息架构**：侧栏原先有「探索」与「资源搜索」两项，但两者本质都是
+/// 「找游戏」——前者是不知道玩什么时看榜单（无关键词，按评分/年份/标签翻页），
+/// 后者是有目标地找下载页（关键词 → 聚合发布页）。因此合并成一页，用页内的
+/// 模式切换（[DiscoverMode]）区分，侧栏只剩「探索」一项：
 ///
-/// 视觉全部走 kit.dart / design.dart 的原语：KPage + KToolbar + KChip + KCard +
-/// KOverlayTag / KOverlayIconButton + KSkeleton / KEmpty。
+/// - **探索**：VNDB / Bangumi 榜单浏览。来源 / 排序 / 最低评分 / 年份 /
+///   标签 / R18 全部收进右侧筛选栏（[FilterSidebar]，与游戏库同一个组件）；
+///   卡片网格、无限滚动、一键入库、详情弹窗。
+/// - **资源**：资源站发布页的关键词搜索（流式结果、相关度排序、打开下载页 /
+///   入库）。结果区是 [ResourceSearchPane]，每源错误独立提示。
+///
+/// 两种模式共享页面外壳：KPage 标题区 + 一个 KToolbar（模式切换、各模式一个
+/// 同宽搜索框、各模式的操作）+ FadeThroughSwitcher 做模式切换动效。
+///
+/// **跨页约定**：主页的「找资源」入口（`home_page.dart` 的 `_openResourceSearch`）
+/// 会先把关键词写进 [resourceQueryProvider] 再切到本页；因此本页在挂载时若发现
+/// 该 provider 非空，就直接落在「资源」模式并把关键词预填进搜索框（见
+/// [_DiscoverPageState.initState] 与 build 里的 ref.listen）。这条链路是主页
+/// 推荐位 → 找资源的主要入口，改动本页模式默认值时必须一起考虑。
 library;
 
 import 'package:flutter/material.dart';
@@ -15,13 +27,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
+import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../design.dart';
 import '../kit.dart';
+import '../search/resource_search_page.dart'
+    show ResourceSearchPane, ResourceSearchState, resourceSearchSessionProvider;
 import '../theme.dart';
 import '../widgets/common.dart' show CoverImage;
+import '../widgets/filter_sidebar.dart';
 import '../widgets/notifications.dart';
 import 'discover_filter_state.dart';
 import 'discover_state.dart';
@@ -31,6 +47,51 @@ import 'discover_state.dart';
 /// 不会出现「滚到底停住 → 等一秒 → 才出卡片」的顿挫。
 const double _kPrefetchDistance = 400;
 
+/// 搜索结果网格排版：最大列宽 220、间距 16/16、卡片 2:3。
+///
+/// 骨架卡与真实卡片共用同一份 delegate：加载完成时不会出现布局跳动。
+const SliverGridDelegate _kGridDelegate =
+    SliverGridDelegateWithMaxCrossAxisExtent(
+  maxCrossAxisExtent: 220,
+  mainAxisSpacing: 16,
+  crossAxisSpacing: 16,
+  childAspectRatio: 2 / 3,
+);
+
+/// 工具条搜索框宽度（与游戏库的搜索框同宽，两个页面的工具条节奏一致）。
+const double _kSearchWidth = 300;
+
+/// 页内模式。
+enum DiscoverMode {
+  explore('探索', Icons.travel_explore_rounded),
+  resource('资源', Icons.cloud_download_outlined);
+
+  final String label;
+  final IconData icon;
+  const DiscoverMode(this.label, this.icon);
+}
+
+/// 只过滤**已加载**的条目（标题/中文名/别名/开发商/标签），不发请求。
+///
+/// 工具条的计数与网格共用这一份实现：两处数字不会打架。
+List<ScrapedGame> _filterLoaded(List<ScrapedGame> items, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return items;
+  return items.where((g) {
+    bool hit(String s) => s.isNotEmpty && s.toLowerCase().contains(q);
+    return hit(g.displayName) ||
+        hit(g.name) ||
+        hit(g.nameCn) ||
+        hit(g.developer) ||
+        g.aliases.any(hit) ||
+        g.tags.any((t) => hit(t.name));
+  }).toList();
+}
+
+/// 8.0 → "8"，8.5 → "8.5"（评分摘要不要出现无意义的小数位）。
+String _trimRating(double v) =>
+    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+
 class DiscoverPage extends ConsumerStatefulWidget {
   const DiscoverPage({super.key});
 
@@ -39,11 +100,310 @@ class DiscoverPage extends ConsumerStatefulWidget {
 }
 
 class _DiscoverPageState extends ConsumerState<DiscoverPage> {
-  final _scroll = ScrollController();
-  final _searchCtrl = TextEditingController();
+  /// 当前模式（默认「探索」；带关键词从主页跳进来时直接进「资源」，见类注释）
+  late DiscoverMode _mode;
 
-  /// 本地搜索词（只过滤**已加载**的条目，不重新请求）
-  String _query = '';
+  /// 探索模式的筛选栏是否展开（工具条上的筛选图标切换，持久化到设置）
+  bool _sidebarVisible = true;
+
+  /// 探索模式的本地搜索词（只过滤已加载的条目，不重新请求）
+  final _localCtrl = TextEditingController();
+  String _localQuery = '';
+
+  /// 资源模式的关键词输入框（真正的搜索请求由 [ResourceSearchSession] 发起）
+  late final TextEditingController _resourceCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    // 主页「找资源」入口的握手：关键词已就位 → 直接进「资源」模式
+    _mode = ref.read(resourceQueryProvider).isEmpty
+        ? DiscoverMode.explore
+        : DiscoverMode.resource;
+    _resourceCtrl =
+        TextEditingController(text: ref.read(resourceQueryProvider));
+    AppServices.I.settings
+        .getBool(SettingsStore.kDiscoverSidebar, def: true)
+        .then((v) {
+      if (mounted) setState(() => _sidebarVisible = v);
+    });
+  }
+
+  @override
+  void dispose() {
+    _localCtrl.dispose();
+    _resourceCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleSidebar() async {
+    setState(() => _sidebarVisible = !_sidebarVisible);
+    await AppServices.I.settings
+        .setBool(SettingsStore.kDiscoverSidebar, _sidebarVisible);
+  }
+
+  void _setMode(DiscoverMode mode) {
+    if (mode == _mode) return;
+    setState(() => _mode = mode);
+  }
+
+  void _clearLocalQuery() {
+    _localCtrl.clear();
+    setState(() => _localQuery = '');
+  }
+
+  /// 发起资源搜索：关键词同时写回 [resourceQueryProvider]，
+  /// 让「主页 → 找资源」与「本页搜索」共用同一份状态（切走再回来还能预填）。
+  void _startResourceSearch() {
+    final keyword = _resourceCtrl.text.trim();
+    ref.read(resourceQueryProvider.notifier).state = keyword;
+    ref.read(resourceSearchSessionProvider.notifier).start(keyword);
+  }
+
+  /// 结果区「再搜一次」的回程：先把关键词同步进工具栏输入框，再走同一条
+  /// 搜索路径——否则会出现「输入框显示 A、结果却是 B」。
+  void _rerunResourceSearch(String keyword) {
+    if (_resourceCtrl.text != keyword) _resourceCtrl.text = keyword;
+    _startResourceSearch();
+  }
+
+  // ==================== 构建 ====================
+
+  @override
+  Widget build(BuildContext context) {
+    final filter = ref.watch(discoverFilterProvider);
+    final feed = ref.watch(discoverFeedProvider);
+    final session = ref.watch(resourceSearchSessionProvider);
+
+    // 主页「找资源」入口在页面已挂载时（例如本次会话里已停在探索页）也要生效：
+    // 同步输入框并按需切到「资源」模式。相同值（本页自己发起的搜索）直接跳过。
+    ref.listen<String>(resourceQueryProvider, (prev, next) {
+      if (next.isEmpty || next == prev) return;
+      if (_resourceCtrl.text != next) _resourceCtrl.text = next;
+      if (_mode != DiscoverMode.resource) {
+        setState(() => _mode = DiscoverMode.resource);
+      }
+    });
+
+    // 只认「当前筛选条件下」拉到的数据：换源/换筛选/刷新期间一律当作还没数据
+    // （riverpod 在重建时会保留上一次的值，直接用会先闪一排上一个源的卡片）。
+    final raw = feed.valueOrNull;
+    final data = (raw != null && raw.filterKey == filter.key) ? raw : null;
+    final items = data?.items ?? const <ScrapedGame>[];
+    final shown = _filterLoaded(items, _localQuery).length;
+
+    return KPage(
+      title: '探索',
+      subtitle: _subtitle(session),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _toolbar(data, items.length, shown, session),
+          Expanded(
+            child: FadeThroughSwitcher(
+              child: KeyedSubtree(
+                key: ValueKey(_mode),
+                child: _mode == DiscoverMode.resource
+                    ? ResourceSearchPane(onRerun: _rerunResourceSearch)
+                    : _exploreBody(feed, data, items),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _subtitle(ResourceSearchState session) => switch (_mode) {
+        DiscoverMode.explore => '浏览 VNDB / Bangumi 榜单，筛选后一键入库',
+        DiscoverMode.resource => session.started
+            ? '共 ${session.items.length} 条 · 按相关度排序'
+            : '聚合资源站发布页 · 只提供链接，不托管资源',
+      };
+
+  // ==================== 工具条（两种模式共享） ====================
+
+  Widget _toolbar(
+    DiscoverFeedState? data,
+    int loaded,
+    int shown,
+    ResourceSearchState session,
+  ) {
+    return KToolbar(
+      children: [
+        // 模式切换：看榜单（探索）/ 找下载页（资源）
+        for (final m in DiscoverMode.values) ...[
+          KChip(
+            label: m.label,
+            icon: m.icon,
+            selected: _mode == m,
+            onTap: () => _setMode(m),
+          ),
+          const SizedBox(width: Gap.sm),
+        ],
+        const SizedBox(width: Gap.sm),
+        // 搜索框：两种模式同宽同位（探索=过滤已加载条目，资源=关键词搜索）。
+        // 宽度与游戏库工具条的搜索框一致（300）。
+        SizedBox(
+          width: _kSearchWidth,
+          child: FadeThroughSwitcher(
+            child: KeyedSubtree(
+              key: ValueKey(_mode),
+              child: _mode == DiscoverMode.explore
+                  ? _localSearchField()
+                  : _resourceSearchField(),
+            ),
+          ),
+        ),
+        const SizedBox(width: Gap.md),
+        // 探索：视图操作一律右对齐（与游戏库的工具条同一个布局节奏）；
+        // 资源：「搜索」是主操作，紧贴输入框，进度徽标放右端。
+        if (_mode == DiscoverMode.explore) ...[
+          const Spacer(),
+          ..._exploreActions(data, loaded, shown),
+        ] else ...[
+          _resourcePill(session),
+          if (session.started) ...[
+            const Spacer(),
+            _resourceBadge(session),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Widget _localSearchField() => TextField(
+        controller: _localCtrl,
+        onChanged: (v) => setState(() => _localQuery = v),
+        decoration: InputDecoration(
+          hintText: '搜索已加载的条目',
+          prefixIcon: const Icon(Icons.search_rounded, size: 20),
+          suffixIcon: _localQuery.isEmpty
+              ? null
+              : IconButton(
+                  tooltip: '清空搜索',
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: _clearLocalQuery,
+                ),
+          isDense: true,
+        ),
+      );
+
+  Widget _resourceSearchField() => TextField(
+        controller: _resourceCtrl,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _startResourceSearch(),
+        decoration: const InputDecoration(
+          hintText: '搜索游戏名（中文名效果最好）',
+          prefixIcon: Icon(Icons.search_rounded, size: 20),
+          isDense: true,
+        ),
+      );
+
+  List<Widget> _exploreActions(
+      DiscoverFeedState? data, int loaded, int shown) {
+    return [
+      KBadge(
+        icon: Icons.grid_view_rounded,
+        // 数据源报告没有下一页时直接说清楚，省得用户一直往下滚
+        text: data == null
+            ? '尚未加载'
+            : (shown != loaded
+                ? '$shown / $loaded 部'
+                : (data.hasMore ? '已加载 $loaded 部' : '已全部加载 $loaded 部')),
+      ),
+      KIconAction(
+        icon: _sidebarVisible
+            ? Icons.filter_alt_rounded
+            : Icons.filter_alt_off_rounded,
+        tooltip: _sidebarVisible ? '隐藏筛选栏' : '显示筛选栏',
+        active: _sidebarVisible,
+        onTap: _toggleSidebar,
+      ),
+      KIconAction(
+        icon: Icons.refresh_rounded,
+        tooltip: '刷新榜单（跳过 24 小时缓存重新拉第一页）',
+        onTap: () => ref.read(discoverFeedProvider.notifier).refresh(),
+      ),
+    ];
+  }
+
+  /// 资源模式的进度/计数徽标（搜索中显示 n / N，完成后显示结果条数）。
+  Widget _resourceBadge(ResourceSearchState s) {
+    final scheme = Theme.of(context).colorScheme;
+    return KBadge(
+      icon: s.busy
+          ? Icons.cloud_download_outlined
+          : Icons.check_circle_outline_rounded,
+      text: s.busy ? '${s.completed} / ${s.total}' : '共 ${s.items.length} 条',
+      color: s.busy ? scheme.primary : scheme.onSurfaceVariant,
+    );
+  }
+
+  /// 资源模式的主操作：实心药丸（与游戏库的「添加游戏」同一套原语）。
+  Widget _resourcePill(ResourceSearchState s) => KPill(
+        label: s.busy ? '搜索中…' : '搜索',
+        icon: s.busy ? null : Icons.search_rounded,
+        onTap: s.busy ? null : _startResourceSearch,
+      );
+
+  // ==================== 探索模式的内容区 ====================
+
+  /// 网格 + 筛选栏（筛选栏与游戏库共用 [FilterSidebar]，布局也一致）。
+  Widget _exploreBody(
+    AsyncValue<DiscoverFeedState> feed,
+    DiscoverFeedState? data,
+    List<ScrapedGame> items,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _ExplorePane(
+            feed: feed,
+            data: data,
+            items: items,
+            query: _localQuery,
+            onClearQuery: _clearLocalQuery,
+          ),
+        ),
+        if (_sidebarVisible) ...[
+          const SizedBox(width: Gap.lg),
+          const _DiscoverFilterSidebar(),
+        ],
+      ],
+    );
+  }
+}
+
+// ==================== 探索模式：榜单网格 ====================
+
+/// 榜单网格：骨架 / 空态 / 失败态 / 无限滚动 / 入库 / 详情弹窗。
+class _ExplorePane extends ConsumerStatefulWidget {
+  final AsyncValue<DiscoverFeedState> feed;
+
+  /// 当前筛选条件下的数据（null = 还没拉到 / 刚换条件 / 刚刷新）
+  final DiscoverFeedState? data;
+  final List<ScrapedGame> items;
+
+  /// 本地搜索词（由页面工具条维护）
+  final String query;
+  final VoidCallback onClearQuery;
+
+  const _ExplorePane({
+    required this.feed,
+    required this.data,
+    required this.items,
+    required this.query,
+    required this.onClearQuery,
+  });
+
+  @override
+  ConsumerState<_ExplorePane> createState() => _ExplorePaneState();
+}
+
+class _ExplorePaneState extends ConsumerState<_ExplorePane> {
+  final _scroll = ScrollController();
 
   /// 正在入库的条目（按 discoverLibraryKey），用于按钮进度态 + 防重复点击
   final _adding = <String>{};
@@ -58,7 +418,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   void dispose() {
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
-    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -90,14 +449,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
 
   @override
   Widget build(BuildContext context) {
-    final filter = ref.watch(discoverFilterProvider);
-    final feed = ref.watch(discoverFeedProvider);
-    final raw = feed.valueOrNull;
-    // 只认「当前筛选条件下」拉到的数据：换源/换筛选/刷新期间一律当作还没数据
-    // （riverpod 在重建时会保留上一次的值，直接用会先闪一排上一个源的卡片）。
-    final data = (raw != null && raw.filterKey == filter.key) ? raw : null;
-    final items = data?.items ?? const <ScrapedGame>[];
-    final visible = _localFilter(items);
+    final data = widget.data;
+    final items = widget.items;
+    final visible = _filterLoaded(items, widget.query);
     // 已在库索引（key = `vndb:123` / `bgm:45678`）：一次查询供整屏卡片共用
     final library = ref.watch(discoverLibraryIndexProvider).valueOrNull ??
         const <String, Game>{};
@@ -106,89 +460,18 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _fillViewport());
     }
 
-    return KPage(
-      title: '探索',
-      subtitle: '浏览元数据站点的作品，一键入库',
-      actions: [
-        KIconAction(
-          icon: Icons.refresh_rounded,
-          tooltip: '刷新榜单（跳过 24 小时缓存重新拉第一页）',
-          onTap: () => ref.read(discoverFeedProvider.notifier).refresh(),
-        ),
-        KPill(
-          label: '筛选',
-          icon: Icons.tune_rounded,
-          // 有筛选条件时用实心按钮：一眼能看出「当前看到的不是默认榜单」
-          filled: filter.hasActiveFilters,
-          onTap: _openFilterSheet,
-        ),
-      ],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _toolbar(filter, items.length, visible.length, data),
-          _summaryLine(filter),
-          Expanded(child: _body(feed, data, items, visible, library)),
-        ],
-      ),
-    );
-  }
-
-  // ==================== 工具栏 ====================
-
-  Widget _toolbar(
-      DiscoverFilter filter, int loaded, int shown, DiscoverFeedState? data) {
-    return KToolbar(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 来源切换
-        for (final s in DiscoverSource.values) ...[
-          KChip(
-            label: s.label,
-            selected: filter.source == s,
-            onTap: () => ref
-                .read(discoverFeedProvider.notifier)
-                .updateFilter(filter.copyWith(source: s)),
-          ),
-          const SizedBox(width: Gap.sm),
-        ],
-        const SizedBox(width: Gap.sm),
-        Expanded(
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: (v) => setState(() => _query = v),
-            decoration: InputDecoration(
-              hintText: '在已加载的条目里搜索标题 / 标签 / 开发商',
-              prefixIcon: const Icon(Icons.search_rounded, size: 20),
-              suffixIcon: _query.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: '清空搜索',
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        setState(() => _query = '');
-                      },
-                    ),
-              isDense: true,
-            ),
-          ),
-        ),
-        const SizedBox(width: Gap.md),
-        KBadge(
-          icon: Icons.grid_view_rounded,
-          // 数据源报告没有下一页时直接说清楚，省得用户一直往下滚
-          text: data == null
-              ? '尚未加载'
-              : (shown != loaded
-                  ? '$shown / $loaded 部'
-                  : (data.hasMore ? '已加载 $loaded 部' : '已全部加载 $loaded 部')),
-        ),
+        _summaryLine(),
+        Expanded(child: _body(data, items, visible, library)),
       ],
     );
   }
 
   /// 筛选摘要 + 数据源能力提示（避免「筛了但没生效」的困惑）。
-  Widget _summaryLine(DiscoverFilter filter) {
+  Widget _summaryLine() {
+    final filter = ref.watch(discoverFilterProvider);
     final scheme = Theme.of(context).colorScheme;
     final hints = <String>[
       if (filter.source == DiscoverSource.bgm && filter.tagIds.isNotEmpty)
@@ -219,12 +502,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     );
   }
 
-  // ==================== 内容区 ====================
-
   /// [data] 为 null 表示「当前筛选条件下还没有数据」（首次加载 / 刚换条件 /
-  /// 刚刷新），此时用骨架占位；`feed.hasError` 则说明这个条件是拉失败了。
+  /// 刚刷新），此时用骨架占位；`widget.feed.hasError` 则说明这个条件是拉失败了。
   Widget _body(
-    AsyncValue<DiscoverFeedState> feed,
     DiscoverFeedState? data,
     List<ScrapedGame> items,
     List<ScrapedGame> visible,
@@ -232,7 +512,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   ) {
     if (data == null) {
       // 网络失败与「没有结果」是两回事：失败要把原因原样显示出来 + 给重试
-      if (feed.hasError) return _errorState(feed.error);
+      if (widget.feed.hasError) return _errorState(widget.feed.error);
       return _skeletonGrid();
     }
     // 没有任何结果（数据源确实没有匹配项）
@@ -265,14 +545,11 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     if (visible.isEmpty) {
       return KEmpty(
         icon: Icons.search_off_rounded,
-        title: '已加载的条目里没有「$_query」',
+        title: '已加载的条目里没有「${widget.query}」',
         subtitle: '本地搜索只过滤已加载的条目，继续向下滚动可以加载更多',
         actionLabel: '清空搜索',
         actionIcon: Icons.close_rounded,
-        onAction: () {
-          _searchCtrl.clear();
-          setState(() => _query = '');
-        },
+        onAction: widget.onClearQuery,
       );
     }
 
@@ -284,13 +561,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     return GridView.builder(
       controller: _scroll,
       padding: const EdgeInsets.only(bottom: Gap.xl),
-      // 参数按需求固定：最大列宽 220、间距 16/16、卡片 2:3
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 2 / 3,
-      ),
+      gridDelegate: _kGridDelegate,
       itemCount: visible.length + tail,
       itemBuilder: (context, index) {
         if (index >= visible.length) {
@@ -309,12 +580,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   Widget _skeletonGrid() {
     return GridView.builder(
       padding: const EdgeInsets.only(bottom: Gap.xl),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 2 / 3,
-      ),
+      gridDelegate: _kGridDelegate,
       itemCount: 8,
       itemBuilder: (_, __) => const _DiscoverSkeletonCard(),
     );
@@ -441,35 +707,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     );
   }
 
-  // ==================== 本地搜索 ====================
-
-  /// 只过滤已加载的条目（标题/中文名/别名/开发商/标签），不发请求。
-  List<ScrapedGame> _localFilter(List<ScrapedGame> items) {
-    final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return items;
-    return items.where((g) {
-      bool hit(String s) => s.isNotEmpty && s.toLowerCase().contains(q);
-      return hit(g.displayName) ||
-          hit(g.name) ||
-          hit(g.nameCn) ||
-          hit(g.developer) ||
-          g.aliases.any(hit) ||
-          g.tags.any((t) => hit(t.name));
-    }).toList();
-  }
-
-  // ==================== 筛选面板 ====================
-
-  Future<void> _openFilterSheet() async {
-    final current = ref.read(discoverFilterProvider);
-    final next = await showKisakiDialog<DiscoverFilter>(
-      context: context,
-      builder: (_) => _FilterSheet(initial: current),
-    );
-    if (next == null || !mounted) return;
-    ref.read(discoverFeedProvider.notifier).updateFilter(next);
-  }
-
   // ==================== 详情弹窗 ====================
 
   /// 打开详情弹窗（不跳游戏库详情页：该作品还不在库里，
@@ -484,14 +721,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   // ==================== 入库 ====================
 
   /// 入库：insertGame → ScrapeApplier.apply（下载封面 / 写标签 / 登记各源评分）。
-  /// 与资源搜索页、添加页走的是同一条落库路径。
+  /// 与资源搜索、添加页走的是同一条落库路径。
   Future<void> _addToLibrary(ScrapedGame g) async {
     final key = discoverLibraryKey(g);
     if (_adding.contains(key)) return;
     setState(() => _adding.add(key));
     try {
       final repo = AppServices.I.repo;
-      // 按标题再兜一次重名：同一作品可能已经以**另一个源 id** 入库过
+      // 按标题再兜一次重名：同一作品可能已经以**另一个源 id**入库过
       // （卡片上的「已在库」是按 source id 判定的，判不到这种情况）
       final existing = await repo.findGameByTitle(g.displayName) ??
           (g.name.isEmpty || g.name == g.displayName
@@ -742,27 +979,24 @@ class _DiscoverDetailDialogState extends ConsumerState<_DiscoverDetailDialog> {
   }
 }
 
-// ==================== 筛选面板 ====================
+// ==================== 筛选边栏 ====================
 
-/// 筛选面板：来源 / 排序 / 评分下限 / 年份区间 / 标签 / R18。
-/// 返回值是新的 [DiscoverFilter]（取消则为 null）。
-class _FilterSheet extends StatefulWidget {
-  final DiscoverFilter initial;
-
-  const _FilterSheet({required this.initial});
+/// 探索模式的筛选边栏：来源 / 排序 / 最低评分 / 年份 / 显示内容 / 标签。
+///
+/// 原先这些条件在一个筛选弹窗里（改完点「应用」才生效），现在搬进与游戏库
+/// 同一个 [FilterSidebar]：点一下即生效、条件始终可见、有生效条件时置顶
+/// 「清除全部筛选」。改动只落在 [discoverFeedProvider.updateFilter] 一处，
+/// 因此「相同条件不重复拉取」「年份区间自动摆正」等既有保护都还在。
+class _DiscoverFilterSidebar extends ConsumerStatefulWidget {
+  const _DiscoverFilterSidebar();
 
   @override
-  State<_FilterSheet> createState() => _FilterSheetState();
+  ConsumerState<_DiscoverFilterSidebar> createState() =>
+      _DiscoverFilterSidebarState();
 }
 
-class _FilterSheetState extends State<_FilterSheet> {
-  late DiscoverFilter _draft = widget.initial;
-
-  late final TextEditingController _fromCtrl =
-      TextEditingController(text: widget.initial.yearFrom?.toString() ?? '');
-  late final TextEditingController _toCtrl =
-      TextEditingController(text: widget.initial.yearTo?.toString() ?? '');
-
+class _DiscoverFilterSidebarState
+    extends ConsumerState<_DiscoverFilterSidebar> {
   /// 评分下限预设（0 = 不限）
   static const _ratings = <double>[0, 7, 7.5, 8, 8.5, 9];
 
@@ -776,257 +1010,338 @@ class _FilterSheetState extends State<_FilterSheet> {
     (label: '2000-2004', from: 2000, to: 2004),
   ];
 
+  /// 折叠前显示的标签数（VNDB 标签很多，铺满整屏反而挑不出来）
+  static const _kTagsCollapsed = 8;
+
+  /// 年份可选范围：只认四位年份。
+  /// `browse` 会把 yearFrom/yearTo 原样下发给数据源，把「20」（用户还在输
+  /// 入的那半截）或「abcd」当成条件发出去，轻则筛出莫名其妙的结果、
+  /// 重则数据源直接报错把整页变成失败态，所以这里要卡住。
+  static const _kMinYear = 1900;
+  static const _kMaxYear = 2100;
+
+  final _fromCtrl = TextEditingController();
+  final _toCtrl = TextEditingController();
+  final _tagCtrl = TextEditingController();
+
+  /// 年份输入框的焦点：失焦即视为「填完了」并提交
+  final _fromFocus = FocusNode();
+  final _toFocus = FocusNode();
+
+  /// 上一帧的聚焦状态：焦点在两格之间转移（起 → 止）时也要提交，
+  /// 不能只在「两格都没焦点」时提交，否则用户清空的那格会被写回旧值。
+  bool _fromHadFocus = false;
+  bool _toHadFocus = false;
+
+  bool _tagsExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 年份区间不能停在半截数字上：回车或点到别处就提交。
+    // 不在 onChanged 里逐字符提交——`updateFilter` 会把颠倒的区间摆正，
+    // 逐字符提交会在用户还没填完时把两格文字互换，很难理解。
+    _fromFocus.addListener(_onFromFocus);
+    _toFocus.addListener(_onToFocus);
+  }
+
+  void _onFromFocus() {
+    final has = _fromFocus.hasFocus;
+    if (_fromHadFocus && !has) _scheduleCommit();
+    _fromHadFocus = has;
+  }
+
+  void _onToFocus() {
+    final has = _toFocus.hasFocus;
+    if (_toHadFocus && !has) _scheduleCommit();
+    _toHadFocus = has;
+  }
+
+  /// 失焦也会在「切模式 / 关页面」时被动发生（元素被移出树）。推到帧末再提交：
+  /// 那时已卸载就直接放弃（那时再读 provider 没有意义，也不该触发网络请求）。
+  void _scheduleCommit() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _commitYears();
+    });
+  }
+
   @override
   void dispose() {
+    _fromFocus.dispose();
+    _toFocus.dispose();
     _fromCtrl.dispose();
     _toCtrl.dispose();
+    _tagCtrl.dispose();
     super.dispose();
   }
 
-  bool _isRangeSelected(({String label, int? from, int? to}) r) =>
-      _draft.yearFrom == r.from && _draft.yearTo == r.to;
+  /// 解析一格年份：只有合法四位年份才算数，其余（半截数字 / 乱填）返回 null。
+  static int? _parseYear(String text) {
+    final v = int.tryParse(text.trim());
+    if (v == null || v < _kMinYear || v > _kMaxYear) return null;
+    return v;
+  }
 
-  void _applyRange(({String label, int? from, int? to}) r) {
-    _fromCtrl.text = r.from?.toString() ?? '';
-    _toCtrl.text = r.to?.toString() ?? '';
-    setState(() => _draft = _draft.copyWith(yearFrom: r.from, yearTo: r.to));
+  /// 提交年份输入（回车 / 失焦）：两格一起校验后应用，摆正由
+  /// [DiscoverFeed.updateFilter] 负责，随后 [_syncYearFields] 会把结果写回两格。
+  ///
+  /// [notify] 为 true（回车提交，用户明确表示填完了）时，非法输入会给提示；
+  /// 失焦提交默认静默回滚——点到另一格时用户往往只是还在输入。
+  void _commitYears({bool notify = false}) {
+    if (!mounted) return;
+    final f = ref.read(discoverFilterProvider);
+    final fromText = _fromCtrl.text.trim();
+    final toText = _toCtrl.text.trim();
+    final from = _parseYear(fromText);
+    final to = _parseYear(toText);
+    final badFrom = fromText.isNotEmpty && from == null;
+    final badTo = toText.isNotEmpty && to == null;
+    if (badFrom || badTo) {
+      // 非法输入不提交：把出问题的那格恢复成当前条件值（不留「显示与条件不一致」）
+      if (badFrom) _setText(_fromCtrl, f.yearFrom?.toString() ?? '');
+      if (badTo) _setText(_toCtrl, f.yearTo?.toString() ?? '');
+      if (notify) {
+        showNotice('年份请填四位数字（$_kMinYear-$_kMaxYear），留空表示不限',
+            error: true);
+      }
+      return;
+    }
+    if (from == f.yearFrom && to == f.yearTo) return;
+    _apply(f.copyWith(yearFrom: from, yearTo: to));
+  }
+
+  /// 应用新条件：统一走 [DiscoverFeed.updateFilter]（内部会 normalized +
+  /// 相同条件短路），避免各处直接写 provider 造成重复的网络请求。
+  void _apply(DiscoverFilter next) =>
+      ref.read(discoverFeedProvider.notifier).updateFilter(next);
+
+  /// 年份输入框与当前条件对账。
+  ///
+  /// - **正在输入的那一格不动**：年份条件只在回车/失焦时才更新，输入过程中
+  ///   文字本来就和条件不一致，在这里回写会把用户刚敲进去的字符吃掉；
+  /// - 其余情况（点区间 chip、点「清除全部筛选」、条件被外部改动）一律按条件值
+  ///   回写，包含「框里留着半截/非法文字」的情况，避免显示与条件长期不一致。
+  void _syncYearFields(DiscoverFilter f) {
+    if (!_fromFocus.hasFocus && _yearTextDiffers(_fromCtrl.text, f.yearFrom)) {
+      _setText(_fromCtrl, f.yearFrom?.toString() ?? '');
+    }
+    if (!_toFocus.hasFocus && _yearTextDiffers(_toCtrl.text, f.yearTo)) {
+      _setText(_toCtrl, f.yearTo?.toString() ?? '');
+    }
+  }
+
+  /// 输入文字与条件值是否不一致（含「非空但解析不出合法年份」）。
+  static bool _yearTextDiffers(String text, int? value) {
+    final t = text.trim();
+    if (t.isEmpty) return value != null;
+    final parsed = _parseYear(t);
+    return parsed == null || parsed != value;
+  }
+
+  static void _setText(TextEditingController c, String text) {
+    c.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final filter = ref.watch(discoverFilterProvider);
     final scheme = Theme.of(context).colorScheme;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640, maxHeight: 620),
-        child: KCard(
-          borderRadius: Radii.sheet,
-          padding: const EdgeInsets.all(Gap.xl),
-          // 透明 Material：TextField 与 Switch 必须有 Material 祖先，而
-          // showKisakiDialog 的浮层挂在 Navigator 上、不在 Scaffold 的
-          // Material 之下（没有它会在真机上直接抛 "No Material widget found"）。
-          // 与 kit 里 KRow 用透明 Material 承载水波纹是同一做法。
-          child: Material(
-            type: MaterialType.transparency,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('筛选', style: Type.title),
-                    const SizedBox(width: Gap.sm),
-                    KBadge(
-                        text: _draft.summary, icon: Icons.filter_alt_rounded),
-                    const Spacer(),
-                    KIconAction(
-                      icon: Icons.close_rounded,
-                      tooltip: '关闭',
-                      onTap: () => Navigator.of(context).pop(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: Gap.lg),
-                // 条件区自己滚动，底部按钮常驻：条件项较多时（年份 + 标签）
-                // 也不会把「应用」挤到看不见的地方。
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _section('来源', _sourceChips()),
-                        _section('排序', _sortChips()),
-                        _section(
-                            '最低评分（${_draft.minRating > 0 ? _trim(_draft.minRating) : "不限"}）',
-                            _ratingChips()),
-                        _section('年份', _yearSection()),
-                        _section(
-                          _draft.source == DiscoverSource.bgm
-                              ? '标签（Bangumi 不支持，仅 VNDB 生效）'
-                              : '标签（多选为「同时满足」）',
-                          _tagChips(),
-                        ),
-                        const SizedBox(height: Gap.sm),
-                        Row(
-                          children: [
-                            Text('显示 R18 作品', style: Type.formLabel),
-                            const SizedBox(width: Gap.sm),
-                            Text(
-                              _draft.onlySfw ? '已隐藏（默认）' : '已显示',
-                              style: Type.caption.copyWith(
-                                  color: _draft.onlySfw
-                                      ? scheme.onSurfaceVariant
-                                      : KisakiColors.warning),
-                            ),
-                            const Spacer(),
-                            Switch(
-                              value: !_draft.onlySfw,
-                              onChanged: (v) => setState(
-                                  () => _draft = _draft.copyWith(onlySfw: !v)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: Gap.md),
-                        Text(
-                          _draft.source.hint,
-                          style: Type.micro
-                              .copyWith(color: scheme.onSurfaceVariant),
-                        ),
-                        const SizedBox(height: Gap.sm),
-                      ],
+    _syncYearFields(filter);
+
+    return FilterSidebar(
+      // 「清除全部筛选」置顶，仅在筛选生效时显示（保留来源与排序）
+      leading: filter.hasActiveFilters
+          ? FilterClearButton(
+              onTap: () {
+                _setText(_fromCtrl, '');
+                _setText(_toCtrl, '');
+                _apply(filter.cleared());
+              },
+            )
+          : null,
+      sections: [
+        FilterSection(
+          title: '来源',
+          // 数据源能力说明：避免用户以为「筛了却没生效」
+          hint: filter.source.hint,
+          children: [
+            for (final s in DiscoverSource.values)
+              KChip(
+                label: s.label,
+                selected: filter.source == s,
+                onTap: () => _apply(filter.copyWith(source: s)),
+              ),
+          ],
+        ),
+        FilterSection(
+          title: '排序',
+          children: [
+            for (final s in DiscoverSort.values)
+              KChip(
+                label: s.label,
+                selected: filter.sort == s,
+                onTap: () => _apply(filter.copyWith(sort: s)),
+              ),
+          ],
+        ),
+        FilterSection(
+          title: '最低评分',
+          children: [
+            for (final r in _ratings)
+              KChip(
+                label: r == 0 ? '不限' : '≥ ${_trimRating(r)}',
+                selected: filter.minRating == r,
+                onTap: () => _apply(filter.copyWith(minRating: r)),
+              ),
+          ],
+        ),
+        FilterSection(
+          title: '年份',
+          children: [
+            for (final r in _ranges)
+              KChip(
+                label: r.label,
+                selected: filter.yearFrom == r.from && filter.yearTo == r.to,
+                onTap: () {
+                  _setText(_fromCtrl, r.from?.toString() ?? '');
+                  _setText(_toCtrl, r.to?.toString() ?? '');
+                  _apply(filter.copyWith(yearFrom: r.from, yearTo: r.to));
+                },
+              ),
+          ],
+          // 自定义区间：两格窄输入（侧栏只有 210 宽，留空表示不限，回车提交）
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 72,
+                    child: TextField(
+                      controller: _fromCtrl,
+                      focusNode: _fromFocus,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _commitYears(notify: true),
+                      decoration:
+                          const InputDecoration(hintText: '起', isDense: true),
                     ),
                   ),
-                ),
-                const SizedBox(height: Gap.md),
-                Row(
-                  children: [
-                    KPill(
-                      label: '重置',
-                      icon: Icons.filter_alt_off_rounded,
-                      filled: false,
-                      onTap: () {
-                        _fromCtrl.clear();
-                        _toCtrl.clear();
-                        setState(() => _draft = _draft.cleared());
-                      },
+                  const SizedBox(width: Gap.sm),
+                  Text('—',
+                      style: Type.caption
+                          .copyWith(color: scheme.onSurfaceVariant)),
+                  const SizedBox(width: Gap.sm),
+                  SizedBox(
+                    width: 72,
+                    child: TextField(
+                      controller: _toCtrl,
+                      focusNode: _toFocus,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _commitYears(notify: true),
+                      decoration:
+                          const InputDecoration(hintText: '止', isDense: true),
                     ),
-                    const Spacer(),
-                    KPill(
-                      label: '取消',
-                      filled: false,
-                      onTap: () => Navigator.of(context).pop(),
-                    ),
-                    const SizedBox(width: Gap.sm),
-                    KPill(
-                      label: '应用',
-                      icon: Icons.check_rounded,
-                      onTap: () =>
-                          Navigator.of(context).pop(_draft.normalized()),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: Gap.xs),
+              Text('填完按回车生效，留空表示不限',
+                  style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
+            ],
           ),
         ),
-      ),
+        FilterSection(
+          title: '显示内容',
+          children: [
+            KChip(
+              label: '仅全年龄',
+              selected: filter.onlySfw,
+              onTap: () => _apply(filter.copyWith(onlySfw: true)),
+            ),
+            KChip(
+              label: '含 R18',
+              // 与设置页/R18 提示同一套强调色：这是「结果会变脏」的开关
+              color: KisakiColors.warning,
+              selected: !filter.onlySfw,
+              onTap: () => _apply(filter.copyWith(onlySfw: false)),
+            ),
+          ],
+        ),
+        FilterSection(
+          title: '标签',
+          hint: filter.source == DiscoverSource.bgm
+              ? 'Bangumi 不支持标签筛选，此条件不生效'
+              : '多选为「同时满足」',
+          trailing: _tagToggle(),
+          // 标签搜索框：数量多时先过滤再选
+          above: TextField(
+            controller: _tagCtrl,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: '过滤标签',
+              prefixIcon: Icon(Icons.search_rounded, size: 18),
+              isDense: true,
+            ),
+          ),
+          children: _tagChips(filter),
+        ),
+      ],
     );
   }
 
-  Widget _section(String title, Widget child) => Padding(
-        padding: const EdgeInsets.only(bottom: Gap.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Type.formLabel),
-            const SizedBox(height: Gap.sm),
-            child,
-          ],
+  /// 标签列表：默认折叠显示前 N 个（热门），点「更多」展开；
+  /// 输入过滤词时直接显示全部命中项。
+  List<Widget> _tagChips(DiscoverFilter filter) {
+    final q = _tagCtrl.text.trim().toLowerCase();
+    final all = DiscoverTags.presets;
+    final List<({String id, String label})> shown;
+    if (q.isEmpty) {
+      shown = _tagsExpanded
+          ? [...all]
+          : all.take(_kTagsCollapsed).toList(growable: true);
+      // 已选中的标签一定显示（否则会出现「选了却看不见、也取消不掉」）
+      for (final t in all) {
+        if (filter.tagIds.contains(t.id) && !shown.contains(t)) shown.add(t);
+      }
+    } else {
+      shown = all
+          .where((t) =>
+              t.label.toLowerCase().contains(q) || t.id.contains(q))
+          .toList();
+    }
+    return [
+      for (final t in shown)
+        KChip(
+          label: t.label,
+          icon: Icons.tag_rounded,
+          selected: filter.tagIds.contains(t.id),
+          onTap: () => _apply(filter.toggleTag(t.id)),
         ),
-      );
+    ];
+  }
 
-  Widget _sourceChips() => Wrap(
-        spacing: Gap.sm,
-        runSpacing: Gap.sm,
-        children: [
-          for (final s in DiscoverSource.values)
-            KChip(
-              label: s.label,
-              selected: _draft.source == s,
-              onTap: () => setState(() => _draft = _draft.copyWith(source: s)),
-            ),
-        ],
-      );
-
-  Widget _sortChips() => Wrap(
-        spacing: Gap.sm,
-        runSpacing: Gap.sm,
-        children: [
-          for (final s in DiscoverSort.values)
-            KChip(
-              label: s.label,
-              selected: _draft.sort == s,
-              onTap: () => setState(() => _draft = _draft.copyWith(sort: s)),
-            ),
-        ],
-      );
-
-  Widget _ratingChips() => Wrap(
-        spacing: Gap.sm,
-        runSpacing: Gap.sm,
-        children: [
-          for (final r in _ratings)
-            KChip(
-              label: r == 0 ? '不限' : '≥ ${_trim(r)}',
-              selected: _draft.minRating == r,
-              onTap: () =>
-                  setState(() => _draft = _draft.copyWith(minRating: r)),
-            ),
-        ],
-      );
-
-  Widget _yearSection() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: Gap.sm,
-            runSpacing: Gap.sm,
-            children: [
-              for (final r in _ranges)
-                KChip(
-                  label: r.label,
-                  selected: _isRangeSelected(r),
-                  onTap: () => _applyRange(r),
-                ),
-            ],
-          ),
-          const SizedBox(height: Gap.sm),
-          Row(
-            children: [
-              SizedBox(
-                width: 110,
-                child: TextField(
-                  controller: _fromCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: '起始年', isDense: true),
-                  onChanged: (v) => setState(() =>
-                      _draft = _draft.copyWith(yearFrom: int.tryParse(v))),
-                ),
-              ),
-              const SizedBox(width: Gap.md),
-              SizedBox(
-                width: 110,
-                child: TextField(
-                  controller: _toCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: '结束年', isDense: true),
-                  onChanged: (v) => setState(
-                      () => _draft = _draft.copyWith(yearTo: int.tryParse(v))),
-                ),
-              ),
-              const SizedBox(width: Gap.md),
-              Text('留空表示不限',
-                  style: Type.micro.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            ],
-          ),
-        ],
-      );
-
-  Widget _tagChips() => Wrap(
-        spacing: Gap.sm,
-        runSpacing: Gap.sm,
-        children: [
-          for (final t in DiscoverTags.presets)
-            KChip(
-              label: t.label,
-              icon: Icons.tag_rounded,
-              selected: _draft.tagIds.contains(t.id),
-              onTap: () => setState(() => _draft = _draft.toggleTag(t.id)),
-            ),
-        ],
-      );
-
-  static String _trim(double v) =>
-      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+  /// 「更多 / 收起」：只在折叠确实藏了东西时出现（正在过滤时不出现）。
+  Widget? _tagToggle() {
+    if (DiscoverTags.presets.length <= _kTagsCollapsed) return null;
+    if (_tagCtrl.text.trim().isNotEmpty) return null;
+    final scheme = Theme.of(context).colorScheme;
+    return TextButton(
+      style: TextButton.styleFrom(
+        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+      ),
+      onPressed: () => setState(() => _tagsExpanded = !_tagsExpanded),
+      child: Text(
+        _tagsExpanded ? '收起' : '更多',
+        style: Type.caption.copyWith(color: scheme.primary),
+      ),
+    );
+  }
 }

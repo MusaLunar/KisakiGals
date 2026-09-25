@@ -98,6 +98,12 @@ class SettingsStore {
   /// 游戏库排版（grid=大封面网格 / list=紧凑列表）
   static const kLibraryLayout = 'library.layout';
 
+  /// 游戏库右侧筛选栏是否展开（工具条上的筛选图标切换）
+  static const kLibrarySidebar = 'library.sidebar';
+
+  /// 探索页右侧筛选栏是否展开（与游戏库同一个交互，独立记忆）
+  static const kDiscoverSidebar = 'discover.sidebar';
+
   /// SearchGal 兼容聚合接口地址（可留空只用内置源）
   static const kSearchGalApi = 'search.searchgal_api';
 

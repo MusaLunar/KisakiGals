@@ -502,7 +502,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _switchTab(int index) =>
       ref.read(tabIndexProvider.notifier).state = index;
 
-  /// 跳到资源搜索页（可带关键词预填）。
+  /// 跳到探索页并落在「资源」模式（可带关键词预填）。
   void _openResourceSearch(String query) {
     if (query.isNotEmpty) {
       ref.read(resourceQueryProvider.notifier).state = query;
@@ -843,7 +843,8 @@ class _Bone extends StatelessWidget {
 //
 // 索引已集中到 `lib/ui/shell/tabs.dart`（[Tabs]）：这里只保留这几个别名，
 // 免得页面里再出现裸数字（新增页面时索引一变就会全线错位）。
-// 注意 [Tabs.discover] 是新增的「探索」页，插在「游戏库」之后。
+// 「资源搜索」已并入「探索」页的「资源」模式：这里的入口会先把关键词写进
+// `resourceQueryProvider`，探索页据此直接落在「资源」模式并预填关键词。
 const int _kLibraryTab = Tabs.library;
-const int _kSearchTab = Tabs.search;
+const int _kSearchTab = Tabs.discover;
 const int _kStatsTab = Tabs.stats;
