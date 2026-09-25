@@ -224,8 +224,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                                     // 避免元素按位置复用导致重复/漏播进场
                                     key: const ValueKey('hero'),
                                     index: stagger++,
-                                    child: _hero(
-                                        game, sources, tracking, wide, glass),
+                                    child: _hero(game, sources, tracking, wide, tags,
+                                        glass),
                                   ),
                                   const SizedBox(height: Gap.sectionGap),
                                   // ---- 分区：游玩记录 ----
@@ -249,15 +249,8 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                                     child: _summaryTrendSection(
                                         game, wide, glass),
                                   ),
-                                  // ---- 分区：标签（无标签时整段不占位）----
-                                  if (tags.isNotEmpty) ...[
-                                    const SizedBox(height: Gap.sectionGap),
-                                    StaggeredFadeIn(
-                                      key: const ValueKey('tags'),
-                                      index: stagger++,
-                                      child: _tagsSection(tags),
-                                    ),
-                                  ],
+                                  // 标签已并入 Hero 信息列（信息行下方、操作按钮上方），
+                                  // 不再单独占一个分区
                                   const SizedBox(height: Gap.sectionGap),
                                   // ---- 分区：数据来源 ----
                                   StaggeredFadeIn(
@@ -371,6 +364,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   ///
   /// 两列都顶对齐；间距 Gap.xl 让封面与信息列成组，而不是松散并排。
   Widget _hero(Game game, List<SourceRecord> sources, bool tracking, bool wide,
+      List<TagItem> tags,
       bool glass) {
     final scheme = Theme.of(context).colorScheme;
     final coverW = wide ? _kCoverWidthWide : _kCoverWidthNarrow;
@@ -471,6 +465,11 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                 value: game.directory.isEmpty ? '未指定' : game.directory,
                 placeholder: game.directory.isEmpty,
               ),
+              // 标签并入信息列（原先单独占一个整宽分区，离作品信息太远）
+              if (tags.isNotEmpty) ...[
+                const SizedBox(height: Gap.md),
+                _tagChips(tags),
+              ],
               const SizedBox(height: Gap.lg),
               // 操作按钮：启动/继续（计时中禁用）、打开目录、评分评价
               Wrap(
@@ -570,22 +569,30 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   }
 
   /// 标签：点击回游戏库并按该标签筛选。
-  Widget _tagsSection(List<TagItem> tags) {
-    return _Section(
-      title: '标签',
-      child: Wrap(
-        spacing: Gap.sm,
-        runSpacing: Gap.sm,
-        children: [
-          for (final t in tags.take(_kTagLimit))
-            KChip(
-              label: t.name,
-              color: KisakiColors.lavender,
-              selected: true,
-              onTap: () => _jumpLibrary(tag: t.name),
-            ),
-        ],
-      ),
+  /// 标签 chip 行（放在信息列内；原先是整宽分区）
+  Widget _tagChips(List<TagItem> tags) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('标签',
+            style: Type.micro.copyWith(
+                color: scheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
+        const SizedBox(height: Gap.xs + 2),
+        Wrap(
+          spacing: Gap.xs + 2,
+          runSpacing: Gap.xs + 2,
+          children: [
+            for (final t in tags.take(_kTagLimit))
+              KChip(
+                label: t.name,
+                icon: Icons.local_offer_outlined,
+                color: KisakiColors.lavender,
+                onTap: () => _jumpLibrary(tag: t.name),
+              ),
+          ],
+        ),
+      ],
     );
   }
 
