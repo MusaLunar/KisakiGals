@@ -256,7 +256,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     feed: feed,
                     data: data,
                     items: items,
-                    query: filter.keyword,
+                    // 传空串：网格原样展示数据源结果，不做本地按标题过滤
+                    // （源站按别名/原名匹配，标题里未必逐字包含关键词）
+                    query: '',
                     keyword: filter.keyword,
                     onClearQuery: _clearSearch,
                   ),
