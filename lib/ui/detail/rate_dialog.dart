@@ -143,15 +143,49 @@ class _RateDialogState extends ConsumerState<RateDialog> {
                                 AnimatedCount(
                                   text: _rating <= 0
                                       ? '未评分'
-                                      : '${_rating.toStringAsFixed(0)} / 10',
+                                      // 精确到 0.1（存储为 REAL，无需迁移）
+                                      : '${_rating.toStringAsFixed(1)} / 10',
                                   style: Type.numeric.copyWith(
                                       fontSize: 18, color: scheme.primary),
+                                ),
+                                SizedBox(height: Gap.xs),
+                                // 0.1 精度的微调：滑块 + ±0.1 按钮
+                                Row(
+                                  children: [
+                                    KIconAction(
+                                      icon: Icons.remove_rounded,
+                                      tooltip: '减 0.1',
+                                      onTap: () => setState(() =>
+                                          _rating =
+                                              (_rating - 0.1).clamp(0, 10)),
+                                    ),
+                                    Expanded(
+                                      child: Slider(
+                                        value: _rating.clamp(0, 10),
+                                        min: 0,
+                                        max: 10,
+                                        // 100 段 = 0.1 步进
+                                        divisions: 100,
+                                        label: _rating.toStringAsFixed(1),
+                                        onChanged: (v) => setState(() =>
+                                            _rating =
+                                                (v * 10).round() / 10),
+                                      ),
+                                    ),
+                                    KIconAction(
+                                      icon: Icons.add_rounded,
+                                      tooltip: '加 0.1',
+                                      onTap: () => setState(() =>
+                                          _rating =
+                                              (_rating + 0.1).clamp(0, 10)),
+                                    ),
+                                  ],
                                 ),
                                 SizedBox(height: Gap.xxs),
                                 Text(
                                   _rating <= 0
-                                      ? '点击星星评分（5 星制 × 10 分）'
-                                      : '再次点击同一颗星可清零',
+                                      ? '点星星快速评分，或拖动滑块 / 用 ± 微调（精确到 0.1）'
+                                      : '精确到 0.1；再次点击同一颗星可清零',
                                   style: Type.caption.copyWith(
                                       color: scheme.onSurfaceVariant),
                                 ),
@@ -265,7 +299,8 @@ class _RateDialogState extends ConsumerState<RateDialog> {
   Future<void> _save() async {
     final game = widget.game;
     // 评分范围保护（0-10）
-    game.userRating = _rating.clamp(0, 10).toDouble();
+    // 保留 0.1 精度：四舍五入到 1 位小数，避免浮点尾数（如 7.300000000001）
+    game.userRating = ((_rating.clamp(0, 10)) * 10).round() / 10;
     game.userReview = _review.text.trim();
     if (game.userRating > 0 && game.playStatus == PlayStatus.wish) {
       game.playStatus = PlayStatus.played;

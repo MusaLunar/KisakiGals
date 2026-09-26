@@ -311,7 +311,7 @@ class AiController extends StateNotifier<AiState> {
     }
     final rated = games.where((g) => g.userRating > 0).take(8).toList();
     if (rated.isNotEmpty) {
-      buf.writeln('- 我的评分：${rated.map((g) => '${g.displayName} ${g.userRating.toStringAsFixed(0)}/10').join('、')}');
+      buf.writeln('- 我的评分：${rated.map((g) => '${g.displayName} ${g.userRating.toStringAsFixed(1)}/10').join('、')}');
     }
     final favs = games.where((g) => g.isFavorite).take(6).toList();
     if (favs.isNotEmpty) {

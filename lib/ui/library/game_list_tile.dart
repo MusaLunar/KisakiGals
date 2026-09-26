@@ -74,7 +74,7 @@ class GameListTile extends ConsumerWidget {
     if (g.developer.isNotEmpty) parts.add(g.developer);
     if (g.totalSeconds > 0) parts.add(fmtDuration(g.totalSeconds));
     if (g.userRating > 0) {
-      parts.add('我的 ${g.userRating.toStringAsFixed(0)}');
+      parts.add('我的 ${g.userRating.toStringAsFixed(1)}');
     } else if (platformRating != null && platformRating > 0) {
       parts.add('评分 ${platformRating.toStringAsFixed(1)}');
     }

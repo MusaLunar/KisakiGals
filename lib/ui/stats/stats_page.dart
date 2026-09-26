@@ -825,7 +825,7 @@ class _RatingTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               AnimatedCount(
-                text: game.userRating.toStringAsFixed(0),
+                text: game.userRating.toStringAsFixed(1),
                 style: Type.display.copyWith(fontSize: 22, color: scheme.primary),
               ),
               Text(
