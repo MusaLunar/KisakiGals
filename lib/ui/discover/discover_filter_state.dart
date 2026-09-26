@@ -180,6 +180,9 @@ class DiscoverFilter {
   /// 「传了 null」就没法清空年份（传 null 表示清除区间）。
   static const Object _keep = Object();
 
+  /// 只替换来源（关键词搜索时要把每个来源都查一遍）。
+  DiscoverFilter withSource(DiscoverSource src) => copyWith(source: src);
+
   DiscoverFilter copyWith({
     DiscoverSource? source,
     DiscoverSort? sort,

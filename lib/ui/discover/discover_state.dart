@@ -7,6 +7,7 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_services.dart';
+import '../../core/utils.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
 import '../../providers.dart';
@@ -188,6 +189,67 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
     required int startPage,
     DiscoverFeedState? previous,
   }) async {
+    // ---- 关键词搜索：并行查询所有来源并合并 ----
+    //
+    // 别名/简称往往只被某一个来源收录：实测「金恋」在 VNDB 命中
+    // v21852（VNDB 收录了 zh-Hans 别名「金恋」），而 Bangumi 的搜索返回空。
+    // 原先只查「当前选中的来源」，于是用户在 Bangumi 下搜别名就永远搜不到。
+    // 这里改成：关键词搜索时把每个来源都查一遍（并发、各自遵守限流与缓存），
+    // 合并去重后返回；分页只对浏览（榜单）模式有意义。
+    if (filter.searching && startPage <= 1 && previous == null) {
+      final merged = <ScrapedGame>[];
+      final seenIds = <String>{};
+      final seenTitles = <String>{};
+      final results = await Future.wait(DiscoverSource.values.map((src) async {
+        try {
+          final params = _paramsFor(filter.withSource(src), 1);
+          return await AppServices.I.fetcher.browse(src.id, params);
+        } catch (_) {
+          // 单个来源失败不影响其它来源（KunGal 这类要求登录的源会抛异常）
+          return const <ScrapedGame>[];
+        }
+      }));
+      for (final list in results) {
+        for (final g in list) {
+          if (!_passes(filter, g)) continue;
+          if (!seenIds.add(_dedupKey(g))) continue;
+          // 跨源去重：同一部作品在不同源里 sourceId 不同，用规范化标题兜一层
+          final tk = normalizeForMatch(g.displayName);
+          if (tk.isNotEmpty && !seenTitles.add(tk)) continue;
+          merged.add(g);
+        }
+      }
+      // 排序：规范化后标题完全等于关键词的最优先，其次包含关键词，再按评分/票数
+      final q = normalizeForMatch(filter.keyword);
+      int rank(ScrapedGame g) {
+        final t = normalizeForMatch(g.displayName);
+        if (t == q) return 0;
+        if (t.contains(q)) return 1;
+        final ja = normalizeForMatch(g.name);
+        if (ja == q) return 0;
+        if (ja.contains(q)) return 1;
+        for (final a in g.aliases) {
+          final na = normalizeForMatch(a);
+          if (na == q) return 0;
+          if (na.contains(q)) return 1;
+        }
+        return 2;
+      }
+
+      merged.sort((a, b) {
+        final r = rank(a).compareTo(rank(b));
+        if (r != 0) return r;
+        return b.rating.compareTo(a.rating);
+      });
+      return DiscoverFeedState(
+        items: merged,
+        page: 1,
+        hasMore: false, // 关键词搜索一把查完，不做分页
+        preloading: false,
+        filterKey: filter.key,
+      );
+    }
+
     final items = <ScrapedGame>[...?previous?.items];
     final seen = <String>{for (final g in items) _dedupKey(g)};
     var page = startPage;
