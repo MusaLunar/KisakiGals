@@ -6,7 +6,7 @@
 
 > 「无论何时，都想与她们再次相见。」
 
-**当前版本：0.9.1-beta** ｜ 作者：MusaLunar ｜ [项目主页](https://github.com/MusaLunar/KisakiGals)
+**当前版本：1.0.0** ｜ 作者：MusaLunar ｜ [项目主页](https://github.com/MusaLunar/KisakiGals)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
@@ -98,5 +98,5 @@ flutter build windows --release
 ---
 
 <div align="center">
-Made with Flutter & ♥ · KisakiGals v0.9.1-beta
+Made with Flutter & ♥ · KisakiGals v1.0.0
 </div>
