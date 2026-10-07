@@ -140,7 +140,7 @@ ThemeData _theme(Brightness brightness) {
       elevation: 0,
       color: cardColor,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(Radii.lg),
         side: BorderSide(color: outline),
       ),
       shadowColor: Colors.transparent,
@@ -174,7 +174,7 @@ ThemeData _theme(Brightness brightness) {
     dialogTheme: DialogThemeData(
       backgroundColor: cardColor,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(Radii.xl),
         side: BorderSide(color: outline),
       ),
       surfaceTintColor: Colors.transparent,

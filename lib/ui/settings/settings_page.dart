@@ -238,6 +238,7 @@ class _SystemSection extends ConsumerStatefulWidget {
 class _SystemSectionState extends ConsumerState<_SystemSection> {
   bool _autostart = false;
   String _afterLaunch = 'none';
+  bool _focusOnGameExit = true;
   String _close = 'exit';
   String _tracking = 'foreground';
   String _nsfw = 'blur';
@@ -266,6 +267,8 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
     final s = AppServices.I.settings;
     final autostart = await AppServices.I.autostart.isEnabled();
     final after = await s.getString(SettingsStore.kAfterLaunch, 'none');
+    final focusOnExit =
+        await s.getBool(SettingsStore.kFocusOnGameExit, def: true);
     final close = await s.getString(SettingsStore.kCloseBehavior, 'exit');
     final tracking = await s.getString(SettingsStore.kTrackingMode, 'foreground');
     final nsfw = await s.getString(SettingsStore.kNsfwMode, 'blur');
@@ -278,6 +281,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
     setState(() {
       _autostart = autostart;
       _afterLaunch = after;
+      _focusOnGameExit = focusOnExit;
       _close = close;
       _tracking = tracking;
       _nsfw = nsfw;
@@ -322,6 +326,16 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                 setState(() => _afterLaunch = v.first);
               },
             ),
+          ),
+          SettingSwitch(
+            title: '游戏退出后恢复前台',
+            subtitle: '游戏进程退出或终止后，主程序自动获取焦点并恢复前台显示',
+            value: _focusOnGameExit,
+            onChanged: (v) async {
+              await AppServices.I.settings
+                  .setBool(SettingsStore.kFocusOnGameExit, v);
+              setState(() => _focusOnGameExit = v);
+            },
           ),
           SettingRow(
             title: '关闭应用时',
@@ -912,6 +926,7 @@ class _AiSectionState extends ConsumerState<_AiSection> {
   final _baseUrl = TextEditingController();
   final _apiKey = TextEditingController();
   final _model = TextEditingController();
+  final _maxTokensCtrl = TextEditingController();
   String _testStatus = '';
   bool _testing = false;
   int _maxTokens = 4000;
@@ -927,6 +942,7 @@ class _AiSectionState extends ConsumerState<_AiSection> {
     _baseUrl.dispose();
     _apiKey.dispose();
     _model.dispose();
+    _maxTokensCtrl.dispose();
     super.dispose();
   }
 
@@ -936,6 +952,7 @@ class _AiSectionState extends ConsumerState<_AiSection> {
     _apiKey.text = await s.getString(SettingsStore.kAiApiKey, '');
     _model.text = await s.getString(SettingsStore.kAiModel, '');
     _maxTokens = await s.getInt(SettingsStore.kAiMaxTokens, 4000);
+    _maxTokensCtrl.text = '$_maxTokens';
     if (mounted) setState(() {});
   }
 
@@ -1046,15 +1063,13 @@ class _AiSectionState extends ConsumerState<_AiSection> {
             trailing: SizedBox(
               width: 260,
               child: TextField(
-                controller: TextEditingController(text: '$_maxTokens')
-                  ..selection = TextSelection.collapsed(
-                      offset: '$_maxTokens'.length),
+                controller: _maxTokensCtrl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(isDense: true),
                 onChanged: (v) async {
                   final n = int.tryParse(v.trim());
                   if (n == null || n < 64) return;
-                  setState(() => _maxTokens = n);
+                  _maxTokens = n;
                   await AppServices.I.settings
                       .setInt(SettingsStore.kAiMaxTokens, n);
                 },
@@ -1142,11 +1157,20 @@ class _DataSectionState extends ConsumerState<_DataSection> {
   int _backupAutoHours = 12;
   bool _backupOnExit = false;
   int _backupExitMinHours = 6;
+  final _backupAutoHoursCtrl = TextEditingController();
+  final _backupExitMinHoursCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _backupAutoHoursCtrl.dispose();
+    _backupExitMinHoursCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1159,6 +1183,8 @@ class _DataSectionState extends ConsumerState<_DataSection> {
         .getBool(SettingsStore.kBackupOnExit, def: false);
     _backupExitMinHours = await AppServices.I.settings
         .getInt(SettingsStore.kBackupExitMinHours, 6);
+    _backupAutoHoursCtrl.text = '$_backupAutoHours';
+    _backupExitMinHoursCtrl.text = '$_backupExitMinHours';
     final backups = AppServices.I.paths.backups;
     final dir = Directory(backups);
     _backupCount = dir.existsSync()
@@ -1218,13 +1244,13 @@ class _DataSectionState extends ConsumerState<_DataSection> {
               width: 220,
               child: TextField(
                 enabled: _backupAutoEnabled || _backupOnExit,
-                controller: TextEditingController(text: '$_backupAutoHours'),
+                controller: _backupAutoHoursCtrl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(isDense: true),
                 onChanged: (v) async {
                   final n = int.tryParse(v.trim());
                   if (n == null || n < 1) return;
-                  setState(() => _backupAutoHours = n);
+                  _backupAutoHours = n;
                   await AppServices.I.settings
                       .setInt(SettingsStore.kBackupAutoHours, n);
                   await AppServices.I.autoBackup.reschedule();
@@ -1249,13 +1275,13 @@ class _DataSectionState extends ConsumerState<_DataSection> {
               width: 220,
               child: TextField(
                 enabled: _backupOnExit,
-                controller: TextEditingController(text: '$_backupExitMinHours'),
+                controller: _backupExitMinHoursCtrl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(isDense: true),
                 onChanged: (v) async {
                   final n = int.tryParse(v.trim());
                   if (n == null || n < 0) return;
-                  setState(() => _backupExitMinHours = n);
+                  _backupExitMinHours = n;
                   await AppServices.I.settings
                       .setInt(SettingsStore.kBackupExitMinHours, n);
                 },

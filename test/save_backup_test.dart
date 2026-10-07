@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:kisakigals/services/save_backup.dart';
@@ -142,6 +143,21 @@ void main() {
           .where((e) => e.path.endsWith('.creating'))
           .toList();
       expect(leftovers, isEmpty, reason: '临时目录应在发布后被改名');
+    });
+
+    test('恢复时防御路径穿越与越界写入', () async {
+      final name = await svc.backup(1, saves.path);
+      final metaFile = File(p.join(data.path, 'saves', '1', name, 'backup.json'));
+      final outsideFile = File(p.join(data.path, 'outside.txt'));
+      metaFile.writeAsStringSync('''{
+        "time": "2026-10-04T00:00:00.000",
+        "source": ${jsonEncode(saves.path)},
+        "files": [
+          {"rel": "../../outside.txt", "src": ${jsonEncode(outsideFile.path)}}
+        ]
+      }''');
+      await svc.restore(1, name, snapshot: false);
+      expect(outsideFile.existsSync(), isFalse, reason: '不得穿越写出到 saves 目录外部');
     });
   });
 }

@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
+import 'package:path/path.dart' as p;
 
 import '../core/constants.dart';
 import '../core/utils.dart';
@@ -159,7 +160,8 @@ class MetadataFetcher {
     _adapters[KisakiSources.steam] = SteamAdapter(buildDio(), limiters);
     _adapters[KisakiSources.cngal] = CngalAdapter(buildDio(), limiters);
     _adapters[KisakiSources.kun] = KunAdapter(buildDio(), limiters);
-    _adapters[KisakiSources.touchgal] = TouchGalAdapter(buildDio(), limiters);
+    _adapters[KisakiSources.touchgal] =
+        TouchGalAdapter(buildDio(), limiters, token: _tokens[KisakiSources.touchgal]);
     _adapters[KisakiSources.dlsite] = DlsiteAdapter(buildDio(), limiters);
   }
 
@@ -556,12 +558,22 @@ class MetadataFetcher {
   /// 无代理的独立 Dio，需要代理时图片必然下载失败且被静默吞掉，
   /// 表现为「改了封面/背景但保存后没变化」。
   Future<String> downloadImage(String url, String fileName) async {
-    if (url.isEmpty) return '';
+    final trimmedUrl = url.trim();
+    if (trimmedUrl.isEmpty) return '';
+    final uri = Uri.tryParse(trimmedUrl);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return '';
+    }
+    final safeName = p.basename(fileName).replaceAll(RegExp(r'[^\w\-]'), '_');
+    if (safeName.isEmpty) return '';
+
     final ext = RegExp(r'\.(jpe?g|png|webp)', caseSensitive: false)
-            .firstMatch(url)
+            .firstMatch(trimmedUrl)
             ?.group(0) ??
         '.jpg';
-    final path = '$coversDir/$fileName$ext';
+    final normCovers = p.normalize(p.absolute(coversDir));
+    final path = p.normalize(p.join(normCovers, '$safeName$ext'));
+    if (!p.isWithin(normCovers, path)) return '';
 
     Future<bool> attempt({required bool useProxy}) async {
       final dio = Dio(BaseOptions(

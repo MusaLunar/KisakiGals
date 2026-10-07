@@ -223,10 +223,22 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(child: _buildBody(games, layout, filter)),
-                if (_sidebarVisible) ...[
-                  const SizedBox(width: Gap.lg),
-                  _FilterSidebar(filter: filter, onClear: _clearAllFilters),
-                ],
+                AnimatedSize(
+                  duration: Motion.normal,
+                  curve: Motion.enter,
+                  alignment: Alignment.topRight,
+                  child: _sidebarVisible
+                      ? Padding(
+                          padding: const EdgeInsets.only(left: Gap.lg),
+                          child: RepaintBoundary(
+                            child: _FilterSidebar(
+                              filter: filter,
+                              onClear: _clearAllFilters,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
               ],
             ),
           ),
@@ -308,6 +320,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         kGameCardMetaHeight;
     return GridView.builder(
       padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
+      clipBehavior: Clip.none,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: count,
         mainAxisSpacing: _gridSpacing,
@@ -317,15 +330,17 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       itemCount: list.length,
       itemBuilder: (context, i) {
         final g = list[i];
-        // 首屏错落淡入（12 项之后不再延迟）
-        return StaggeredFadeIn(
-          index: i,
-          child: GameCard(
-            game: g,
-            bestPlatformRating: ratings[g.id],
-            selectionMode: _batchMode,
-            selected: _selected.contains(g.id),
-            onSelectionChanged: (sel) => _setSelected(g.id!, sel),
+        // 首屏错落淡入 + 硬件重绘隔离（卡片 hover/发光不波及其他网格项）
+        return RepaintBoundary(
+          child: StaggeredFadeIn(
+            index: i,
+            child: GameCard(
+              game: g,
+              bestPlatformRating: ratings[g.id],
+              selectionMode: _batchMode,
+              selected: _selected.contains(g.id),
+              onSelectionChanged: (sel) => _setSelected(g.id!, sel),
+            ),
           ),
         );
       },
@@ -339,6 +354,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final cols = (c.maxWidth / tileW).floor().clamp(1, 6);
     return GridView.builder(
       padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
+      clipBehavior: Clip.none,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: cols,
         mainAxisSpacing: _gridSpacing,
@@ -348,14 +364,16 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       itemCount: list.length,
       itemBuilder: (context, i) {
         final g = list[i];
-        return StaggeredFadeIn(
-          index: i,
-          child: GameListTile(
-            game: g,
-            bestPlatformRating: ratings[g.id],
-            selectionMode: _batchMode,
-            selected: _selected.contains(g.id),
-            onSelectionChanged: (sel) => _setSelected(g.id!, sel),
+        return RepaintBoundary(
+          child: StaggeredFadeIn(
+            index: i,
+            child: GameListTile(
+              game: g,
+              bestPlatformRating: ratings[g.id],
+              selectionMode: _batchMode,
+              selected: _selected.contains(g.id),
+              onSelectionChanged: (sel) => _setSelected(g.id!, sel),
+            ),
           ),
         );
       },
@@ -391,33 +409,25 @@ class _FilterSidebar extends ConsumerWidget {
       // 「清除全部筛选」置顶（有筛选时才显示）
       leading: filter.hasActive ? FilterClearButton(onTap: onClear) : null,
       sections: [
-        FilterSection(
+        FilterChipGroup<GameSort>(
           title: '排序',
-          children: [
-            for (final s in GameSort.values)
-              KChip(
-                label: s.label,
-                selected: filter.sort == s,
-                onTap: () {
-                  ref.read(libraryFilterProvider).sort = s;
-                  apply();
-                },
-              ),
-          ],
+          items: GameSort.values,
+          labelOf: (s) => s.label,
+          isSelected: (s) => filter.sort == s,
+          onSelected: (s) {
+            ref.read(libraryFilterProvider).sort = s;
+            apply();
+          },
         ),
-        FilterSection(
+        FilterChipGroup<PlayStatus>(
           title: '游玩状态',
-          children: [
-            for (final s in PlayStatus.values)
-              KChip(
-                label: s.label,
-                selected: filter.status == s,
-                onTap: () {
-                  filter.status = filter.status == s ? null : s;
-                  apply();
-                },
-              ),
-          ],
+          items: PlayStatus.values,
+          labelOf: (s) => s.label,
+          isSelected: (s) => filter.status == s,
+          onSelected: (s) {
+            filter.status = filter.status == s ? null : s;
+            apply();
+          },
         ),
         FilterSection(
           title: '收藏',
@@ -434,19 +444,15 @@ class _FilterSidebar extends ConsumerWidget {
           ],
         ),
         if (sources.isNotEmpty)
-          FilterSection(
+          FilterChipGroup<String>(
             title: '数据来源',
-            children: [
-              for (final src in sources)
-                KChip(
-                  label: KisakiSources.labels[src] ?? src,
-                  selected: filter.source == src,
-                  onTap: () {
-                    filter.source = filter.source == src ? null : src;
-                    apply();
-                  },
-                ),
-            ],
+            items: sources,
+            labelOf: (src) => KisakiSources.labels[src] ?? src,
+            isSelected: (src) => filter.source == src,
+            onSelected: (src) {
+              filter.source = filter.source == src ? null : src;
+              apply();
+            },
           ),
         if (devs.isNotEmpty)
           FilterSection(
@@ -482,19 +488,19 @@ class _FilterSidebar extends ConsumerWidget {
             ],
           ),
         if (tags.isNotEmpty)
-          FilterSection(
+          FilterChipGroup<TagItem>(
             title: '标签',
-            children: [
-              for (final t in tags.take(40))
-                KChip(
-                  label: t.name,
-                  selected: filter.tag == t.name,
-                  onTap: () {
-                    filter.tag = filter.tag == t.name ? null : t.name;
-                    apply();
-                  },
-                ),
-            ],
+            searchable: true,
+            searchHint: '过滤标签…',
+            collapsedCount: 16,
+            items: tags,
+            labelOf: (t) => t.name,
+            iconOf: (_) => Icons.tag_rounded,
+            isSelected: (t) => filter.tag == t.name,
+            onSelected: (t) {
+              filter.tag = filter.tag == t.name ? null : t.name;
+              apply();
+            },
           ),
       ],
     );

@@ -66,7 +66,10 @@ class ProcInfo {
 /// 枚举系统全部进程。
 List<ProcInfo> enumerateProcesses() {
   final snapshot = _createSnapshot(_th32csSnapProcess, 0);
-  if (snapshot == Pointer.fromAddress(0)) return const [];
+  final addr = snapshot.address;
+  if (addr == 0 || addr == -1 || addr == 0xFFFFFFFFFFFFFFFF || addr == 0xFFFFFFFF) {
+    return const [];
+  }
   final entry = malloc<PROCESSENTRY32W>();
   try {
     entry.ref.dwSize = sizeOf<PROCESSENTRY32W>();

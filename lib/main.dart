@@ -12,6 +12,7 @@ import 'data/settings_store.dart';
 import 'providers.dart';
 import 'ui/design.dart';
 import 'ui/shell/app_shell.dart';
+import 'ui/shell/tabs.dart' show Tabs;
 import 'ui/theme.dart';
 import 'ui/widgets/notifications.dart';
 
@@ -48,6 +49,32 @@ final GlobalKey shotBoundaryKey = GlobalKey();
 
 bool _trayReady = false;
 
+/// 创建或更新托盘右键菜单（层级划分清晰、含语义图标、支持游戏运行状态动态联动）。
+Future<void> updateTrayMenu({String? runningGameTitle}) async {
+  if (!_trayReady) return;
+  final hasGame = runningGameTitle != null && runningGameTitle.isNotEmpty;
+  await trayManager.setContextMenu(Menu(items: [
+    MenuItem(key: 'title', label: 'KisakiGals v1.0.1', disabled: true),
+    MenuItem.separator(),
+    MenuItem(key: 'show', label: '🖥️  打开主面板'),
+    MenuItem.separator(),
+    MenuItem(key: 'nav_library', label: '📚  我的游戏库'),
+    MenuItem(key: 'nav_stats', label: '📊  游玩统计'),
+    MenuItem(key: 'nav_settings', label: '⚙️  偏好设置'),
+    if (hasGame) ...[
+      MenuItem.separator(),
+      MenuItem(
+        key: 'status',
+        label: '🎮  正在游玩: $runningGameTitle',
+        disabled: true,
+      ),
+      MenuItem(key: 'stop_tracking', label: '⏹  结束当前会话'),
+    ],
+    MenuItem.separator(),
+    MenuItem(key: 'quit', label: '❌  退出 KisakiGals'),
+  ]));
+}
+
 /// 创建托盘图标与菜单。
 Future<void> _setupTray() async {
   if (_trayReady) return;
@@ -64,12 +91,8 @@ Future<void> _setupTray() async {
   }
   await trayManager.setIcon(icoPath);
   await trayManager.setToolTip('KisakiGals');
-  await trayManager.setContextMenu(Menu(items: [
-    MenuItem(key: 'show', label: '打开 KisakiGals'),
-    MenuItem.separator(),
-    MenuItem(key: 'quit', label: '退出'),
-  ]));
   _trayReady = true;
+  await updateTrayMenu();
 }
 
 /// 应用「关闭行为」设置：exit=直接退出；tray=隐藏到托盘。
@@ -155,22 +178,44 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
   }
 
   @override
-  void onTrayIconMouseDown() {
-    windowManager.show();
-    windowManager.focus();
+  void onTrayIconMouseDown() async {
+    final isMin = await windowManager.isMinimized();
+    if (isMin) {
+      await windowManager.restore();
+    }
+    await windowManager.show();
+    await windowManager.focus();
   }
 
   @override
-  void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu();
+  void onTrayIconRightMouseDown() async {
+    await trayManager.popUpContextMenu();
   }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) async {
+    final isMin = await windowManager.isMinimized();
+    if (isMin) {
+      await windowManager.restore();
+    }
     switch (menuItem.key) {
       case 'show':
-        windowManager.show();
-        windowManager.focus();
+        await windowManager.show();
+        await windowManager.focus();
+      case 'nav_library':
+        await windowManager.show();
+        await windowManager.focus();
+        ref.read(tabIndexProvider.notifier).state = Tabs.library;
+      case 'nav_stats':
+        await windowManager.show();
+        await windowManager.focus();
+        ref.read(tabIndexProvider.notifier).state = Tabs.stats;
+      case 'nav_settings':
+        await windowManager.show();
+        await windowManager.focus();
+        ref.read(tabIndexProvider.notifier).state = Tabs.settings;
+      case 'stop_tracking':
+        AppServices.I.tracker.stopTracking(saveSession: true);
       case 'quit':
         await _shutdown();
         await trayManager.destroy();
@@ -180,6 +225,16 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
 
   @override
   Widget build(BuildContext context) {
+    // 监听运行中的游戏并动态刷新托盘菜单状态
+    ref.listen<int?>(trackingGameProvider, (prev, next) async {
+      if (next != null) {
+        final game = await AppServices.I.repo.getGame(next);
+        await updateTrayMenu(runningGameTitle: game?.displayName ?? '');
+      } else {
+        await updateTrayMenu();
+      }
+    });
+
     final pref = ref.watch(themeProvider);
     return MaterialApp(
       title: 'KisakiGals',

@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 class LaunchResult {
   final bool ok;
@@ -120,7 +121,7 @@ class GameLauncher {
       // 3) 降级：cmd /c start（兼容全角路径等场景）
       try {
         await Process.run('cmd.exe', ['/c', 'start', '""', absExe],
-                workingDirectory: workDir, runInShell: true)
+                workingDirectory: workDir, runInShell: false)
             .timeout(const Duration(seconds: 15), onTimeout: () {
           throw TimeoutException('启动超时');
         });
@@ -137,15 +138,37 @@ class GameLauncher {
   }
 
   static Future<void> openUrl(String url) async {
-    await Process.run('cmd', ['/c', 'start', '', url], runInShell: true);
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   static Future<void> deleteToRecycleBin(String path) async {
-    // PowerShell 调用 Shell COM 删除到回收站（转义单引号防注入/断句）
-    final safe = path.replaceAll("'", "''");
-    final ps =
-        "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('$safe', 'OnlyErrorDialogs', 'SendToRecycleBin')";
-    await Process.run('powershell', ['-NoProfile', '-Command', ps]);
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) return;
+    final normPath = trimmed.replaceAll('/', r'\');
+    final process = await Process.start('powershell', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      r'''
+Add-Type -AssemblyName Microsoft.VisualBasic
+$target = [Console]::In.ReadLine()
+if ([string]::IsNullOrWhiteSpace($target)) { exit 0 }
+if ([System.IO.Directory]::Exists($target)) {
+  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($target, 'OnlyErrorDialogs', 'SendToRecycleBin')
+} elseif ([System.IO.File]::Exists($target)) {
+  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($target, 'OnlyErrorDialogs', 'SendToRecycleBin')
+}
+''',
+    ]);
+    process.stdin.writeln(normPath);
+    await process.stdin.flush();
+    await process.stdin.close();
+    await process.exitCode;
   }
 
   /// 从游戏目录自动识别可执行文件（参考 ChronoTide GameLauncherDetector）：
@@ -190,8 +213,14 @@ class GameLauncher {
       final sameName =
           candidates.where((f) => p.basenameWithoutExtension(f.path).toLowerCase() == dirName);
       if (sameName.isNotEmpty) return sameName.first.path;
-      candidates.sort((a, b) =>
-          b.statSync().modified.compareTo(a.statSync().modified));
+      DateTime mtime(File f) {
+        try {
+          return f.statSync().modified;
+        } catch (_) {
+          return DateTime.fromMillisecondsSinceEpoch(0);
+        }
+      }
+      candidates.sort((a, b) => mtime(b).compareTo(mtime(a)));
       return candidates.first.path;
     } catch (_) {
       return '';

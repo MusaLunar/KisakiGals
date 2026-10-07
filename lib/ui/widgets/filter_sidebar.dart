@@ -182,3 +182,206 @@ class FilterSection extends StatelessWidget {
     );
   }
 }
+
+/// 通用筛选分组组件（支持展开/收起折叠、搜索过滤、选中项强制常驻）。
+class FilterChipGroup<T> extends StatefulWidget {
+  final String title;
+  final String? hint;
+  final List<T> items;
+  final String Function(T item) labelOf;
+  final IconData? Function(T item)? iconOf;
+  final Color? Function(T item)? colorOf;
+  final bool Function(T item) isSelected;
+  final ValueChanged<T> onSelected;
+  final bool searchable;
+  final String searchHint;
+  final int collapsedCount; // 0 表示不折叠全部展开
+  final Widget? above;
+  final Widget? child;
+
+  const FilterChipGroup({
+    super.key,
+    required this.title,
+    required this.items,
+    required this.labelOf,
+    required this.isSelected,
+    required this.onSelected,
+    this.iconOf,
+    this.colorOf,
+    this.hint,
+    this.searchable = false,
+    this.searchHint = '过滤…',
+    this.collapsedCount = 0,
+    this.above,
+    this.child,
+  });
+
+  @override
+  State<FilterChipGroup<T>> createState() => _FilterChipGroupState<T>();
+}
+
+class _FilterChipGroupState<T> extends State<FilterChipGroup<T>> {
+  final _searchCtrl = TextEditingController();
+  bool _expanded = false;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _searchCtrl.text.trim().toLowerCase();
+    List<T> visible;
+
+    if (query.isNotEmpty) {
+      visible = widget.items
+          .where((it) => widget.labelOf(it).toLowerCase().contains(query))
+          .toList();
+    } else if (widget.collapsedCount > 0 && !_expanded) {
+      visible = widget.items.take(widget.collapsedCount).toList();
+      // 已选中的项目强制常驻显示，避免折叠后「选了但看不见」
+      for (final it in widget.items) {
+        if (widget.isSelected(it) && !visible.contains(it)) {
+          visible.add(it);
+        }
+      }
+    } else {
+      visible = widget.items;
+    }
+
+    Widget? trailing;
+    if (widget.collapsedCount > 0 &&
+        query.isEmpty &&
+        widget.items.length > widget.collapsedCount) {
+      trailing = TextButton(
+        style: TextButton.styleFrom(
+          minimumSize: Size.zero,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        onPressed: () => setState(() => _expanded = !_expanded),
+        child: Text(_expanded ? '收起' : '更多 (${widget.items.length})'),
+      );
+    }
+
+    Widget? aboveContent = widget.above;
+    if (widget.searchable) {
+      final searchField = Padding(
+        padding: const EdgeInsets.only(bottom: Gap.xs),
+        child: TextField(
+          controller: _searchCtrl,
+          decoration: InputDecoration(
+            hintText: widget.searchHint,
+            prefixIcon: const Icon(Icons.search_rounded, size: 16),
+            suffixIcon: query.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear_rounded, size: 14),
+                    onPressed: () => setState(() => _searchCtrl.clear()),
+                  )
+                : null,
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+      );
+      aboveContent = aboveContent == null
+          ? searchField
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [aboveContent, searchField],
+            );
+    }
+
+    return FilterSection(
+      title: widget.title,
+      hint: widget.hint,
+      trailing: trailing,
+      above: aboveContent,
+      child: widget.child,
+      children: [
+        for (final it in visible)
+          KChip(
+            label: widget.labelOf(it),
+            icon: widget.iconOf?.call(it),
+            color: widget.colorOf?.call(it),
+            selected: widget.isSelected(it),
+            onTap: () => widget.onSelected(it),
+          ),
+      ],
+    );
+  }
+}
+
+/// 通用区间输入组件（如年份起止、评分区间）。
+class FilterRangeInput extends StatelessWidget {
+  final TextEditingController fromController;
+  final TextEditingController toController;
+  final FocusNode? fromFocus;
+  final FocusNode? toFocus;
+  final String fromHint;
+  final String toHint;
+  final String helpText;
+  final VoidCallback onSubmitted;
+
+  const FilterRangeInput({
+    super.key,
+    required this.fromController,
+    required this.toController,
+    required this.onSubmitted,
+    this.fromFocus,
+    this.toFocus,
+    this.fromHint = '起',
+    this.toHint = '止',
+    this.helpText = '填完按回车生效，留空表示不限',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            SizedBox(
+              width: 72,
+              child: TextField(
+                controller: fromController,
+                focusNode: fromFocus,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => onSubmitted(),
+                decoration: InputDecoration(hintText: fromHint, isDense: true),
+              ),
+            ),
+            const SizedBox(width: Gap.sm),
+            Text('—',
+                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+            const SizedBox(width: Gap.sm),
+            SizedBox(
+              width: 72,
+              child: TextField(
+                controller: toController,
+                focusNode: toFocus,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => onSubmitted(),
+                decoration: InputDecoration(hintText: toHint, isDense: true),
+              ),
+            ),
+          ],
+        ),
+        if (helpText.isNotEmpty) ...[
+          const SizedBox(height: Gap.xs),
+          Text(helpText,
+              style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
+        ],
+      ],
+    );
+  }
+}

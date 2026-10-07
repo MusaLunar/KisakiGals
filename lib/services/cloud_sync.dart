@@ -89,7 +89,7 @@ class CloudSyncService {
             'offset': offset,
           },
           options: Options(validateStatus: (s) => s != null && s < 500));
-      if (r.statusCode != 200) {
+      if (r.statusCode != 200 || r.data is! Map) {
         return SyncResult(false, 0, 0, 'Bangumi 返回 ${r.statusCode}');
       }
       final m = Map<String, dynamic>.from(r.data as Map);
@@ -136,7 +136,7 @@ class CloudSyncService {
             'page': page,
           },
           options: Options(validateStatus: (s) => s != null && s < 500));
-      if (r.statusCode != 200) {
+      if (r.statusCode != 200 || r.data is! Map) {
         return SyncResult(false, 0, 0, 'VNDB 返回 ${r.statusCode}');
       }
       final m = Map<String, dynamic>.from(r.data as Map);
@@ -187,7 +187,7 @@ class CloudSyncService {
           'https://api.hikarinagi.org/v3/user/me/rates/galgames',
           queryParameters: {'page': page, 'page_size': 50},
           options: Options(validateStatus: (s) => s != null && s < 500));
-      if (r.statusCode != 200) {
+      if (r.statusCode != 200 || r.data is! Map) {
         return SyncResult(false, 0, 0, 'Hikarinagi 返回 ${r.statusCode}');
       }
       final m = Map<String, dynamic>.from(r.data as Map);

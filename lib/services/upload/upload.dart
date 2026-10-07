@@ -144,16 +144,19 @@ class ReviewUploader {
         case KisakiSources.bangumi:
           final dio = _dio({'Authorization': 'Bearer $token'});
           final r = await dio.get('https://api.bgm.tv/v0/me');
+          if (r.data is! Map) return const UploadResult(false, 'Bangumi 返回数据格式异常');
           final m = Map<String, dynamic>.from(r.data as Map);
           return UploadResult(true, '欢迎，${m['nickname'] ?? m['username'] ?? '用户'}');
         case KisakiSources.vndb:
           final dio = _dio({'Authorization': 'Token $token'});
           final r = await dio.get('https://api.vndb.org/kana/authinfo');
+          if (r.data is! Map) return const UploadResult(false, 'VNDB 返回数据格式异常');
           final m = Map<String, dynamic>.from(r.data as Map);
           return UploadResult(true, '欢迎，${m['username'] ?? '用户'}');
         case KisakiSources.hikarinagi:
           final dio = _dio({'Authorization': 'Bearer $token'});
           final r = await dio.get('https://api.hikarinagi.org/v3/user/me');
+          if (r.data is! Map) return const UploadResult(false, 'Hikarinagi 返回数据格式异常');
           final m = Map<String, dynamic>.from(r.data as Map);
           final data = Map<String, dynamic>.from((m['data'] ?? m) as Map);
           return UploadResult(true, '欢迎，${data['nickname'] ?? data['name'] ?? '用户'}');

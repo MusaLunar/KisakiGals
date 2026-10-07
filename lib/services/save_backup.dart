@@ -228,12 +228,25 @@ class SaveBackupService {
       await backup(gameId, source, auto: true);
     }
 
+    final normDir = p.normalize(dir.absolute.path);
+    final normSource = source.trim().isNotEmpty
+        ? p.normalize(Directory(source.trim()).absolute.path)
+        : '';
+    if (normSource.isEmpty) throw StateError('备份源目录配置无效');
+
     var ok = 0;
     for (final f in files) {
       final entry = Map<String, dynamic>.from(f as Map);
-      final srcFile = File(p.join(dir.path, '${entry['rel']}'));
-      if (!srcFile.existsSync()) continue;
-      final dst = File('${entry['src']}');
+      final rawRel = '${entry['rel'] ?? ''}'.replaceAll('\\', '/');
+      if (rawRel.isEmpty) continue;
+      final srcFile = File(p.normalize(p.join(normDir, rawRel)));
+      if (!p.isWithin(normDir, srcFile.path) || !srcFile.existsSync()) continue;
+
+      // 严格还原至受保护的源存档目录下，防止恶意 backup.json 穿越覆写系统任意文件
+      final dstPath = p.normalize(p.join(normSource, rawRel));
+      if (!p.isWithin(normSource, dstPath)) continue;
+
+      final dst = File(dstPath);
       dst.parent.createSync(recursive: true);
       srcFile.copySync(dst.path);
       ok++;

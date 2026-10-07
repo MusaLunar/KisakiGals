@@ -565,6 +565,7 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
 
     return GridView.builder(
       controller: _scroll,
+      clipBehavior: Clip.none,
       padding: const EdgeInsets.only(bottom: Gap.xl),
       gridDelegate: _kGridDelegate,
       itemCount: visible.length + tail,
@@ -576,7 +577,9 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
           return _tailErrorCard(tailError ?? '');
         }
         final g = visible[index];
-        return _tile(g, inLibrary: library.containsKey(discoverLibraryKey(g)));
+        return RepaintBoundary(
+          child: _tile(g, inLibrary: library.containsKey(discoverLibraryKey(g))),
+        );
       },
     );
   }
@@ -1092,7 +1095,6 @@ class _DiscoverFilterSidebarState
 
   final _fromCtrl = TextEditingController();
   final _toCtrl = TextEditingController();
-  final _tagCtrl = TextEditingController();
 
   /// 年份输入框的焦点：失焦即视为「填完了」并提交
   final _fromFocus = FocusNode();
@@ -1102,8 +1104,6 @@ class _DiscoverFilterSidebarState
   /// 不能只在「两格都没焦点」时提交，否则用户清空的那格会被写回旧值。
   bool _fromHadFocus = false;
   bool _toHadFocus = false;
-
-  bool _tagsExpanded = false;
 
   @override
   void initState() {
@@ -1141,7 +1141,6 @@ class _DiscoverFilterSidebarState
     _toFocus.dispose();
     _fromCtrl.dispose();
     _toCtrl.dispose();
-    _tagCtrl.dispose();
     super.dispose();
   }
 
@@ -1218,7 +1217,6 @@ class _DiscoverFilterSidebarState
   @override
   Widget build(BuildContext context) {
     final filter = ref.watch(discoverFilterProvider);
-    final scheme = Theme.of(context).colorScheme;
     _syncYearFields(filter);
 
     return FilterSidebar(
@@ -1289,47 +1287,12 @@ class _DiscoverFilterSidebarState
                 },
               ),
           ],
-          // 自定义区间：两格窄输入（侧栏只有 210 宽，留空表示不限，回车提交）
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  SizedBox(
-                    width: 72,
-                    child: TextField(
-                      controller: _fromCtrl,
-                      focusNode: _fromFocus,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => _commitYears(notify: true),
-                      decoration:
-                          const InputDecoration(hintText: '起', isDense: true),
-                    ),
-                  ),
-                  const SizedBox(width: Gap.sm),
-                  Text('—',
-                      style: Type.caption
-                          .copyWith(color: scheme.onSurfaceVariant)),
-                  const SizedBox(width: Gap.sm),
-                  SizedBox(
-                    width: 72,
-                    child: TextField(
-                      controller: _toCtrl,
-                      focusNode: _toFocus,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => _commitYears(notify: true),
-                      decoration:
-                          const InputDecoration(hintText: '止', isDense: true),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: Gap.xs),
-              Text('填完按回车生效，留空表示不限',
-                  style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
-            ],
+          child: FilterRangeInput(
+            fromController: _fromCtrl,
+            toController: _toCtrl,
+            fromFocus: _fromFocus,
+            toFocus: _toFocus,
+            onSubmitted: () => _commitYears(notify: true),
           ),
         ),
         FilterSection(
@@ -1349,78 +1312,23 @@ class _DiscoverFilterSidebarState
             ),
           ],
         ),
-        FilterSection(
+        FilterChipGroup<({String id, String label})>(
           title: '标签',
           hint: filter.source == DiscoverSource.bgm
               ? 'Bangumi 不支持标签筛选，此条件不生效'
               : (filter.searching
                   ? '搜索时此条件不生效（只按关键词）'
                   : '多选为「同时满足」'),
-          trailing: _tagToggle(),
-          // 标签搜索框：数量多时先过滤再选
-          above: TextField(
-            controller: _tagCtrl,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: '过滤标签',
-              prefixIcon: Icon(Icons.search_rounded, size: 18),
-              isDense: true,
-            ),
-          ),
-          children: _tagChips(filter),
+          items: DiscoverTags.presets,
+          labelOf: (t) => t.label,
+          iconOf: (_) => Icons.tag_rounded,
+          isSelected: (t) => filter.tagIds.contains(t.id),
+          onSelected: (t) => _apply(filter.toggleTag(t.id)),
+          searchable: true,
+          searchHint: '过滤标签',
+          collapsedCount: _kTagsCollapsed,
         ),
       ],
-    );
-  }
-
-  /// 标签列表：默认折叠显示前 N 个（热门），点「更多」展开；
-  /// 输入过滤词时直接显示全部命中项。
-  List<Widget> _tagChips(DiscoverFilter filter) {
-    final q = _tagCtrl.text.trim().toLowerCase();
-    final all = DiscoverTags.presets;
-    final List<({String id, String label})> shown;
-    if (q.isEmpty) {
-      shown = _tagsExpanded
-          ? [...all]
-          : all.take(_kTagsCollapsed).toList(growable: true);
-      // 已选中的标签一定显示（否则会出现「选了却看不见、也取消不掉」）
-      for (final t in all) {
-        if (filter.tagIds.contains(t.id) && !shown.contains(t)) shown.add(t);
-      }
-    } else {
-      shown = all
-          .where((t) =>
-              t.label.toLowerCase().contains(q) || t.id.contains(q))
-          .toList();
-    }
-    return [
-      for (final t in shown)
-        KChip(
-          label: t.label,
-          icon: Icons.tag_rounded,
-          selected: filter.tagIds.contains(t.id),
-          onTap: () => _apply(filter.toggleTag(t.id)),
-        ),
-    ];
-  }
-
-  /// 「更多 / 收起」：只在折叠确实藏了东西时出现（正在过滤时不出现）。
-  Widget? _tagToggle() {
-    if (DiscoverTags.presets.length <= _kTagsCollapsed) return null;
-    if (_tagCtrl.text.trim().isNotEmpty) return null;
-    final scheme = Theme.of(context).colorScheme;
-    return TextButton(
-      style: TextButton.styleFrom(
-        minimumSize: Size.zero,
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        visualDensity: VisualDensity.compact,
-      ),
-      onPressed: () => setState(() => _tagsExpanded = !_tagsExpanded),
-      child: Text(
-        _tagsExpanded ? '收起' : '更多',
-        style: Type.caption.copyWith(color: scheme.primary),
-      ),
     );
   }
 }

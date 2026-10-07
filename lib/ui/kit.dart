@@ -12,7 +12,9 @@ import 'package:flutter/material.dart';
 
 import 'design.dart';
 import 'theme.dart';
-import 'widgets/common.dart' show CoverImage, cachedFileExists, GlassPanel;
+import 'widgets/common.dart'
+    show CoverImage, cachedFileExists, GlassPanel;
+export 'widgets/common.dart' show invalidateFileExistsCache;
 
 // ============================ 页面骨架 ============================
 
@@ -479,9 +481,12 @@ class _KIconActionState extends State<KIconAction> {
               borderRadius: BorderRadius.circular(11),
               border: Border.all(
                 color: widget.active
-                    ? scheme.primary.withValues(alpha: 0.35)
-                    : Colors.transparent,
+                    ? scheme.primary.withValues(alpha: 0.40)
+                    : (_hover ? Elev.border(dark) : Colors.transparent),
               ),
+              boxShadow: widget.active
+                  ? Elev.focusGlow(dark, scheme.primary)
+                  : null,
             ),
             child: Icon(widget.icon,
                 size: 19,
@@ -574,12 +579,13 @@ class _KChipState extends State<KChip> {
   }
 }
 
-/// 主按钮（药丸）：统一高度与内边距。
-class KPill extends StatelessWidget {
+/// 主按钮（药丸）：统一高度与内边距，支持悬浮微上浮、发光及按压弹性回弹。
+class KPill extends StatefulWidget {
   final String label;
   final IconData? icon;
   final VoidCallback? onTap;
   final bool filled;
+  final Color? color;
 
   const KPill({
     super.key,
@@ -587,20 +593,89 @@ class KPill extends StatelessWidget {
     this.icon,
     this.onTap,
     this.filled = true,
+    this.color,
   });
 
   @override
+  State<KPill> createState() => _KPillState();
+}
+
+class _KPillState extends State<KPill> {
+  bool _hover = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final child = icon == null
-        ? Text(label)
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final primary = widget.color ?? scheme.primary;
+    final enabled = widget.onTap != null;
+
+    final child = widget.icon == null
+        ? Text(widget.label, style: Type.label)
         : Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 18),
+            Icon(widget.icon, size: 17),
             const SizedBox(width: 7),
-            Text(label),
+            Text(widget.label, style: Type.label),
           ]);
-    return filled
-        ? FilledButton(onPressed: onTap, child: child)
-        : OutlinedButton(onPressed: onTap, child: child);
+
+    final bgColor = widget.filled
+        ? primary
+        : (_hover
+            ? primary.withValues(alpha: dark ? 0.16 : 0.08)
+            : Colors.transparent);
+    final fgColor = widget.filled
+        ? scheme.onPrimary
+        : (widget.color ?? scheme.onSurface);
+    final borderColor = widget.filled
+        ? Colors.transparent
+        : (_hover
+            ? primary.withValues(alpha: dark ? 0.45 : 0.35)
+            : Elev.border(dark));
+
+    return MouseRegion(
+      cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: enabled ? (_) => setState(() => _hover = true) : null,
+      onExit: enabled
+          ? (_) => setState(() {
+                _hover = false;
+                _pressed = false;
+              })
+          : null,
+      child: GestureDetector(
+        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+        onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
+        onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+        onTap: widget.onTap,
+        child: RepaintBoundary(
+          child: AnimatedScale(
+            scale: _pressed ? 0.95 : (_hover ? 1.02 : 1.0),
+            duration: Motion.press,
+            curve: Motion.spring,
+            child: AnimatedContainer(
+              duration: Motion.fast,
+              curve: Motion.enter,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: Radii.pill,
+                border: Border.all(color: borderColor, width: 1.2),
+                boxShadow: (widget.filled && _hover && enabled)
+                    ? Elev.buttonHover(dark, primary)
+                    : null,
+              ),
+              child: DefaultTextStyle(
+                style: Type.label.copyWith(color: fgColor),
+                child: IconTheme(
+                  data: IconThemeData(color: fgColor, size: 17),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

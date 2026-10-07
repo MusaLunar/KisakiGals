@@ -36,6 +36,22 @@ class Gap {
 
   /// 间距节奏：区块之间
   static const sectionGap = 28.0;
+
+  // 常用对称内边距预设（基于 4px 阶梯，消除各页手写魔法数字）
+  static const insetsHXs = EdgeInsets.symmetric(horizontal: xs);
+  static const insetsHSm = EdgeInsets.symmetric(horizontal: sm);
+  static const insetsHMd = EdgeInsets.symmetric(horizontal: md);
+  static const insetsHLg = EdgeInsets.symmetric(horizontal: lg);
+  static const insetsHXl = EdgeInsets.symmetric(horizontal: xl);
+  static const insetsVXs = EdgeInsets.symmetric(vertical: xs);
+  static const insetsVSm = EdgeInsets.symmetric(vertical: sm);
+  static const insetsVMd = EdgeInsets.symmetric(vertical: md);
+  static const insetsVLg = EdgeInsets.symmetric(vertical: lg);
+  static const insetsAllXs = EdgeInsets.all(xs);
+  static const insetsAllSm = EdgeInsets.all(sm);
+  static const insetsAllMd = EdgeInsets.all(md);
+  static const insetsAllLg = EdgeInsets.all(lg);
+  static const insetsAllXl = EdgeInsets.all(xl);
 }
 
 /// 圆角阶梯。
@@ -48,81 +64,124 @@ class Radii {
   static const lg = 18.0;
   static const xl = 24.0;
   static const xxl = 28.0;
+  static const full = 999.0;
 
   static BorderRadius get chip => BorderRadius.circular(xs);
   static BorderRadius get button => BorderRadius.circular(md);
   static BorderRadius get card => BorderRadius.circular(lg);
   static BorderRadius get sheet => BorderRadius.circular(xl);
+  static BorderRadius get pill => BorderRadius.circular(full);
 }
 
-/// 阴影与描边：常态硬阴影、hover 柔光、浮层重投影。
+/// 阴影与描边：常态分层软阴影、hover 柔光辉光、浮层重投影。
 class Elev {
-  /// 静置：零模糊位移投影（贴上纸片的感觉）。
-  /// 用中性黑而非主色：主色投影在浅色底上几乎看不见，会显得"卡片是扁平的"。
+  /// 静置卡片投影：双层自然软阴影，避免单层生硬，营造纸片悬浮呼吸感。
   static List<BoxShadow> card(bool dark, Color outline) => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.075),
-          offset: const Offset(2, 3),
-          blurRadius: 0,
+          color: Colors.black.withValues(alpha: dark ? 0.32 : 0.045),
+          offset: const Offset(0, 3),
+          blurRadius: 8,
+        ),
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.18 : 0.02),
+          offset: const Offset(0, 1),
+          blurRadius: 2,
         ),
       ];
 
-  /// hover：柔和光晕（与静置的硬阴影形成对比，"精致感"的关键）
+  /// hover 柔光：双层深层投影 + 外圈主题色辉光（提取自 ChronoTide FocusGlow 与 Steam 现代卡片设计）。
   static List<BoxShadow> cardHover(bool dark, Color outline) => [
         BoxShadow(
-          color: dark
-              ? Colors.black.withValues(alpha: 0.55)
-              : outline.withValues(alpha: 0.26),
-          offset: const Offset(2, 8),
-          blurRadius: 18,
+          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.09),
+          offset: const Offset(0, 10),
+          blurRadius: 22,
+        ),
+        BoxShadow(
+          color: outline.withValues(alpha: dark ? 0.30 : 0.20),
+          offset: const Offset(0, 1),
+          blurRadius: 14,
+          spreadRadius: 0.5,
         ),
       ];
 
-  /// 浮层（菜单/对话框）
+  /// 按钮悬浮高光
+  static List<BoxShadow> buttonHover(bool dark, Color outline) => [
+        BoxShadow(
+          color: outline.withValues(alpha: dark ? 0.36 : 0.24),
+          offset: const Offset(0, 4),
+          blurRadius: 12,
+          spreadRadius: 0.2,
+        ),
+      ];
+
+  /// 焦点光晕（键盘聚焦或选中文本框时外发光）
+  static List<BoxShadow> focusGlow(bool dark, Color outline) => [
+        BoxShadow(
+          color: outline.withValues(alpha: dark ? 0.42 : 0.26),
+          blurRadius: 10,
+          spreadRadius: 1.2,
+        ),
+      ];
+
+  /// 浮层（菜单/对话框/抽屉）：深沉柔和的大范围遮挡阴影
   static List<BoxShadow> overlay(bool dark) => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? 0.45 : 0.14),
-          blurRadius: 28,
+          color: Colors.black.withValues(alpha: dark ? 0.55 : 0.14),
+          blurRadius: 32,
           offset: const Offset(0, 12),
+        ),
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.25 : 0.05),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
         ),
       ];
 
   /// 卡片描边：低对比、极细
   static Color border(bool dark) => dark
-      ? Colors.white.withValues(alpha: 0.08)
-      : Colors.black.withValues(alpha: 0.055);
+      ? Colors.white.withValues(alpha: 0.085)
+      : Colors.black.withValues(alpha: 0.06);
+
+  /// 激活/高亮描边
+  static Color borderActive(Color outline, bool dark) =>
+      outline.withValues(alpha: dark ? 0.50 : 0.40);
 }
 
-/// 动效：统一时长与曲线。
+/// 动效：统一时长与曲线（严格优先走硬件合成层 Composite）。
 class Motion {
   /// 按压反馈
   static const press = Duration(milliseconds: 90);
 
-  /// 微交互（hover、图标切换）
-  static const fast = Duration(milliseconds: 150);
+  /// 微交互（hover、图标切换、微缩放）
+  static const fast = Duration(milliseconds: 140);
 
-  /// 常规（卡片状态、展开收起）
-  static const normal = Duration(milliseconds: 200);
+  /// 常规（卡片状态、展开收起、抽屉滑动）
+  static const normal = Duration(milliseconds: 220);
 
   /// 页面/浮层进场
-  static const page = Duration(milliseconds: 250);
+  static const page = Duration(milliseconds: 260);
 
-  /// 出场（比进场略快）
-  static const out = Duration(milliseconds: 200);
+  /// 出场（比进场略快，减少等待感）
+  static const out = Duration(milliseconds: 180);
 
   /// 内容进入（列表错落、换图）
-  static const slow = Duration(milliseconds: 300);
+  static const slow = Duration(milliseconds: 320);
+
+  /// 呼吸脉冲时长（运行中状态灯）
+  static const pulse = Duration(milliseconds: 1400);
 
   static const enter = Curves.easeOutCubic;
   static const exit = Curves.easeInCubic;
   static const standard = Curves.easeInOutCubic;
   static const emphasized = Curves.easeOutQuint;
+  static const spring = Curves.easeOutBack;
 
-  // 位移/缩放量（ChronoTide 量级）
-  static const hoverLift = -3.0;
-  static const hoverScale = 1.015;
+  // 位移/缩放量（微交互标准量级）
+  static const hoverLift = -3.5;
+  static const hoverScale = 1.018;
   static const pressScale = 0.975;
   static const dialogScaleFrom = 0.94;
+  static const sheetSlideFrom = Offset(0, 0.08);
 
   static const barrier = Color(0x66000000);
 }
@@ -292,7 +351,7 @@ class _InteractiveSurfaceState extends State<InteractiveSurface> {
             borderRadius: widget.borderRadius,
             border: Border.all(
               color: hovered
-                  ? widget.outline.withValues(alpha: dark ? 0.45 : 0.35)
+                  ? Elev.borderActive(widget.outline, dark)
                   : (widget.borderOnIdle
                       ? Elev.border(dark)
                       : Colors.transparent),
@@ -304,14 +363,16 @@ class _InteractiveSurfaceState extends State<InteractiveSurface> {
                     : Elev.card(dark, widget.outline))
                 : null,
           ),
-          child: Padding(padding: widget.padding, child: widget.child),
+          child: RepaintBoundary(
+            child: Padding(padding: widget.padding, child: widget.child),
+          ),
         ),
       ),
     );
   }
 }
 
-/// 按压回弹（用于图标按钮、chip 等小元素）。
+/// 按压回弹（用于图标按钮、chip 等小元素，严格走合成层与弹性曲线）。
 class PressableScale extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
@@ -321,7 +382,7 @@ class PressableScale extends StatefulWidget {
     super.key,
     required this.child,
     this.onTap,
-    this.pressedScale = 0.9,
+    this.pressedScale = 0.92,
   });
 
   @override
@@ -343,11 +404,128 @@ class _PressableScaleState extends State<PressableScale> {
           ? null
           : () => setState(() => _pressed = false),
       onTap: widget.onTap,
-      child: AnimatedScale(
-        scale: _pressed ? widget.pressedScale : 1.0,
-        duration: Motion.press,
+      child: RepaintBoundary(
+        child: AnimatedScale(
+          scale: _pressed ? widget.pressedScale : 1.0,
+          duration: Motion.press,
+          curve: Motion.spring,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+/// 焦点辉光容器（参考 ChronoTide FocusGlow / FocusBorder）：
+/// 自动监听焦点状态，获得焦点时展示主题外发光与加粗描边。
+class FocusGlow extends StatefulWidget {
+  final Widget child;
+  final BorderRadius borderRadius;
+  final Color? focusColor;
+  final double borderWidth;
+  final bool autofocus;
+
+  const FocusGlow({
+    super.key,
+    required this.child,
+    this.borderRadius = const BorderRadius.all(Radius.circular(Radii.md)),
+    this.focusColor,
+    this.borderWidth = 1.6,
+    this.autofocus = false,
+  });
+
+  @override
+  State<FocusGlow> createState() => _FocusGlowState();
+}
+
+class _FocusGlowState extends State<FocusGlow> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final activeColor = widget.focusColor ?? scheme.primary;
+
+    return Focus(
+      autofocus: widget.autofocus,
+      onFocusChange: (has) {
+        if (_focused != has) setState(() => _focused = has);
+      },
+      child: AnimatedContainer(
+        duration: Motion.fast,
         curve: Motion.enter,
+        decoration: BoxDecoration(
+          borderRadius: widget.borderRadius,
+          border: Border.all(
+            color: _focused ? activeColor : Colors.transparent,
+            width: widget.borderWidth,
+          ),
+          boxShadow: _focused ? Elev.focusGlow(dark, activeColor) : null,
+        ),
         child: widget.child,
+      ),
+    );
+  }
+}
+
+/// 呼吸/脉冲动效组件（运行态指示灯、活动徽标等）：
+/// 在合成层上执行平滑循环淡入淡出与微缩放，杜绝频繁触发布局与重绘。
+class PulsingGlow extends StatefulWidget {
+  final Widget child;
+  final Duration duration;
+  final double minOpacity;
+  final double maxOpacity;
+  final double minScale;
+  final double maxScale;
+
+  const PulsingGlow({
+    super.key,
+    required this.child,
+    this.duration = Motion.pulse,
+    this.minOpacity = 0.55,
+    this.maxOpacity = 1.0,
+    this.minScale = 0.95,
+    this.maxScale = 1.05,
+  });
+
+  @override
+  State<PulsingGlow> createState() => _PulsingGlowState();
+}
+
+class _PulsingGlowState extends State<PulsingGlow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opacity;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: widget.duration)
+      ..repeat(reverse: true);
+    final curve = CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut);
+    _opacity = Tween<double>(begin: widget.minOpacity, end: widget.maxOpacity)
+        .animate(curve);
+    _scale = Tween<double>(begin: widget.minScale, end: widget.maxScale)
+        .animate(curve);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: _opacity,
+        child: ScaleTransition(
+          scale: _scale,
+          child: widget.child,
+        ),
       ),
     );
   }
@@ -355,7 +533,7 @@ class _PressableScaleState extends State<PressableScale> {
 
 // ============================ 转场与内容动画 ============================
 
-/// 页面转场：淡入 + 轻微上移（比默认横向滑动安静，适合桌面应用）。
+/// 页面转场：淡入 + 轻微上移（比默认横向滑动安静，适合桌面应用，硬件合成加速）。
 class FadeThroughRoute<T> extends PageRouteBuilder<T> {
   FadeThroughRoute.builder({required WidgetBuilder builder, super.settings})
       : super(
@@ -374,7 +552,7 @@ Widget _transitions(BuildContext context, Animation<double> animation,
     child: SlideTransition(
       position: Tween(begin: const Offset(0, 0.012), end: Offset.zero)
           .animate(curved),
-      child: child,
+      child: RepaintBoundary(child: child),
     ),
   );
 }
@@ -450,7 +628,7 @@ class AnimatedCount extends StatelessWidget {
   }
 }
 
-/// 内容切换（Tab/模式切换）：淡入 + 轻微上移。
+/// 内容切换（Tab/模式切换）：淡入 + 轻微上移（硬件合成层隔离开销）。
 class FadeThroughSwitcher extends StatelessWidget {
   final Widget child;
   const FadeThroughSwitcher({super.key, required this.child});
@@ -467,7 +645,7 @@ class FadeThroughSwitcher extends StatelessWidget {
           position:
               Tween(begin: const Offset(0, 0.015), end: Offset.zero)
                   .animate(animation),
-          child: child,
+          child: RepaintBoundary(child: child),
         ),
       ),
       child: child,
@@ -475,7 +653,7 @@ class FadeThroughSwitcher extends StatelessWidget {
   }
 }
 
-/// 统一的对话框：进场 250ms（缩放 0.94→1 + 淡入）、退场 200ms，
+/// 统一的对话框：进场 260ms（缩放 0.94→1 + 淡入）、退场 180ms，
 /// 与 ReinaManager 的"大圆角 + 轻描边"外观配合（圆角由 dialogTheme 控制）。
 Future<T?> showKisakiDialog<T>({
   required BuildContext context,
@@ -499,7 +677,45 @@ Future<T?> showKisakiDialog<T>({
         opacity: curved,
         child: ScaleTransition(
           scale: Tween(begin: Motion.dialogScaleFrom, end: 1.0).animate(curved),
-          child: child,
+          child: RepaintBoundary(child: child),
+        ),
+      );
+    },
+  );
+}
+
+/// 统一的抽屉/底部弹层：进场 260ms（Slide 向上滑入 + 淡入）、退场 180ms，
+/// 严格走硬件合成层（SlideTransition + FadeTransition + RepaintBoundary）。
+Future<T?> showKisakiSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) {
+  return showGeneralDialog<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    barrierColor: Motion.barrier,
+    transitionDuration: Motion.page,
+    pageBuilder: (context, _, __) => Align(
+      alignment: Alignment.bottomCenter,
+      child: Material(
+        type: MaterialType.transparency,
+        child: builder(context),
+      ),
+    ),
+    transitionBuilder: (context, animation, secondary, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Motion.enter,
+        reverseCurve: Motion.exit,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween(begin: Motion.sheetSlideFrom, end: Offset.zero)
+              .animate(curved),
+          child: RepaintBoundary(child: child),
         ),
       );
     },

@@ -144,6 +144,9 @@ class AiService {
               ? '未知错误'
               : '连接失败：${lastConnectionError.type.name}（本地端点被安全软件/代理劫持时可改用 LAN 地址）');
     }
+    if (response.data is! Map) {
+      return AiResult(false, '', 'AI 服务端返回了非 JSON 数据（HTTP ${response.statusCode}）');
+    }
     final data = Map<String, dynamic>.from(response.data as Map);
     final choices = (data['choices'] as List?) ?? [];
     if (choices.isEmpty) {

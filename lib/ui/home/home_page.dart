@@ -211,20 +211,23 @@ class _HomePageState extends ConsumerState<HomePage> {
         else
           // 横向滚动的一排小卡：一屏能看到 6-8 部（原先一个大 Hero 只显示一部）
           SizedBox(
-            height: _kRecentTileHeight,
+            height: _kRecentTileHeight + 8,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.zero,
+              clipBehavior: Clip.none,
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
               itemCount: games.length,
               separatorBuilder: (_, __) => const SizedBox(width: Gap.md),
-              itemBuilder: (context, i) => _RecentTile(
-                game: games[i],
-                primary: i == 0,
-                onContinue: () => _continueGame(games[i]),
-                onOpen: games[i].id == null
-                    ? null
-                    : () => _openGameDetail(games[i].id!,
-                        initial: games[i]),
+              itemBuilder: (context, i) => RepaintBoundary(
+                child: _RecentTile(
+                  game: games[i],
+                  primary: i == 0,
+                  onContinue: () => _continueGame(games[i]),
+                  onOpen: games[i].id == null
+                      ? null
+                      : () => _openGameDetail(games[i].id!,
+                          initial: games[i]),
+                ),
               ),
             ),
           ),
@@ -625,15 +628,24 @@ class _RecentTileState extends ConsumerState<_RecentTile> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: CoverImage(
-                          path: game.coverPath,
-                          nsfw: game.nsfw,
-                          borderRadius: BorderRadius.circular(Radii.thumb),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(Radii.thumb),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: RepaintBoundary(
+                            child: AnimatedScale(
+                              scale: _hover ? 1.04 : 1.0,
+                              duration: Motion.fast,
+                              curve: Motion.enter,
+                              child: CoverImage(
+                                path: game.coverPath,
+                                nsfw: game.nsfw,
+                                borderRadius: BorderRadius.circular(Radii.thumb),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
                       // 悬停/最近游玩：在封面右下角浮出启动按钮
                       if (_hover || widget.primary || running)
                         Positioned(
@@ -651,7 +663,8 @@ class _RecentTileState extends ConsumerState<_RecentTile> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 6),
+              ),
+              const SizedBox(height: 6),
                 Text(
                   game.displayName,
                   maxLines: 1,

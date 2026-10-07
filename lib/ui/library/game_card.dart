@@ -35,7 +35,7 @@ const double _titleBoxHeight = 36;
 /// 封面角标的半透明深色底座（黑 55%）。
 const Color _coverScrim = Color(0x8C000000);
 
-class GameCard extends ConsumerWidget {
+class GameCard extends ConsumerStatefulWidget {
   final Game game;
   final double? bestPlatformRating;
 
@@ -54,14 +54,21 @@ class GameCard extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final game = this.game;
+  ConsumerState<GameCard> createState() => _GameCardState();
+}
+
+class _GameCardState extends ConsumerState<GameCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final game = widget.game;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
-    final picked = selectionMode && selected;
+    final picked = widget.selectionMode && widget.selected;
     // 平台评分优先，其次我的评分（都没有就不显示角标）
-    final rating = (bestPlatformRating != null && bestPlatformRating! > 0)
-        ? bestPlatformRating
+    final rating = (widget.bestPlatformRating != null && widget.bestPlatformRating! > 0)
+        ? widget.bestPlatformRating
         : (game.userRating > 0 ? game.userRating : null);
 
     // 选中态底色与卡片底色混合成不透明色，避免卡片"透出"页面背景
@@ -71,71 +78,84 @@ class GameCard extends ConsumerWidget {
             scheme.primary.withValues(alpha: dark ? 0.22 : 0.10), baseFill)
         : null;
 
-    return GestureDetector(
-      // 右键菜单：InteractiveSurface 只接管主键手势，副键在这里补
-      onSecondaryTapUp: (details) => GameCardActions.showContextMenu(
-          context, ref, game, details.globalPosition),
-      child: KCard(
-        padding: kGameCardPadding,
-        color: fill,
-        onTap: () async {
-          // 批量模式：整张卡片都是一次选中开关
-          if (selectionMode) {
-            onSelectionChanged?.call(!selected);
-            return;
-          }
-          await Navigator.of(context).push(FadeThroughRoute.builder(
-              builder: (_) =>
-                  GameDetailPage(gameId: game.id!, initial: game)));
-          if (!context.mounted) return;
-          ref.read(libraryVersionProvider.notifier).state++;
-        },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AspectRatio(
-              aspectRatio: kCoverAspect,
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: CoverImage(
-                      path: game.coverPath,
-                      nsfw: game.nsfw,
-                      borderRadius: BorderRadius.circular(Radii.md),
-                    ),
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        // 右键菜单：InteractiveSurface 只接管主键手势，副键在这里补
+        onSecondaryTapUp: (details) => GameCardActions.showContextMenu(
+            context, ref, game, details.globalPosition),
+        child: KCard(
+          padding: kGameCardPadding,
+          color: fill,
+          onTap: () async {
+            // 批量模式：整张卡片都是一次选中开关
+            if (widget.selectionMode) {
+              widget.onSelectionChanged?.call(!widget.selected);
+              return;
+            }
+            await Navigator.of(context).push(FadeThroughRoute.builder(
+                builder: (_) =>
+                    GameDetailPage(gameId: game.id!, initial: game)));
+            if (!context.mounted) return;
+            ref.read(libraryVersionProvider.notifier).state++;
+          },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AspectRatio(
+                aspectRatio: kCoverAspect,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(Radii.md),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: RepaintBoundary(
+                          child: AnimatedScale(
+                            scale: _hover ? 1.03 : 1.0,
+                            duration: Motion.fast,
+                            curve: Motion.enter,
+                            child: CoverImage(
+                              path: game.coverPath,
+                              nsfw: game.nsfw,
+                              borderRadius: BorderRadius.circular(Radii.md),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // 状态角标（想玩是默认状态，不显示，免得整页都是角标）
+                      if (game.playStatus != PlayStatus.wish)
+                        Positioned(
+                          left: 6,
+                          top: 6,
+                          child: _StatusBadge(status: game.playStatus),
+                        ),
+                      // 批量勾选圈 / 收藏星标（批量模式下让位给勾选）
+                      Positioned(
+                        right: 6,
+                        top: 6,
+                        child: widget.selectionMode
+                            ? _SelectDot(selected: picked)
+                            : _FavoriteButton(game: game),
+                      ),
+                      // 游玩中
+                      if (ref.watch(trackingGameProvider) == game.id)
+                        const Positioned(
+                          left: 6,
+                          bottom: 6,
+                          child: _PlayingTag(),
+                        ),
+                      // 评分角标
+                      if (rating != null)
+                        Positioned(
+                          right: 6,
+                          bottom: 6,
+                          child: _RatingTag(value: rating),
+                        ),
+                    ],
                   ),
-                  // 状态角标（想玩是默认状态，不显示，免得整页都是角标）
-                  if (game.playStatus != PlayStatus.wish)
-                    Positioned(
-                      left: 6,
-                      top: 6,
-                      child: _StatusBadge(status: game.playStatus),
-                    ),
-                  // 批量勾选圈 / 收藏星标（批量模式下让位给勾选）
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: selectionMode
-                        ? _SelectDot(selected: picked)
-                        : _FavoriteButton(game: game),
-                  ),
-                  // 游玩中
-                  if (ref.watch(trackingGameProvider) == game.id)
-                    const Positioned(
-                      left: 6,
-                      bottom: 6,
-                      child: _PlayingTag(),
-                    ),
-                  // 评分角标
-                  if (rating != null)
-                    Positioned(
-                      right: 6,
-                      bottom: 6,
-                      child: _RatingTag(value: rating),
-                    ),
-                ],
+                ),
               ),
-            ),
             const SizedBox(height: Gap.sm),
             // 固定两行高度：长标题最多两行省略号，不与次要信息抢位
             SizedBox(
@@ -161,8 +181,9 @@ class GameCard extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   /// 次要信息：开发商优先，其次最近游玩时间。
   static String _secondary(Game g) => g.developer.isNotEmpty
@@ -249,7 +270,13 @@ class _PlayingTag extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.play_arrow_rounded, size: 13, color: Colors.white),
+            PulsingGlow(
+              minOpacity: 0.65,
+              maxOpacity: 1.0,
+              minScale: 0.90,
+              maxScale: 1.10,
+              child: const Icon(Icons.play_arrow_rounded, size: 13, color: Colors.white),
+            ),
             const SizedBox(width: 3),
             Text('游戏中',
                 style: Type.caption.copyWith(

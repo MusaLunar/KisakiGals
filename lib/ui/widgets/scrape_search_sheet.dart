@@ -21,11 +21,8 @@ Future<List<ScrapedGame>?> showScrapeSearchSheet(
   String initialQuery = '',
   List<String>? only,
 }) {
-  return showModalBottomSheet<List<ScrapedGame>>(
+  return showKisakiSheet<List<ScrapedGame>>(
     context: context,
-    isScrollControlled: true,
-    // 底色透明：浮层外观（圆角 / 描边 / 阴影）全部交给内嵌的 KCard
-    backgroundColor: Colors.transparent,
     builder: (_) => _ScrapeSearchSheet(initialQuery: initialQuery, only: only),
   );
 }

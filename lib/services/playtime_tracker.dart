@@ -4,8 +4,12 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:window_manager/window_manager.dart';
+
+import '../app_services.dart';
 import '../core/constants.dart';
 import '../data/models.dart';
+import '../data/settings_store.dart';
 import 'process_monitor.dart';
 import 'save_write_watcher.dart';
 
@@ -121,6 +125,25 @@ class PlaytimeTracker {
             : null;
     _controller.add(PlaySessionEnd(
         session: session, elapsedSeconds: elapsed, gameId: game));
+    _restoreFocusIfEnabled();
+  }
+
+  /// 游戏进程退出后根据设置自动唤醒主窗口并恢复置顶焦点。
+  Future<void> _restoreFocusIfEnabled() async {
+    try {
+      final enabled = await AppServices.I.settings.getBool(
+        SettingsStore.kFocusOnGameExit,
+        def: true,
+      );
+      if (enabled) {
+        final isMin = await windowManager.isMinimized();
+        if (isMin) {
+          await windowManager.restore();
+        }
+        await windowManager.show();
+        await windowManager.focus();
+      }
+    } catch (_) {}
   }
 
   /// 当前已计入秒数（UI 实时展示）。

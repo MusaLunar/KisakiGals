@@ -58,6 +58,21 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   late String _localeMode = widget.game.localeMode;
   bool _autoSave = false;
   bool _leConfigured = false;
+
+  // 表单初始基准快照（用于精准脏检查）
+  late final String _initName = widget.game.name;
+  late final String _initNameCn = widget.game.nameCn;
+  late final String _initDeveloper = widget.game.developer;
+  late final String _initRelease = widget.game.releaseDate;
+  late final String _initExe = widget.game.exePath;
+  late final String _initSummary = widget.game.summary;
+  late final String _initSavePath = widget.game.savePath;
+  late final bool _initNsfw = widget.game.nsfw;
+  late final PlayStatus _initStatus = widget.game.playStatus;
+  late final String _initCoverPath = widget.game.coverPath;
+  late final String _initLocaleMode = widget.game.localeMode;
+  bool _initAutoSave = false;
+
   /// 用户选中的平台封面 URL（null = 保持当前封面）
   String? _coverPickUrl;
   /// 用户选择的本地封面路径
@@ -67,12 +82,51 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   List<SourceRecord> _sources = [];
   final _idControllers = <String, TextEditingController>{};
 
-  /// null = 保持不变；'' = 纯色；其他 = 背景图 URL
+  /// null = 保持不变；'' = 纯色；其他 = 本地绝对路径或网络 URL
   String? _bgPick;
+  String _bgLocal = '';
+
+  bool get _isDirty {
+    if (_name.text.trim() != _initName) return true;
+    if (_nameCn.text.trim() != _initNameCn) return true;
+    if (_developer.text.trim() != _initDeveloper) return true;
+    if (_release.text.trim() != _initRelease) return true;
+    if (_exe.text.trim() != _initExe) return true;
+    if (_summary.text.trim() != _initSummary) return true;
+    if (_savePathCtrl.text.trim() != _initSavePath) return true;
+    if (_status != _initStatus) return true;
+    if (_nsfw != _initNsfw) return true;
+    if (_localeMode != _initLocaleMode) return true;
+    if (_autoSave != _initAutoSave) return true;
+    if (_coverPickUrl != null && _coverPickUrl!.isNotEmpty) return true;
+    if (_coverLocal.isNotEmpty && _coverLocal != _initCoverPath) return true;
+    if (_coverPath != _initCoverPath) return true;
+    if (_bgPick != null) return true;
+    for (final s in _sources) {
+      final c = _idControllers[s.source];
+      if (c != null && c.text.trim() != s.sourceId) return true;
+    }
+    return false;
+  }
+
+  void _onFieldChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
+    for (final c in [
+      _name,
+      _nameCn,
+      _developer,
+      _release,
+      _exe,
+      _summary,
+      _savePathCtrl,
+    ]) {
+      c.addListener(_onFieldChanged);
+    }
     _loadSources();
     _loadCovers();
     _loadLaunchSettings();
@@ -86,6 +140,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     setState(() {
       _leConfigured = lePath.isNotEmpty && File(lePath).existsSync();
       _autoSave = auto;
+      _initAutoSave = auto;
     });
   }
 
@@ -125,6 +180,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
       _savePathCtrl,
       ..._idControllers.values,
     ]) {
+      c.removeListener(_onFieldChanged);
       c.dispose();
     }
     super.dispose();
@@ -152,46 +208,77 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     });
   }
 
+  Future<bool> _confirmDiscard() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('放弃未保存的修改？'),
+        content: const Text('当前表单已有改动，若现在退出将丢失已编辑的内容。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('继续编辑'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('放弃修改',
+                style: Type.body.copyWith(color: KisakiColors.danger)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    return Scaffold(
-      backgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // 顶部拖动条：横跨整宽，空白处即可拖动窗口
-            const AppTitleBar(),
-            // 标题 + 操作固定在顶部（表单很长，保存入口始终可见）
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 2, 24, 6),
-              child: _header(context),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const KSectionTitle('基本信息'),
-                    KCard(child: _basicInfo(context)),
-                    const SizedBox(height: Gap.xl),
-                    const KSectionTitle('启动与存档'),
-                    KCard(child: _launchAndSave(context)),
-                    const SizedBox(height: Gap.xl),
-                    const KSectionTitle('封面'),
-                    KCard(child: _coverSection(context)),
-                    const SizedBox(height: Gap.xl),
-                    const KSectionTitle('详情页背景'),
-                    KCard(child: _backgroundSection(context)),
-                    const SizedBox(height: Gap.xl),
-                    const KSectionTitle('元数据（平台条目 id）'),
-                    KCard(child: _sourceSection(context)),
-                  ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_isDirty || await _confirmDiscard()) {
+          if (context.mounted) Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
+        body: SafeArea(
+          child: Column(
+            children: [
+              // 顶部拖动条：横跨整宽，空白处即可拖动窗口
+              const AppTitleBar(),
+              // 标题 + 操作固定在顶部（表单很长，保存入口始终可见）
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 2, 24, 6),
+                child: _header(context),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const KSectionTitle('基本信息'),
+                      KCard(child: _basicInfo(context)),
+                      const SizedBox(height: Gap.xl),
+                      const KSectionTitle('启动与存档'),
+                      KCard(child: _launchAndSave(context)),
+                      const SizedBox(height: Gap.xl),
+                      const KSectionTitle('封面'),
+                      KCard(child: _coverSection(context)),
+                      const SizedBox(height: Gap.xl),
+                      const KSectionTitle('详情页背景'),
+                      KCard(child: _backgroundSection(context)),
+                      const SizedBox(height: Gap.xl),
+                      const KSectionTitle('元数据（平台条目 id）'),
+                      KCard(child: _sourceSection(context)),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -206,7 +293,19 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('编辑信息', style: Type.display),
+              Row(
+                children: [
+                  Text('编辑信息', style: Type.display),
+                  if (_isDirty) ...[
+                    const SizedBox(width: Gap.sm),
+                    KBadge(
+                      text: '未保存修改',
+                      color: scheme.primary,
+                      icon: Icons.edit_note_rounded,
+                    ),
+                  ],
+                ],
+              ),
               const SizedBox(height: Gap.xxs),
               Text(widget.game.displayName,
                   maxLines: 1,
@@ -225,10 +324,18 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
         KPill(
           label: '取消',
           filled: false,
-          onTap: () => Navigator.pop(context),
+          onTap: () async {
+            if (!_isDirty || await _confirmDiscard()) {
+              if (context.mounted) Navigator.pop(context);
+            }
+          },
         ),
         const SizedBox(width: Gap.sm),
-        KPill(label: '保存', icon: Icons.check_rounded, onTap: _save),
+        KPill(
+          label: '保存',
+          icon: Icons.check_rounded,
+          onTap: _save,
+        ),
       ],
     );
   }
@@ -475,7 +582,6 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                     ImageOption(label: '本地文件', localPath: _coverLocal),
                   ],
                   selectedUrl: _coverPickUrl,
-                  selectedLocal: _coverLocal,
                   onPick: (o) {
                     if (o.localPath.isNotEmpty &&
                         !File(o.localPath).existsSync()) {
@@ -485,6 +591,9 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                     setState(() {
                       _coverPickUrl = o.url;
                       _coverLocal = o.localPath;
+                      if (o.localPath.isNotEmpty) {
+                        _coverPath = o.localPath;
+                      }
                     });
                   },
                 ),
@@ -507,7 +616,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                       filled: false,
                       onTap: () => setState(() {
                         _coverPath = '';
-                        _coverPickUrl = null;
+                        _coverPickUrl = '';
                         _coverLocal = '';
                       }),
                     ),
@@ -523,25 +632,61 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
   Widget _backgroundSection(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final shots = widget.game.screenshots;
+    final currentBg = widget.game.backgroundUrl;
+    final selected = _bgPick ?? (currentBg.isEmpty ? '' : currentBg);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ImagePickerRow(
           title: '背景图',
           subtitle: shots.isEmpty
-              ? '暂无刮削截图；重新刮削后可在此选择背景图'
+              ? '可选择本地壁纸或纯色；重新刮削后可在此选择平台截图'
               : '点击选用；候选多时点右侧「查看全部」',
           options: [
             const ImageOption(label: '纯色', isSolid: true),
+            if (currentBg.isNotEmpty)
+              ImageOption(label: '当前背景', localPath: currentBg),
+            if (_bgLocal.isNotEmpty && _bgLocal != currentBg)
+              ImageOption(label: '本地图片', localPath: _bgLocal),
             for (final url in shots) ImageOption(label: '截图', url: url),
           ],
-          // null = 未改动：按当前背景高亮
-          selectedUrl: _bgPick ??
-              (widget.game.backgroundUrl.isEmpty ? '' : _currentBgUrl(shots)),
-          onPick: (o) => setState(() => _bgPick = o.url),
+          selectedUrl: selected.startsWith('http') ? selected : '',
+          selectedLocal: selected.startsWith('http') ? '' : selected,
+          onPick: (o) {
+            setState(() {
+              if (o.isSolid) {
+                _bgPick = '';
+              } else if (o.localPath.isNotEmpty) {
+                _bgPick = o.localPath;
+              } else {
+                _bgPick = o.url;
+              }
+            });
+          },
+        ),
+        const SizedBox(height: Gap.sm),
+        Wrap(
+          spacing: Gap.sm,
+          runSpacing: Gap.sm,
+          children: [
+            KPill(
+              label: '选择本地图片…',
+              icon: Icons.image_rounded,
+              filled: false,
+              onTap: _pickBackground,
+            ),
+            if (currentBg.isNotEmpty || (_bgPick != null && _bgPick!.isNotEmpty))
+              KPill(
+                label: '清空背景（纯色）',
+                icon: Icons.delete_outline_rounded,
+                filled: false,
+                onTap: () => setState(() => _bgPick = ''),
+              ),
+          ],
         ),
         const SizedBox(height: Gap.xs),
-        Text('「纯色」= 详情页不显示背景图；其余选项会把截图缓存到本地。',
+        Text('「纯色」= 详情页不显示背景图；其余选项会把图片统一缓存到本地。',
             style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
       ],
     );
@@ -596,17 +741,6 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     );
   }
 
-  /// 当前背景对应的截图 URL（用于高亮）。
-  String _currentBgUrl(List<String> shots) {
-    for (final u in shots) {
-      if (_isCurrentBg(u)) return u;
-    }
-    return '';
-  }
-
-  bool _isCurrentBg(String url) =>
-      widget.game.backgroundUrl.endsWith(url.split('/').last);
-
   // ---------- 动作 ----------
 
   Future<void> _pickExe() async {
@@ -649,6 +783,33 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     });
   }
 
+  Future<void> _pickBackground() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    final path = result?.files.single.path;
+    if (path == null || path.isEmpty) return;
+    setState(() {
+      _bgLocal = path;
+      _bgPick = path;
+    });
+  }
+
+  Future<String> _cacheLocalMedia(String localPath, int gameId,
+      {String prefix = 'game'}) async {
+    try {
+      final covers = AppServices.I.paths.covers;
+      Directory(covers).createSync(recursive: true);
+      final ext = localPath.contains('.')
+          ? localPath.substring(localPath.lastIndexOf('.'))
+          : '.jpg';
+      final target =
+          '$covers/${prefix}_${gameId}_${DateTime.now().millisecondsSinceEpoch}$ext';
+      File(localPath).copySync(target);
+      return target;
+    } catch (_) {
+      return localPath;
+    }
+  }
+
   /// 重新刮削：搜索 → 选择 → 多源合并 → 应用（与添加页同一流程）。
   Future<void> _rescan() async {
     final all = await showScrapeSearchSheet(
@@ -678,26 +839,56 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
     g.summary = _summary.text.trim();
     g.playStatus = _status;
     g.nsfw = _nsfw;
+    g.localeMode = _localeMode;
+    g.savePath = _savePathCtrl.text.trim();
+
+    // 1. 封面处理
     if (_coverPickUrl != null && _coverPickUrl!.isNotEmpty) {
-      final local = await AppServices.I.fetcher
-          .downloadImage(_coverPickUrl!, 'game_${g.id}');
+      final local = await AppServices.I.fetcher.downloadImage(
+          _coverPickUrl!, 'game_${g.id}_${DateTime.now().millisecondsSinceEpoch}');
       if (local.isNotEmpty) {
         _coverPath = local;
+        invalidateFileExistsCache(local);
       } else {
-        showNotice('封面图片下载失败，请检查网络或代理设置（已保留原封面）',
-            error: true);
+        showNotice('封面图片下载失败，请检查网络或代理设置（已保留原封面）', error: true);
       }
+    } else if (_coverLocal.isNotEmpty && File(_coverLocal).existsSync()) {
+      final cached = await _cacheLocalMedia(_coverLocal, g.id!, prefix: 'game');
+      _coverPath = cached;
+      invalidateFileExistsCache(cached);
     }
     g.coverPath = _coverPath;
-    g.localeMode = _localeMode;
-    // 设备指纹 + 相对路径（MediaPaths 在 toRow 中把数据目录内的路径存成相对路径）
+
+    // 2. 背景处理
+    if (_bgPick != null) {
+      if (_bgPick!.isEmpty) {
+        if (g.backgroundUrl.isNotEmpty) {
+          invalidateFileExistsCache(g.backgroundUrl);
+        }
+        g.backgroundUrl = '';
+      } else if (File(_bgPick!).existsSync()) {
+        final cached = await _cacheLocalMedia(_bgPick!, g.id!, prefix: 'bg');
+        g.backgroundUrl = cached;
+        invalidateFileExistsCache(cached);
+      } else if (_bgPick!.startsWith('http')) {
+        final local = await AppServices.I.fetcher.downloadImage(
+            _bgPick!, 'bg_${g.id}_${DateTime.now().millisecondsSinceEpoch}');
+        if (local.isNotEmpty) {
+          g.backgroundUrl = local;
+          invalidateFileExistsCache(local);
+        } else {
+          showNotice('背景图片下载失败，已保留原背景', error: true);
+        }
+      }
+    }
+
+    // 3. 设备指纹与落库
     await AppServices.I.relocator.stamp(g);
-    g.savePath = _savePathCtrl.text.trim();
     await AppServices.I.repo.updateGame(g);
     await AppServices.I.settings
         .setBool('save.autosave_${g.id}', _autoSave && g.savePath.isNotEmpty);
 
-    // 平台条目 id 更新
+    // 4. 平台条目 id 更新
     for (final s in _sources) {
       final c = _idControllers[s.source];
       if (c == null) continue;
@@ -708,20 +899,9 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
       }
     }
 
-    // 背景更新
-    if (_bgPick != null) {
-      if (_bgPick!.isEmpty) {
-        g.backgroundUrl = '';
-      } else {
-        final local = await AppServices.I.fetcher.downloadImage(
-            _bgPick!, 'bg_${g.id}');
-        if (local.isNotEmpty) g.backgroundUrl = local;
-      }
-      await AppServices.I.repo.updateGame(g);
-    }
-
     ref.read(libraryVersionProvider.notifier).state++;
     if (!mounted) return;
+    showNotice('已保存「${g.displayName}」的修改');
     Navigator.pop(context);
   }
 }

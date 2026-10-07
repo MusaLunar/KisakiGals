@@ -66,6 +66,21 @@ bool _existsCached(String path) {
 /// 供其它页面复用的存在性检查（带缓存）。
 bool cachedFileExists(String path) => path.isNotEmpty && _existsCached(path);
 
+/// 清除文件存在性缓存并在更新后驱逐图片内存缓存。
+void invalidateFileExistsCache([String? path]) {
+  if (path != null && path.isNotEmpty) {
+    _fileExistsCache.remove(path);
+    try {
+      PaintingBinding.instance.imageCache.evict(FileImage(File(path)));
+    } catch (_) {}
+  } else {
+    _fileExistsCache.clear();
+    try {
+      PaintingBinding.instance.imageCache.clear();
+    } catch (_) {}
+  }
+}
+
 class CoverImage extends ConsumerWidget {
   final String path;
   final String? networkUrl;

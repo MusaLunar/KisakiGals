@@ -52,7 +52,7 @@ class VndbAdapter extends SourceAdapter {
     final response = await limitedPost('$base/vn',
         data: {'filters': filters, 'fields': _fields, 'sort': 'searchrank', 'results': 20},
         headers: _headers);
-    if (response.statusCode != 200) return null;
+    if (response.statusCode != 200 || response.data is! Map) return null;
     final data = Map<String, dynamic>.from(response.data as Map);
     return data['results'] as List?;
   }
@@ -139,7 +139,7 @@ class VndbAdapter extends SourceAdapter {
           'results': results.clamp(1, 100),
         },
         headers: _headers);
-    if (response.statusCode != 200) {
+    if (response.statusCode != 200 || response.data is! Map) {
       lastBrowseHasMore = false;
       return [];
     }

@@ -172,6 +172,7 @@ class BackupService {
           verify: false);
       var media = 0;
       final root = dataRoot;
+      final normRoot = root == null ? null : p.normalize(p.absolute(root));
       for (final f in archive.files) {
         if (!f.isFile) continue;
         final name = f.name.replaceAll('\\', '/');
@@ -180,12 +181,16 @@ class BackupService {
           continue;
         }
         if (name == 'backup_info.json') continue;
-        if (root == null) continue;
-        // 只允许还原到 covers/ 与 saves/ 下，避免任意路径写入
+        if (normRoot == null) continue;
+        // 只允许还原到 covers/ 与 saves/ 下，且防范 Zip Slip 目录穿越
         if (!(name.startsWith('covers/') || name.startsWith('saves/'))) {
           continue;
         }
-        final dst = File(p.join(root, name.replaceAll('/', Platform.pathSeparator)));
+        final dstPath = p.normalize(p.join(normRoot, name.replaceAll('/', Platform.pathSeparator)));
+        if (!p.isWithin(normRoot, dstPath)) {
+          continue;
+        }
+        final dst = File(dstPath);
         dst.parent.createSync(recursive: true);
         await dst.writeAsBytes(f.content as List<int>, flush: true);
         media++;

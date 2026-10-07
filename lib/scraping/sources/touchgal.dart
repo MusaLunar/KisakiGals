@@ -5,16 +5,22 @@
 ///       companies, rating{average,count}, releaseDate, aliases}（多字段为字符串化的列表）。
 library;
 
+import 'dart:io';
+
 import '../source_adapter.dart';
 import '../scraped_game.dart';
 import '../../core/constants.dart';
 
 class TouchGalAdapter extends SourceAdapter {
   static const base = 'https://developer.touchgal.com/api/v1';
-  // 开放 API 令牌（与 ChronoTide 同源的应用凭据）
-  static const _token = 'tgal_live_nmnc-ZLyGctzGYQS7160Ruzff7UvaTcKen47wU8phkw';
+  // 开放 API 令牌（默认公开社区凭据，支持由环境变量或参数覆盖）
+  static const _defaultToken = 'tgal_live_nmnc-ZLyGctzGYQS7160Ruzff7UvaTcKen47wU8phkw';
+  final String token;
 
-  TouchGalAdapter(super.dio, super.limiters);
+  TouchGalAdapter(super.dio, super.limiters, {String? token})
+      : token = (token != null && token.trim().isNotEmpty)
+            ? token.trim()
+            : (Platform.environment['TOUCHGAL_TOKEN'] ?? _defaultToken);
 
   @override
   String get id => KisakiSources.touchgal;
@@ -23,7 +29,7 @@ class TouchGalAdapter extends SourceAdapter {
   bool get needsToken => false;
 
   Map<String, String> get _auth =>
-      {'Authorization': 'Bearer $_token', 'Accept': 'application/json'};
+      {'Authorization': 'Bearer $token', 'Accept': 'application/json'};
 
   @override
   Future<List<ScrapedGame>> search(String kw) async {
@@ -33,7 +39,7 @@ class TouchGalAdapter extends SourceAdapter {
       'limit': 10,
       'allowNsfw': 'true',
     }, headers: _auth);
-    if (response.statusCode != 200) return [];
+    if (response.statusCode != 200 || response.data is! Map) return [];
     final data = Map<String, dynamic>.from(response.data as Map);
     final payload = Map<String, dynamic>.from((data['data'] ?? {}) as Map);
     final list = (payload['items'] as List?) ?? [];
@@ -53,7 +59,7 @@ class TouchGalAdapter extends SourceAdapter {
   @override
   Future<ScrapedGame?> fetchById(String id) async {
     final response = await limitedGet('$base/games/$id', headers: _auth);
-    if (response.statusCode != 200) return null;
+    if (response.statusCode != 200 || response.data is! Map) return null;
     final data = Map<String, dynamic>.from(response.data as Map);
     final g = data['data'];
     if (g is! Map) return null;

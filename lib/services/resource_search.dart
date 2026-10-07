@@ -163,8 +163,14 @@ class GalLibraryAdapter implements ResourceAdapter {
 /// 因此搜索走 developer.touchgal.com，链接仍指向主站条目页）
 class TouchGalResourceAdapter implements ResourceAdapter {
   static const _base = 'https://developer.touchgal.com/api/v1';
-  // 与元数据刮削共用同一把官方 token（内置，免配置）
-  static const _token = 'tgal_live_nmnc-ZLyGctzGYQS7160Ruzff7UvaTcKen47wU8phkw';
+  // 与元数据刮削共用同一把官方 token（默认公开社区凭据，支持环境变量或参数覆盖）
+  static const _defaultToken = 'tgal_live_nmnc-ZLyGctzGYQS7160Ruzff7UvaTcKen47wU8phkw';
+  final String token;
+
+  TouchGalResourceAdapter({String? token})
+      : token = (token != null && token.trim().isNotEmpty)
+            ? token.trim()
+            : (Platform.environment['TOUCHGAL_TOKEN'] ?? _defaultToken);
 
   @override
   String get site => 'TouchGal';
@@ -184,7 +190,7 @@ class TouchGalResourceAdapter implements ResourceAdapter {
           'allowNsfw': 'true',
         },
         options: Options(headers: {
-          'Authorization': 'Bearer $_token',
+          'Authorization': 'Bearer $token',
           'Accept': 'application/json',
         }));
     final data = r.data is Map ? Map<String, dynamic>.from(r.data as Map) : null;

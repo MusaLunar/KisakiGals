@@ -69,6 +69,8 @@ class SettingsStore {
   static const kAutostart = 'system.autostart';
   static const kAfterLaunch = 'system.after_launch'; // none/minimize
   static const kCloseBehavior = 'system.close'; // exit/minimize_tray
+  /// 游戏退出后主程序自动获取焦点 / 恢复前台（true=自动恢复前台，默认 true）
+  static const kFocusOnGameExit = 'system.focus_on_game_exit';
   static const kNsfwMode = 'nsfw.mode'; // blur/placeholder/show
   static const kEnabledSources = 'sources.enabled';
   static const kSourceOrder = 'sources.order';

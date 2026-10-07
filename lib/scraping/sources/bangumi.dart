@@ -37,7 +37,7 @@ class BangumiAdapter extends SourceAdapter {
           'filter': {'type': [4], 'nsfw': true},
         },
         headers: _headers);
-    if (response.statusCode != 200) return [];
+    if (response.statusCode != 200 || response.data is! Map) return [];
     final data = Map<String, dynamic>.from(response.data as Map);
     final list = (data['data'] as List?) ?? [];
     return list.map(_parse).toList();
@@ -83,7 +83,7 @@ class BangumiAdapter extends SourceAdapter {
           'offset': offset,
         },
         headers: _headers);
-    if (response.statusCode != 200) {
+    if (response.statusCode != 200 || response.data is! Map) {
       lastBrowseHasMore = false;
       return [];
     }
@@ -140,7 +140,7 @@ class BangumiAdapter extends SourceAdapter {
           'filter': {'type': [4], 'nsfw': true},
         },
         headers: _headers);
-    if (response.statusCode != 200) {
+    if (response.statusCode != 200 || response.data is! Map) {
       lastBrowseHasMore = false;
       return const [];
     }
@@ -156,7 +156,7 @@ class BangumiAdapter extends SourceAdapter {
   @override
   Future<ScrapedGame?> fetchById(String id) async {
     final response = await limitedGet('$base/v0/subjects/$id', headers: _headers);
-    if (response.statusCode != 200) return null;
+    if (response.statusCode != 200 || response.data is! Map) return null;
     return _parse(response.data);
   }
 

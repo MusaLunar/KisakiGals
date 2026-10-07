@@ -183,11 +183,9 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
                           top: BorderSide(color: Elev.border(dark)),
                         ),
                       ),
-                      child: FadeThroughSwitcher(
-                        child: KeyedSubtree(
-                          key: ValueKey(tab),
-                          child: _pageFor(tab),
-                        ),
+                      child: _LazyKeepAliveTabStack(
+                        currentTab: tab,
+                        builder: _pageFor,
                       ),
                     ),
                   ),
@@ -216,6 +214,65 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       default:
         return const SettingsPage(key: ValueKey(Tabs.settings));
     }
+  }
+}
+
+/// 懒加载 + 状态保活 + 硬件合成平滑过渡的 Tab 容器：
+/// 1. 只有访问过的 Tab 才会实例化（初次启动不构建未访问的页面，零启动开销）；
+/// 2. 访问过的 Tab 保持在树中保活（保持滚动位置、输入草稿和筛选状态）；
+/// 3. 切 Tab 过程采用硬件合成层淡入淡出（Duration: Motion.fast 140ms），切换耗时 0ms，彻底根治切页卡顿与重新拉取！
+class _LazyKeepAliveTabStack extends StatefulWidget {
+  final int currentTab;
+  final Widget Function(int tab) builder;
+  const _LazyKeepAliveTabStack({
+    required this.currentTab,
+    required this.builder,
+  });
+
+  @override
+  State<_LazyKeepAliveTabStack> createState() => _LazyKeepAliveTabStackState();
+}
+
+class _LazyKeepAliveTabStackState extends State<_LazyKeepAliveTabStack> {
+  final Set<int> _mountedTabs = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _mountedTabs.add(widget.currentTab);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LazyKeepAliveTabStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_mountedTabs.contains(widget.currentTab)) {
+      _mountedTabs.add(widget.currentTab);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: List.generate(Tabs.count, (index) {
+        final isCurrent = index == widget.currentTab;
+        if (!_mountedTabs.contains(index)) {
+          return const SizedBox.shrink();
+        }
+        return Offstage(
+          offstage: !isCurrent,
+          child: TickerMode(
+            enabled: isCurrent,
+            child: AnimatedOpacity(
+              duration: Motion.fast,
+              curve: Motion.enter,
+              opacity: isCurrent ? 1.0 : 0.0,
+              child: widget.builder(index),
+            ),
+          ),
+        );
+      }),
+    );
   }
 }
 
@@ -315,13 +372,28 @@ class _NavItemState extends State<NavItem> {
                   ? scheme.primary.withValues(alpha: widget.dark ? 0.20 : 0.11)
                   : (_hover
                       ? (widget.dark ? Colors.white : Colors.black)
-                          .withValues(alpha: 0.04)
+                          .withValues(alpha: 0.05)
                       : Colors.transparent),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: widget.selected
+                    ? scheme.primary.withValues(alpha: widget.dark ? 0.35 : 0.22)
+                    : (_hover ? Elev.border(widget.dark) : Colors.transparent),
+              ),
+              boxShadow: widget.selected
+                  ? Elev.focusGlow(widget.dark, scheme.primary)
+                  : null,
             ),
             child: Row(
               children: [
-                Icon(widget.icon, size: 19, color: color),
+                RepaintBoundary(
+                  child: AnimatedScale(
+                    scale: _hover || widget.selected ? 1.08 : 1.0,
+                    duration: Motion.fast,
+                    curve: Motion.spring,
+                    child: Icon(widget.icon, size: 19, color: color),
+                  ),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(widget.label,
@@ -333,8 +405,11 @@ class _NavItemState extends State<NavItem> {
                               ? FontWeight.w700
                               : FontWeight.w500)),
                 ),
-                if (widget.selected)
-                  Container(
+                AnimatedOpacity(
+                  opacity: widget.selected ? 1.0 : 0.0,
+                  duration: Motion.fast,
+                  curve: Motion.enter,
+                  child: Container(
                     width: 3,
                     height: 14,
                     decoration: BoxDecoration(
@@ -342,6 +417,7 @@ class _NavItemState extends State<NavItem> {
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
+                ),
               ],
             ),
           ),
@@ -409,13 +485,19 @@ class _SidebarRunningState extends ConsumerState<_SidebarRunning> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                    shape: BoxShape.circle, color: scheme.primary),
+              PulsingGlow(
+                minOpacity: 0.55,
+                maxOpacity: 1.0,
+                minScale: 0.85,
+                maxScale: 1.15,
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                      shape: BoxShape.circle, color: scheme.primary),
+                ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 7),
               Text('游玩中',
                   style: Type.micro.copyWith(
                       color: scheme.primary, fontWeight: FontWeight.w700)),
