@@ -1,10 +1,13 @@
-/// KisakiGals 主题：樱花粉 × 藤紫 × 奶油白。
+/// KisakiGals 主题规范：誌面 (Shimen) 铜版纸象牙白 × 凹版暗墨 × 印刷四色 (CMYK Four-Ink System).
 ///
-/// 风格合成：
-/// - **简约**（参考 ReinaManager）：大圆角（卡片 20 / 对话框 24）、药丸按钮、
-///   近明度两级底色（浅灰底 + 纯白卡）、1px 中性描边、去渐变、次要信息弱化。
-/// - **精致**（参考 ChronoTide）：极细低对比描边、常态硬阴影 → hover 柔光、
-///   微上浮与微缩放、按压回弹（见 ui/design.dart）。
+/// 色彩职能分配（一色一义，严格遵循 WCAG AA ≥ 4.5:1 对比度）：
+/// - 纸张与底版 (Paper & Ground)：
+///   - 浅色铜版纸：暖象牙白 (#FAF7F2) 底页、纯白 (#FFFFFF) 图版、米灰 (#F2ECE4) 书脊与容器
+///   - 深色凹版墨：深石墨 (#0F1015) 底槽、暗页 (#13151C) 主版、暗炭 (#161820) 图版
+/// - 专色洋红 (Process Magenta — M)：#E4005A (Light) / #FF2E7E (Dark)，专用于主启动按钮、选中态与书脊激活标尺
+/// - 专色青蓝 (Process Cyan — C)：#0088B8 (Light) / #29B6E8 (Dark)，专用于游玩时长、实时计时与时间序列图表
+/// - 专色铭黄 (Process Yellow-Gold — Y)：#D49400 (Light) / #FFC42E (Dark)，专用于评分星级与荣誉徽标
+/// - 定位黑墨 (Registration K)：#16151A (Light) / #F4F1EA (Dark)，用于正文排版与 1px 裁切细线
 library;
 
 import 'package:flutter/material.dart';
@@ -12,46 +15,88 @@ import 'package:flutter/material.dart';
 import 'design.dart';
 
 class KisakiColors {
-  // 主色：樱花粉
-  static const pink = Color(0xFFE8629A);
-  static const pinkSoft = Color(0xFFF7B6D0);
-  static const pinkContainer = Color(0xFFFFE4EF);
-  static const onPinkContainer = Color(0xFF5C2440);
+  // 专色洋红 (Process Magenta — M)：主交互、启动按钮与书脊激活色
+  static const magenta = Color(0xFFE4005A);
+  static const magentaDark = Color(0xFFFF2E7E);
+  static const magentaSoft = Color(0xFFFF669E);
+  static const magentaContainerLight = Color(0xFFFFE0EC);
+  static const magentaContainerDark = Color(0xFF4D0824);
+  static const onMagentaContainerLight = Color(0xFF3D0017);
+  static const onMagentaContainerDark = Color(0xFFFFD9E6);
 
-  // 辅色：藤紫
-  static const lavender = Color(0xFF9583D6);
-  static const lavenderSoft = Color(0xFFD5CBF2);
-  static const lavenderContainer = Color(0xFFEAE5FB);
-  static const onLavenderContainer = Color(0xFF372A5E);
+  // 向后兼容别名 (Rose / Pink / Signal -> Process Magenta)
+  static const primaryRose = magenta;
+  static const primaryRoseDark = magentaDark;
+  static const primaryRoseSoft = magentaSoft;
+  static const primaryRoseContainerLight = magentaContainerLight;
+  static const primaryRoseContainerDark = magentaContainerDark;
+  static const onPrimaryRoseContainerLight = onMagentaContainerLight;
+  static const onPrimaryRoseContainerDark = onMagentaContainerDark;
 
-  // 语义色（参考 ReinaManager：语义色只用于语义，不参与装饰）
-  static const success = Color(0xFF2E7D5B);
-  static const warning = Color(0xFFB8791F);
-  static const danger = Color(0xFFC4344A);
-  static const info = Color(0xFF2A76C4);
-  static const star = Color(0xFFD4A017);
+  static const signal = magenta;
+  static const signalSoft = magentaSoft;
+  static const signalContainer = magentaContainerLight;
+  static const onSignalContainer = onMagentaContainerLight;
 
-  // 浅色底：近明度两级（底色略暖灰，卡片纯白）
-  static const cream = Color(0xFFF7F4F2);
-  static const creamCard = Colors.white;
-  static const ink = Color(0xFF2E2730);
-  static const inkSoft = Color(0xFF7A7078);
+  static const pink = magenta;
+  static const pinkSoft = magentaSoft;
+  static const pinkContainer = magentaContainerLight;
+  static const onPinkContainer = onMagentaContainerLight;
 
-  // 深色底
-  static const nightBg = Color(0xFF16131A);
-  static const nightCard = Color(0xFF201C26);
-  static const nightInk = Color(0xFFEDE7EC);
-  static const nightInkSoft = Color(0xFFA79CA6);
+  // 专色青蓝 (Process Cyan — C)：游玩时长、实时计时与时间趋势图表
+  static const cyan = Color(0xFF0088B8);
+  static const cyanSoft = Color(0xFF29B6E8);
+  static const cyanContainer = Color(0xFFE0F4FA);
+  static const cyanContainerDark = Color(0xFF0A3242);
+  static const onCyanContainer = Color(0xFF002B3D);
+  static const onCyanContainerDark = Color(0xFFC7EEFF);
 
-  /// 外壳内容区底色（页面面板）：与 app_shell 使用同一 token，
-  /// 视图固定的渐变遮罩末色必须用它才能无缝衔接。
+  // 向后兼容别名 (Lavender -> Process Cyan 时间数据专色)
+  static const lavender = cyan;
+  static const lavenderSoft = cyanSoft;
+  static const lavenderContainer = cyanContainer;
+  static const onLavenderContainer = onCyanContainer;
+
+  // 专色铭黄 (Process Yellow-Gold — Y) 与状态反馈色
+  static const yellowInk = Color(0xFFD49400);
+  static const star = Color(0xFFFFC42E);
+  static const success = Color(0xFF0D9488);
+  static const warning = Color(0xFFD97706);
+  static const danger = Color(0xFFE11D48);
+  static const info = cyan;
+
+  /// 根据明暗模式返回具备高对比度的评分铭黄色
+  static Color ratingInk(bool dark) => dark ? star : yellowInk;
+
+  /// 根据明暗模式返回时间/时长专色青蓝
+  static Color temporalInk(bool dark) => dark ? cyanSoft : cyan;
+
+  // 浅色底：铜版纸象牙白阶 (Coated Warm Ivory Stock)
+  static const cream = Color(0xFFFAF7F2);
+  static const creamCard = Color(0xFFFFFFFF);
+  static const paperContainer = Color(0xFFF2ECE4);
+  static const ink = Color(0xFF16151A);
+  static const inkSoft = Color(0xFF5E5B66);
+
+  // 深色底：凹版暗墨阶 (Gravure Dark Stock)
+  static const nightBg = Color(0xFF0F1015);
+  static const nightCard = Color(0xFF161820);
+  static const nightContainer = Color(0xFF1D202A);
+  static const nightInk = Color(0xFFF4F1EA);
+  static const nightInkSoft = Color(0xFF9E9BA6);
+
+  /// 书脊导览槽底色 (Fore-Edge Spine Rail Ground)
+  static Color spineSurface(bool dark) =>
+      dark ? const Color(0xFF0B0C10) : const Color(0xFFF0EAE1);
+
+  /// 主版面纸页底色 (Active Spread Sheet Ground)
   static Color pageSurface(bool dark) =>
-      dark ? const Color(0xFF1B1721) : const Color(0xFFFCFBFA);
+      dark ? const Color(0xFF13151C) : const Color(0xFFFAF7F2);
 
-  // 描边（低对比、极细）
+  /// 1px 印刷定位裁切线
   static Color outline(bool dark) => dark
       ? Colors.white.withValues(alpha: 0.09)
-      : const Color(0xFF7A7078).withValues(alpha: 0.16);
+      : const Color(0xFF16151A).withValues(alpha: 0.09);
 }
 
 ThemeData buildLightTheme() => _theme(Brightness.light);
@@ -59,30 +104,43 @@ ThemeData buildDarkTheme() => _theme(Brightness.dark);
 
 ThemeData _theme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
-  final scheme = ColorScheme.fromSeed(
-    seedColor: KisakiColors.pink,
+  final primary = dark ? KisakiColors.magentaDark : KisakiColors.magenta;
+  final onPrimary = dark ? const Color(0xFF1F000C) : Colors.white;
+  final secondary = dark ? KisakiColors.cyanSoft : KisakiColors.cyan;
+
+  final scheme = ColorScheme(
     brightness: brightness,
-  ).copyWith(
-    primary: dark ? KisakiColors.pinkSoft : KisakiColors.pink,
-    secondary: dark ? KisakiColors.lavenderSoft : KisakiColors.lavender,
+    primary: primary,
+    onPrimary: onPrimary,
+    primaryContainer: dark
+        ? KisakiColors.magentaContainerDark
+        : KisakiColors.magentaContainerLight,
+    onPrimaryContainer: dark
+        ? KisakiColors.onMagentaContainerDark
+        : KisakiColors.onMagentaContainerLight,
+    secondary: secondary,
+    onSecondary: dark ? const Color(0xFF001F2B) : Colors.white,
+    secondaryContainer:
+        dark ? KisakiColors.cyanContainerDark : KisakiColors.cyanContainer,
+    onSecondaryContainer:
+        dark ? KisakiColors.onCyanContainerDark : KisakiColors.onCyanContainer,
     surface: dark ? KisakiColors.nightBg : KisakiColors.cream,
-    surfaceContainerLowest: dark ? const Color(0xFF120F16) : Colors.white,
-    surfaceContainerLow: dark ? KisakiColors.nightCard : Colors.white,
-    surfaceContainer: dark ? const Color(0xFF272130) : const Color(0xFFFDFBFA),
-    surfaceContainerHigh: dark ? const Color(0xFF2F2839) : const Color(0xFFF3EEF1),
-    surfaceContainerHighest: dark ? const Color(0xFF383043) : const Color(0xFFEBE4E8),
     onSurface: dark ? KisakiColors.nightInk : KisakiColors.ink,
     onSurfaceVariant: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft,
-    primaryContainer: dark ? const Color(0xFF43273A) : KisakiColors.pinkContainer,
-    onPrimaryContainer:
-        dark ? const Color(0xFFFFD9E8) : KisakiColors.onPinkContainer,
-    secondaryContainer:
-        dark ? const Color(0xFF322B4D) : KisakiColors.lavenderContainer,
-    onSecondaryContainer:
-        dark ? const Color(0xFFE0D8FF) : KisakiColors.onLavenderContainer,
+    surfaceContainerLowest:
+        dark ? const Color(0xFF0B0C10) : KisakiColors.creamCard,
+    surfaceContainerLow: dark ? KisakiColors.nightCard : Colors.white,
+    surfaceContainer:
+        dark ? KisakiColors.nightContainer : KisakiColors.paperContainer,
+    surfaceContainerHigh:
+        dark ? const Color(0xFF242834) : const Color(0xFFE8E0D5),
+    surfaceContainerHighest:
+        dark ? const Color(0xFF2E3342) : const Color(0xFFDDD3C5),
     outline: KisakiColors.outline(dark),
-    outlineVariant: KisakiColors.outline(dark).withValues(alpha: dark ? 0.06 : 0.10),
+    outlineVariant:
+        KisakiColors.outline(dark).withValues(alpha: dark ? 0.16 : 0.20),
     error: KisakiColors.danger,
+    onError: Colors.white,
   );
 
   final cardColor = dark ? KisakiColors.nightCard : Colors.white;
@@ -93,47 +151,51 @@ ThemeData _theme(Brightness brightness) {
     colorScheme: scheme,
     brightness: brightness,
     scaffoldBackgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
-    // 字体：拉丁/数字用 Segoe UI（Windows 原生、字形清晰），
-    // 中文自动回退微软雅黑（Type.fontFallback）
     fontFamily: Type.fontFamily,
     fontFamilyFallback: Type.fontFallback,
-    // 统一文字阶梯：中文行高比 Material 默认更大，且不使用负字距
     textTheme: _textTheme(scheme.onSurface, scheme.onSurfaceVariant),
     splashFactory: InkSparkle.splashFactory,
     visualDensity: VisualDensity.standard,
-    // 药丸按钮（参考 ReinaManager 的 999 圆角）
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
         elevation: 0,
         textStyle: Type.label,
+        backgroundColor: primary,
+        foregroundColor: onPrimary,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-        // 描边与文字都加深：outlined 按钮常出现在毛玻璃卡/背景图之上，
-        // 过淡会看不清（视觉评审实测「评分 / 评价」对比度仅约 2:1）
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         side: BorderSide(
-            color: dark
-                ? Colors.white.withValues(alpha: 0.22)
-                : Colors.black.withValues(alpha: 0.16)),
+          color: dark
+              ? Colors.white.withValues(alpha: 0.20)
+              : const Color(0xFF16151A).withValues(alpha: 0.16),
+          width: 1,
+        ),
         foregroundColor: scheme.onSurface,
         textStyle: Type.label,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         textStyle: Type.label,
+        foregroundColor: primary,
       ),
     ),
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        minimumSize: const Size(36, 36),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md)),
       ),
     ),
     cardTheme: CardThemeData(
@@ -141,7 +203,7 @@ ThemeData _theme(Brightness brightness) {
       color: cardColor,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(Radii.lg),
-        side: BorderSide(color: outline),
+        side: BorderSide(color: outline, width: 1),
       ),
       shadowColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
@@ -149,24 +211,25 @@ ThemeData _theme(Brightness brightness) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: dark ? const Color(0xFF272130) : const Color(0xFFF6F1F4),
+      fillColor:
+          dark ? KisakiColors.nightContainer : KisakiColors.paperContainer,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radii.md),
-        borderSide: BorderSide(color: outline),
+        borderSide: BorderSide(color: outline, width: 1),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radii.md),
-        borderSide: BorderSide(color: outline),
+        borderSide: BorderSide(color: outline, width: 1),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radii.md),
-        borderSide: BorderSide(color: scheme.primary, width: 1.6),
+        borderSide: BorderSide(color: primary, width: 1.5),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     ),
     chipTheme: ChipThemeData(
       shape: RoundedRectangleBorder(borderRadius: Radii.chip),
-      side: BorderSide(color: outline),
+      side: BorderSide(color: outline, width: 1),
       showCheckmark: false,
       labelStyle: Type.caption,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -174,8 +237,8 @@ ThemeData _theme(Brightness brightness) {
     dialogTheme: DialogThemeData(
       backgroundColor: cardColor,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(Radii.xl),
-        side: BorderSide(color: outline),
+        borderRadius: Radii.sheet,
+        side: BorderSide(color: outline, width: 1),
       ),
       surfaceTintColor: Colors.transparent,
       elevation: 0,
@@ -184,23 +247,25 @@ ThemeData _theme(Brightness brightness) {
       color: cardColor,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: outline),
+        borderRadius: BorderRadius.circular(Radii.md),
+        side: BorderSide(color: outline, width: 1),
       ),
       textStyle: Type.body,
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.md)),
       elevation: 0,
     ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
-        color: dark ? const Color(0xFF3A3342) : const Color(0xFF3A333C),
-        borderRadius: BorderRadius.circular(8),
+        color: dark ? const Color(0xFF242834) : const Color(0xFF1E1D24),
+        borderRadius: BorderRadius.circular(Radii.sm),
+        boxShadow: Elev.overlay(dark),
       ),
       textStyle: const TextStyle(fontSize: 11.5, color: Colors.white),
-      waitDuration: const Duration(milliseconds: 500),
+      waitDuration: const Duration(milliseconds: 380),
     ),
     dividerTheme: DividerThemeData(
       color: outline,
@@ -208,40 +273,46 @@ ThemeData _theme(Brightness brightness) {
       space: 1,
     ),
     switchTheme: SwitchThemeData(
-      thumbColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-          ? scheme.primary
-          : (dark ? Colors.white70 : Colors.white)),
-      trackColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected)
-          ? scheme.primary.withValues(alpha: 0.45)
-          : (dark ? Colors.white24 : const Color(0xFFD3C8CE))),
+      thumbColor: WidgetStateProperty.resolveWith((s) =>
+          s.contains(WidgetState.selected)
+              ? Colors.white
+              : (dark ? Colors.white70 : Colors.white)),
+      trackColor: WidgetStateProperty.resolveWith((s) =>
+          s.contains(WidgetState.selected)
+              ? primary
+              : (dark ? Colors.white24 : const Color(0xFFD5CEC4))),
       trackOutlineColor:
           WidgetStateProperty.resolveWith((_) => Colors.transparent),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
-      linearMinHeight: 6,
+      linearMinHeight: 5,
       linearTrackColor: outline,
       borderRadius: BorderRadius.circular(999),
+      color: primary,
     ),
     scrollbarTheme: ScrollbarThemeData(
-      thickness: WidgetStateProperty.all(8),
+      thickness: WidgetStateProperty.all(6),
       radius: const Radius.circular(999),
       thumbColor: WidgetStateProperty.all(
-          dark ? Colors.white24 : Colors.black.withValues(alpha: 0.18)),
+        dark
+            ? Colors.white.withValues(alpha: 0.20)
+            : const Color(0xFF16151A).withValues(alpha: 0.16),
+      ),
     ),
     listTileTheme: ListTileThemeData(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.md)),
       iconColor: scheme.onSurfaceVariant,
     ),
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: Colors.transparent,
       indicatorColor: Colors.transparent,
-      selectedIconTheme:
-          IconThemeData(color: dark ? KisakiColors.pinkSoft : KisakiColors.pink),
+      selectedIconTheme: IconThemeData(color: primary),
       unselectedIconTheme: IconThemeData(
           color: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
     ),
     tabBarTheme: TabBarThemeData(
-      labelColor: scheme.primary,
+      labelColor: primary,
       unselectedLabelColor:
           dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft,
       indicatorSize: TabBarIndicatorSize.label,
@@ -252,8 +323,6 @@ ThemeData _theme(Brightness brightness) {
   );
 }
 
-/// 统一文字阶梯：把 design.dart 的 Type token 映射到 Material 的 TextTheme，
-/// 使未显式指定样式的组件（按钮、列表、对话框等）也使用同一套中文排印参数。
 TextTheme _textTheme(Color ink, Color inkSoft) {
   TextStyle t(TextStyle base, {Color? color, FontWeight? weight}) =>
       base.copyWith(color: color ?? ink, fontWeight: weight);

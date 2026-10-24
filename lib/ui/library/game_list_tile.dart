@@ -1,13 +1,10 @@
-/// 游戏库紧凑条目：左侧 2:3 小封面 + 右侧名称两行 + 次要信息。
-///
-/// 适合一页浏览/管理多个游戏。结构走 kit 的 [KMediaRow]（固定 34px 标题区、
-/// hover 上浮 + 柔光阴影），本文件只负责把 [Game] 的数据映射到行上，
-/// 交互与 [GameCard] 完全一致：点击进详情（批量模式下切换选中）、右键菜单。
+/// 游戏库紧凑条目：左侧 2:3 图版缩略图 + 名称两行 + CMYK 专色徽标 + 右侧等宽时长列.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
 import '../../providers.dart';
@@ -35,40 +32,64 @@ class GameListTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final game = this.game;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final ratingColor = KisakiColors.ratingInk(dark);
     final picked = selectionMode && selected;
+
+    final rating = game.userRating > 0
+        ? game.userRating
+        : ((bestPlatformRating != null && bestPlatformRating! > 0)
+            ? bestPlatformRating!
+            : 0.0);
 
     return KMediaRow(
       coverPath: game.coverPath,
       nsfw: game.nsfw,
       title: game.displayName,
       subtitle: _subtitle(game, bestPlatformRating),
+      badges: [
+        KBadge(
+          text: game.playStatus.label,
+          color: game.playStatus == PlayStatus.playing
+              ? cyanInk
+              : scheme.primary,
+        ),
+        if (rating > 0)
+          KBadge(
+            text: rating.toStringAsFixed(1),
+            icon: Icons.star_rounded,
+            color: ratingColor,
+          ),
+        if (game.developer.isNotEmpty)
+          Text(
+            game.developer,
+            style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+          ),
+      ],
+      timeText: game.totalSeconds > 0 ? fmtDuration(game.totalSeconds) : null,
       selected: picked,
       onTap: () async {
-        // 批量模式：整行都是一次选中开关
         if (selectionMode) {
           onSelectionChanged?.call(!selected);
           return;
         }
         await Navigator.of(context).push(FadeThroughRoute.builder(
-            builder: (_) =>
-                GameDetailPage(gameId: game.id!, initial: game)));
+            builder: (_) => GameDetailPage(gameId: game.id!, initial: game)));
         if (!context.mounted) return;
         ref.read(libraryVersionProvider.notifier).state++;
       },
       onSecondaryTapAt: (position) =>
           GameCardActions.showContextMenu(context, ref, game, position),
       trailing: selectionMode
-          ? _SelectDot(selected: picked)
+          ? KSelectDot(selected: picked)
           : (game.isFavorite
-              ? const Icon(Icons.favorite_rounded,
-                  size: 15, color: KisakiColors.pink)
+              ? Icon(Icons.favorite_rounded, size: 15, color: scheme.primary)
               : null),
     );
   }
 
-  /// 次要信息：状态 · 开发商 · 时长 · 评分（无内容时才退化为状态名）。
-  /// 状态用文字而非图标，[KMediaRow] 的次要信息位只接受一行文本。
   static String _subtitle(Game g, double? platformRating) {
     final parts = <String>[g.playStatus.label];
     if (g.developer.isNotEmpty) parts.add(g.developer);
@@ -79,34 +100,5 @@ class GameListTile extends ConsumerWidget {
       parts.add('评分 ${platformRating.toStringAsFixed(1)}');
     }
     return parts.join(' · ');
-  }
-}
-
-/// 批量勾选圈：未选中也要明显（否则看不出这里可以点）。
-/// 直径 22、1.5px 描边；选中为主色实心 + 白勾。
-class _SelectDot extends StatelessWidget {
-  final bool selected;
-  const _SelectDot({required this.selected});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 22,
-      height: 22,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected ? scheme.primary : Colors.transparent,
-        border: Border.all(
-          color: selected
-              ? scheme.primary
-              : scheme.onSurfaceVariant.withValues(alpha: 0.45),
-          width: 1.5,
-        ),
-      ),
-      child: selected
-          ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
-          : null,
-    );
   }
 }

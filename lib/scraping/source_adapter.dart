@@ -23,7 +23,7 @@ abstract class SourceAdapter {
   /// 按 id 拉取完整数据。
   Future<ScrapedGame?> fetchById(String id);
 
-  /// 带限流与 429 重试（至多一次）的 GET。
+  /// 带限流、瞬态网络/握手异常重试与 429 退避的 GET。
   Future<Response> limitedGet(
     String url, {
     Map<String, dynamic>? query,
@@ -35,22 +35,32 @@ abstract class SourceAdapter {
       if (v is String || v is List) return MapEntry(k, v);
       return MapEntry(k, '$v');
     });
+    Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       await limiter.acquire();
-      final response = await dio.getUri(
-        Uri.parse(url).replace(queryParameters: safeQuery),
-        options: Options(
-          headers: headers,
-          validateStatus: (s) => s != null && s < 500,
-        ),
-      );
-      if (response.statusCode == 429 && attempt < 2) {
-        await Future.delayed(RateLimiter.backoff(attempt));
-        continue;
+      try {
+        final response = await dio.getUri(
+          Uri.parse(url).replace(queryParameters: safeQuery),
+          options: Options(
+            headers: headers,
+            validateStatus: (s) => s != null && s < 500,
+          ),
+        );
+        if (response.statusCode == 429 && attempt < 2) {
+          await Future.delayed(RateLimiter.backoff(attempt));
+          continue;
+        }
+        return response;
+      } catch (e) {
+        lastError = e;
+        if (attempt < 2 && _isRetryableError(e)) {
+          await Future.delayed(Duration(milliseconds: 300 * (attempt + 1)));
+          continue;
+        }
+        rethrow;
       }
-      return response;
     }
-    throw Exception('$id: 请求多次失败');
+    throw lastError ?? Exception('$id: 请求多次失败');
   }
 
   Future<Response> limitedPost(
@@ -59,23 +69,42 @@ abstract class SourceAdapter {
     Map<String, String>? headers,
   }) async {
     final limiter = limiters.forSource(id);
+    Object? lastError;
     for (var attempt = 0; attempt < 3; attempt++) {
       await limiter.acquire();
-      final response = await dio.post(
-        url,
-        data: data,
-        options: Options(
-          headers: headers,
-          validateStatus: (s) => s != null && s < 500,
-        ),
-      );
-      if (response.statusCode == 429 && attempt < 2) {
-        await Future.delayed(RateLimiter.backoff(attempt));
-        continue;
+      try {
+        final response = await dio.post(
+          url,
+          data: data,
+          options: Options(
+            headers: headers,
+            validateStatus: (s) => s != null && s < 500,
+          ),
+        );
+        if (response.statusCode == 429 && attempt < 2) {
+          await Future.delayed(RateLimiter.backoff(attempt));
+          continue;
+        }
+        return response;
+      } catch (e) {
+        lastError = e;
+        if (attempt < 2 && _isRetryableError(e)) {
+          await Future.delayed(Duration(milliseconds: 300 * (attempt + 1)));
+          continue;
+        }
+        rethrow;
       }
-      return response;
     }
-    throw Exception('$id: 请求多次失败');
+    throw lastError ?? Exception('$id: 请求多次失败');
+  }
+
+  static bool _isRetryableError(Object e) {
+    final s = e.toString().toLowerCase();
+    return s.contains('handshake') ||
+        s.contains('connection terminated') ||
+        s.contains('connection reset') ||
+        s.contains('socketexception') ||
+        s.contains('timed out');
   }
 
   /// 从字符串/数字安全取值。

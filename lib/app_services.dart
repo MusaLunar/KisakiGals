@@ -1,6 +1,7 @@
 /// 应用服务单例：初始化目录/数据库/存储/刮削/监控/插件。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -186,6 +187,7 @@ class AppServices {
       'vndb': await s.accounts.token('vndb') ?? '',
       'bgm': await s.accounts.token('bgm') ?? '',
       'hikarinagi': await s.accounts.token('hikarinagi') ?? '',
+      'kun': await s.accounts.token('kun') ?? '',
     });
 
     // 插件（精简后仅保留久坐提醒；自动备份/NSFW 已集成为应用功能）
@@ -195,9 +197,43 @@ class AppServices {
     s.pluginContext = ctx;
     await s.plugins.register(IdleReminderPlugin(), ctx);
 
-    // 自动备份（每日一次，可在设置-数据中关闭）
-    if (await s.settings.getBool(SettingsStore.kAutoBackup, def: true)) {
-      try {
+    // 设备识别与路径重定位（换机/换盘导入数据库后自动找回游戏目录）
+    s.relocator = PathRelocator(s.settings, s.repo);
+    s.autostart = AutostartService();
+    s.autoBackup = AutoBackupScheduler();
+    s.ai = AiService(proxy: s.fetcher.proxy);
+
+    s._ready = true;
+    _i = s;
+
+    // 耗时 I/O 与网络维护任务（路径修复、缺失封面补抓、跨盘重定位、每日备份）
+    // 移至首帧渲染后异步执行，避免阻塞主窗口首屏启动。
+    unawaited(Future<void>.delayed(
+      const Duration(milliseconds: 600),
+      () => _runPostInitMaintenance(s),
+    ));
+
+    return s;
+  }
+
+  static Future<void> _runPostInitMaintenance(AppServices s) async {
+    if (!s._ready) return;
+
+    // 1. 修复历史遗留的封面/背景绝对路径（换设备迁移后按文件名找回）
+    try {
+      final fixed = await s.paths.repairLegacyMediaPaths(s.db);
+      if (fixed > 0) lastMediaRepairCount = fixed;
+    } catch (_) {}
+
+    // 2. 启动时尝试重定位缺失的游戏路径（失败静默）
+    try {
+      final r = await s.relocator.relocateMissing();
+      lastRelocateResult = r;
+    } catch (_) {}
+
+    // 3. 自动备份（每日一次，可在设置-数据中关闭）
+    try {
+      if (await s.settings.getBool(SettingsStore.kAutoBackup, def: true)) {
         final svc = BackupService(
             dbFile: s.paths.dbFile, backupsDir: s.paths.backups);
         final files = svc.list();
@@ -210,41 +246,18 @@ class AppServices {
           await svc.prune(
               await s.settings.getInt(SettingsStore.kBackupKeep, 10));
         }
-      } catch (_) {}
-    }
-
-    // 设备识别与路径重定位（换机/换盘导入数据库后自动找回游戏目录）
-    s.relocator = PathRelocator(s.settings, s.repo);
-    s.autostart = AutostartService();
-    s.autoBackup = AutoBackupScheduler();
-    s.ai = AiService(proxy: s.fetcher.proxy);
-
-    // 修复历史遗留的封面/背景绝对路径（换设备迁移后按文件名找回）
-    try {
-      final fixed = await s.paths.repairLegacyMediaPaths(s.db);
-      if (fixed > 0) lastMediaRepairCount = fixed;
+      }
     } catch (_) {}
 
-    // 补齐缺失的本地封面：从该游戏的平台记录里取封面 URL 重新下载
-    // （迁移后封面文件丢失、或早期数据只存了失效路径时尤其有用）
-    try {
-      lastCoverRefetch = await _refetchMissingCovers(s);
-    } catch (_) {}
-
-    // 启动时尝试重定位缺失的游戏路径（失败静默，由 UI 侧另行提示）
-    try {
-      final r = await s.relocator.relocateMissing();
-      lastRelocateResult = r;
-    } catch (_) {}
-
-    // 常驻定时备份调度（是否启用由设置决定，未启用则不排期）
+    // 4. 常驻定时备份调度
     try {
       await s.autoBackup.start();
     } catch (_) {}
 
-    s._ready = true;
-    _i = s;
-    return s;
+    // 5. 补齐缺失的本地封面（后台静默下载）
+    try {
+      lastCoverRefetch = await _refetchMissingCovers(s);
+    } catch (_) {}
   }
 
   Future<void> dispose() async {

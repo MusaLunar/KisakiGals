@@ -151,13 +151,56 @@ class NoticeOverlay extends StatelessWidget {
   }
 }
 
-class _NoticeCard extends StatelessWidget {
+class _NoticeCard extends StatefulWidget {
   final AppNotice notice;
   final VoidCallback onClose;
   const _NoticeCard({super.key, required this.notice, required this.onClose});
 
   @override
+  State<_NoticeCard> createState() => _NoticeCardState();
+}
+
+class _NoticeCardState extends State<_NoticeCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: Motion.normal,
+    reverseDuration: Motion.fast,
+  );
+  late final CurvedAnimation _curve = CurvedAnimation(
+    parent: _ctrl,
+    curve: Motion.enter,
+    reverseCurve: Motion.exit,
+  );
+  bool _closing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleClose() async {
+    if (_closing) return;
+    _closing = true;
+    if (Motion.reduced(context)) {
+      widget.onClose();
+      return;
+    }
+    await _ctrl.reverse();
+    if (mounted) widget.onClose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final notice = widget.notice;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     final base = dark ? KisakiColors.nightCard : Colors.white;
@@ -167,7 +210,7 @@ class _NoticeCard extends StatelessWidget {
             scheme.error.withValues(alpha: dark ? 0.16 : 0.05), base)
         : base;
     final accent = notice.error ? scheme.error : KisakiColors.success;
-    return KCard(
+    final card = KCard(
       overlayShadow: true,
       color: fill,
       borderRadius: BorderRadius.circular(Radii.md),
@@ -205,10 +248,27 @@ class _NoticeCard extends StatelessWidget {
               icon: Icon(Icons.close_rounded,
                   color:
                       dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
-              onPressed: onClose,
+              onPressed: _handleClose,
             ),
           ),
         ],
+      ),
+    );
+
+    if (Motion.reduced(context)) return card;
+
+    return FadeTransition(
+      opacity: _curve,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0.08, -0.14),
+          end: Offset.zero,
+        ).animate(_curve),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.96, end: 1.0).animate(_curve),
+          alignment: Alignment.topRight,
+          child: card,
+        ),
       ),
     );
   }

@@ -70,11 +70,25 @@ class _FilterSidebarState extends State<FilterSidebar> {
   List<Widget> _children() {
     final out = <Widget>[];
     if (widget.title != null) out.add(KSectionTitle(widget.title!));
-    if (widget.leading != null) {
-      out
-        ..add(widget.leading!)
-        ..add(const SizedBox(height: Gap.md));
-    }
+    out.add(
+      AnimatedSize(
+        duration: Motion.fast,
+        curve: Motion.enter,
+        alignment: Alignment.topLeft,
+        child: AnimatedSwitcher(
+          duration: Motion.fast,
+          switchInCurve: Motion.enter,
+          switchOutCurve: Motion.exit,
+          child: widget.leading != null
+              ? Padding(
+                  key: const ValueKey('filter-leading-active'),
+                  padding: const EdgeInsets.only(bottom: Gap.md),
+                  child: widget.leading!,
+                )
+              : const SizedBox.shrink(key: ValueKey('filter-leading-empty')),
+        ),
+      ),
+    );
     for (var i = 0; i < widget.sections.length; i++) {
       if (i > 0) out.add(const Divider(height: Gap.xxl));
       out.add(widget.sections[i]);
@@ -116,6 +130,53 @@ class FilterClearButton extends StatelessWidget {
         filled: false,
         onTap: onTap,
       );
+}
+
+/// 右侧筛选栏的统一动画插槽（游戏库与探索页共用）：
+/// 展开/收起时同步执行宽度平滑过渡 (`AnimatedSize`) 与右侧滑入+淡入 (`AnimatedSwitcher`)。
+class KFilterSidebarSlot extends StatelessWidget {
+  final bool visible;
+  final Widget child;
+
+  const KFilterSidebarSlot({
+    super.key,
+    required this.visible,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: Motion.normal,
+      curve: Motion.enter,
+      alignment: Alignment.topRight,
+      child: AnimatedSwitcher(
+        duration: Motion.normal,
+        reverseDuration: Motion.fast,
+        switchInCurve: Motion.enter,
+        switchOutCurve: Motion.exit,
+        transitionBuilder: (w, anim) => FadeTransition(
+          opacity: anim,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.06, 0.0),
+              end: Offset.zero,
+            ).animate(anim),
+            child: w,
+          ),
+        ),
+        child: visible
+            ? Padding(
+                key: const ValueKey('filter-sidebar-open'),
+                padding: const EdgeInsets.only(left: Gap.lg),
+                child: RepaintBoundary(child: child),
+              )
+            : const SizedBox.shrink(
+                key: ValueKey('filter-sidebar-closed'),
+              ),
+      ),
+    );
+  }
 }
 
 /// 筛选分组：KSectionTitle 标题 + 一组自动换行的 KChip（+ 可选补充内容）。
@@ -169,10 +230,15 @@ class FilterSection extends StatelessWidget {
             const SizedBox(height: Gap.sm),
         ],
         if (children.isNotEmpty)
-          Wrap(
-            spacing: Gap.xs + 2,
-            runSpacing: Gap.xs + 2,
-            children: children,
+          AnimatedSize(
+            duration: Motion.normal,
+            curve: Motion.enter,
+            alignment: Alignment.topLeft,
+            child: Wrap(
+              spacing: Gap.xs + 2,
+              runSpacing: Gap.xs + 2,
+              children: children,
+            ),
           ),
         if (child != null) ...[
           if (children.isNotEmpty) const SizedBox(height: Gap.sm),

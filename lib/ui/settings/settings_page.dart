@@ -22,7 +22,9 @@ import '../../services/ai_service.dart';
 import '../../services/autostart.dart';
 import '../../services/cloud_sync.dart';
 import '../../services/auto_backup_scheduler.dart';
+import '../../services/kungal_oauth.dart';
 import '../../services/plugin_system.dart';
+import '../../services/update_checker.dart';
 import '../../services/upload/upload.dart';
 import '../design.dart';
 import '../kit.dart';
@@ -559,6 +561,8 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
   };
   final _status = <String, String>{};
   final _syncing = <String>{};
+  KunOAuthSession? _kunSession;
+  bool _kunLoggingIn = false;
 
   @override
   void initState() {
@@ -581,14 +585,71 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
       final info = await AppServices.I.accounts.info(platform);
       if (info['status'] != null) _status[platform] = info['status'];
     }
+    final kunToken = await AppServices.I.accounts.token(KisakiSources.kun);
+    final kunInfo = await AppServices.I.accounts.info(KisakiSources.kun);
+    _kunSession = KunOAuthSession.fromStore(kunToken, kunInfo);
+    if (kunInfo['status'] != null) {
+      _status[KisakiSources.kun] = '${kunInfo['status']}';
+    }
+    _kunLoggingIn = KunOAuthService.instance.isLoggingIn;
     if (mounted) setState(() {});
   }
 
+  Future<void> _loginKunOAuth() async {
+    setState(() {
+      _kunLoggingIn = true;
+      _status[KisakiSources.kun] =
+          '已在浏览器打开鲲Gal (NextMoe) 授权页，请完成登录…';
+    });
+    final res = await KunOAuthService.instance.login(
+      proxy: AppServices.I.fetcher.proxy,
+    );
+    if (!mounted) return;
+    final kunToken = await AppServices.I.accounts.token(KisakiSources.kun);
+    final kunInfo = await AppServices.I.accounts.info(KisakiSources.kun);
+    setState(() {
+      _kunLoggingIn = false;
+      _kunSession = res.session ?? KunOAuthSession.fromStore(kunToken, kunInfo);
+      _status[KisakiSources.kun] =
+          (kunInfo['status'] ?? res.message).toString();
+    });
+    showNotice(res.message, error: !res.ok);
+  }
+
+  Future<void> _cancelKunOAuth() async {
+    await KunOAuthService.instance.cancelLogin();
+    if (!mounted) return;
+    setState(() {
+      _kunLoggingIn = false;
+      _status[KisakiSources.kun] = '已取消 OAuth 授权等待';
+    });
+  }
+
+  Future<void> _logoutKunOAuth() async {
+    await KunOAuthService.instance.logout();
+    if (!mounted) return;
+    setState(() {
+      _kunSession = null;
+      _status[KisakiSources.kun] = '已退出鲲Gal账号';
+    });
+    showNotice('已退出鲲Gal账号');
+  }
+
   Future<void> _sync(String platform) async {
-    final token = _tokens[platform]!.text.trim();
-    if (token.isEmpty) {
-      setState(() => _status[platform] = '请先填入 Token');
-      return;
+    String token = '';
+    if (platform == KisakiSources.kun) {
+      token = (await KunOAuthService.instance.validAccessToken()) ??
+          (_kunSession?.accessToken ?? '');
+      if (token.isEmpty) {
+        setState(() => _status[platform] = '请先点击「OAuth 登录」授权鲲Gal账号');
+        return;
+      }
+    } else {
+      token = _tokens[platform]!.text.trim();
+      if (token.isEmpty) {
+        setState(() => _status[platform] = '请先填入 Token');
+        return;
+      }
     }
     setState(() => _syncing.add(platform));
     try {
@@ -608,7 +669,9 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
       );
       ref.read(libraryVersionProvider.notifier).state++;
       final at = DateTime.now();
+      final prevExtra = await AppServices.I.accounts.info(platform);
       await AppServices.I.accounts.setToken(platform, token, extra: {
+        ...prevExtra,
         'status': r.ok ? '上次同步 ${fmtDateTime(at)}' : r.message,
         'last_sync': at.toIso8601String(),
       });
@@ -630,7 +693,24 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SettingsGroup(
-          title: '平台账号',
+          title: 'OAuth 快捷授权',
+          children: [
+            _KunOAuthRow(
+              session: _kunSession,
+              status: _status[KisakiSources.kun],
+              loggingIn: _kunLoggingIn,
+              syncing: _syncing.contains(KisakiSources.kun),
+              onLogin: _loginKunOAuth,
+              onCancelLogin: _cancelKunOAuth,
+              onLogout: _logoutKunOAuth,
+              onStatus: (msg) =>
+                  setState(() => _status[KisakiSources.kun] = msg),
+              onSync: () => _sync(KisakiSources.kun),
+            ),
+          ],
+        ),
+        SettingsGroup(
+          title: '平台账号（Access Token）',
           children: [
             for (final platform in _tokens.keys)
               _AccountRow(
@@ -644,9 +724,130 @@ class _AccountSectionState extends ConsumerState<_AccountSection> {
           ],
         ),
         const _GroupNote(
-            'Token 仅保存在本地数据库。点击「获取 Token」前往对应平台生成；'
+            '鲲Galgame 采用官方 NextMoe OAuth 2.0 + PKCE 安全授权并自动刷新令牌；'
+            '其余平台点击「获取 Token」前往对应网站生成。'
             '「同步云端记录」会按平台条目 id 匹配本地游戏并更新游玩状态与评分（不覆盖本地已填评分）。'),
       ],
+    );
+  }
+}
+
+class _KunOAuthRow extends StatelessWidget {
+  final KunOAuthSession? session;
+  final String? status;
+  final bool loggingIn;
+  final bool syncing;
+  final VoidCallback onLogin;
+  final VoidCallback onCancelLogin;
+  final VoidCallback onLogout;
+  final ValueChanged<String> onStatus;
+  final VoidCallback onSync;
+
+  const _KunOAuthRow({
+    required this.session,
+    required this.status,
+    required this.loggingIn,
+    required this.syncing,
+    required this.onLogin,
+    required this.onCancelLogin,
+    required this.onLogout,
+    required this.onStatus,
+    required this.onSync,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final loggedIn = session != null && session!.accessToken.isNotEmpty;
+    final defaultSubtitle = loggedIn
+        ? '已授权：${session!.name.isNotEmpty ? session!.name : (session!.userId.isNotEmpty ? "UID ${session!.userId}" : "鲲Gal用户")}'
+        : '通过浏览器一键完成 鲲Gal (NextMoe) OAuth 2.0 + PKCE 登录，自动续期令牌';
+
+    return SettingRow(
+      title: '鲲Galgame (NextMoe)',
+      subtitle: status ?? defaultSubtitle,
+      trailing: SizedBox(
+        width: 430,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Wrap(
+              spacing: Gap.sm,
+              runSpacing: Gap.xs,
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (loggingIn) ...[
+                  const SizedBox(
+                    width: 15,
+                    height: 15,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  KPill(
+                    label: '取消等待',
+                    icon: Icons.close_rounded,
+                    filled: false,
+                    onTap: onCancelLogin,
+                  ),
+                ] else if (!loggedIn) ...[
+                  KPill(
+                    label: 'OAuth 浏览器登录',
+                    icon: Icons.login_rounded,
+                    filled: true,
+                    onTap: onLogin,
+                  ),
+                ] else ...[
+                  TextButton(
+                    onPressed: () async {
+                      onStatus('正在校验鲲Gal令牌…');
+                      final token = await KunOAuthService.instance
+                              .validAccessToken() ??
+                          session!.accessToken;
+                      final uploader =
+                          ReviewUploader(proxy: AppServices.I.fetcher.proxy);
+                      final r =
+                          await uploader.testAccount(KisakiSources.kun, token);
+                      onStatus(r.message);
+                      showNotice(r.message, error: !r.ok);
+                    },
+                    child: const Text('测试'),
+                  ),
+                  KPill(
+                    label: '重新授权',
+                    icon: Icons.refresh_rounded,
+                    filled: false,
+                    onTap: onLogin,
+                  ),
+                  TextButton(
+                    onPressed: onLogout,
+                    child: const Text('退出'),
+                  ),
+                ],
+              ],
+            ),
+            if (loggedIn) ...[
+              const SizedBox(height: Gap.xs),
+              SizedBox(
+                height: 40,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: syncing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : KPill(
+                          label: '同步云端记录',
+                          icon: Icons.cloud_download_rounded,
+                          filled: false,
+                          onTap: onSync,
+                        ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1556,13 +1757,121 @@ class _PluginSection extends ConsumerWidget {
 
 // ---------- 关于 ----------
 
-class _AboutSection extends ConsumerWidget {
+class _AboutSection extends ConsumerStatefulWidget {
   const _AboutSection();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AboutSection> createState() => _AboutSectionState();
+}
+
+class _AboutSectionState extends ConsumerState<_AboutSection> {
+  bool _checkingUpdate = false;
+  UpdateCheckResult? _lastResult;
+
+  Future<void> _checkForUpdates() async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    try {
+      final checker = GithubUpdateChecker(proxy: AppServices.I.fetcher.proxy);
+      final result = await checker.check(currentVersion: AppInfo.version);
+      if (!mounted) return;
+      setState(() {
+        _checkingUpdate = false;
+        _lastResult = result;
+      });
+      if (!result.ok) {
+        showNotice(result.message, error: true);
+        return;
+      }
+      if (result.hasUpdate) {
+        _showUpdateDialog(result);
+      } else {
+        showNotice(result.message);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _checkingUpdate = false);
+      showNotice('检查更新失败：$e', error: true);
+    }
+  }
+
+  void _showUpdateDialog(UpdateCheckResult result) {
+    final scheme = Theme.of(context).colorScheme;
+    showKisakiDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.new_releases_rounded, color: scheme.primary, size: 22),
+            const SizedBox(width: Gap.sm),
+            Expanded(
+              child: Text(
+                '发现新版本 v${result.latestVersion}',
+                style: Type.title,
+              ),
+            ),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 340),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '当前版本：v${result.currentVersion}'
+                  '${(result.publishedAt ?? '').isNotEmpty ? " · 发布于 ${result.publishedAt}" : ""}',
+                  style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: Gap.md),
+                Text(
+                  result.releaseNotes.isNotEmpty
+                      ? result.releaseNotes
+                      : 'GitHub 已发布 ${result.releaseTitle}，请前往下载最新版本。',
+                  style: Type.body.copyWith(height: 1.55),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('稍后'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final uri = Uri.parse(result.htmlUrl.isNotEmpty
+                  ? result.htmlUrl
+                  : '${AppInfo.repository}/releases');
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            child: const Text('查看 Release 页面'),
+          ),
+          if (result.downloadUrl != null && result.downloadUrl!.isNotEmpty)
+            FilledButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final uri = Uri.parse(result.downloadUrl!);
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+              icon: const Icon(Icons.download_rounded, size: 18),
+              label: const Text('下载更新包'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
+    final updateSubtitle = _checkingUpdate
+        ? '正在通过 GitHub Releases 检查最新版本…'
+        : (_lastResult?.message ?? '通过 GitHub Releases 检查是否有新版本发布');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -1608,13 +1917,33 @@ class _AboutSection extends ConsumerWidget {
               )),
           SettingRow(
             title: '检查更新',
-            subtitle: '当前已是最新版本',
-            trailing: KPill(
-              label: '检查',
-              filled: false,
-              onTap: () =>
-                  showNotice('你已经在最新版本 ${AppInfo.version}'),
-            ),
+            subtitle: updateSubtitle,
+            trailing: _checkingUpdate
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_lastResult?.hasUpdate == true) ...[
+                        KPill(
+                          label: '前往下载 v${_lastResult!.latestVersion}',
+                          icon: Icons.download_rounded,
+                          filled: true,
+                          onTap: () => _showUpdateDialog(_lastResult!),
+                        ),
+                        const SizedBox(width: Gap.sm),
+                      ],
+                      KPill(
+                        label: '检查更新',
+                        icon: Icons.sync_rounded,
+                        filled: false,
+                        onTap: _checkForUpdates,
+                      ),
+                    ],
+                  ),
           ),
         ]),
         Padding(

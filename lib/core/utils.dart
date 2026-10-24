@@ -12,8 +12,8 @@ double normalizeRating(num raw) {
 }
 
 /// 搜索候选与查询词的匹配打分。
-/// 精确=100，压扁相等=95，压扁包含=55，全词命中=45，多数词命中=25，否则 0。
-/// 比较前先归一化（符号视作分隔、全角转半角、去标点），
+/// 精确=100，压扁相等=95，压扁包含=55，反包含=50，全词命中=45，多数词命中=25，否则 0。
+/// 比较前先归一化（符号视作分隔、全角转半角、繁简折叠、去标点），
 /// 使「pure connect」可匹配「PURE×CONNECT」、「千恋万花」可匹配「千恋＊万花」。
 int bestMatchScore(String query, String candidate) {
   final q = normalizeForMatch(query);
@@ -24,6 +24,7 @@ int bestMatchScore(String query, String candidate) {
   if (q == c) return 100;
   if (qs == cs) return 95;
   if (cs.contains(qs)) return 55;
+  if (cs.length >= 2 && qs.contains(cs)) return 50;
   final qt = q.split(' ').where((s) => s.isNotEmpty).toSet();
   final ct = c.split(' ').where((s) => s.isNotEmpty).toSet();
   if (qt.isNotEmpty && ct.containsAll(qt)) return 45;
@@ -32,13 +33,48 @@ int bestMatchScore(String query, String candidate) {
   return 0;
 }
 
-/// 名称匹配归一化：小写、全角 ASCII 化、符号转空格、压缩空白。
+const _tradToSimpMap = <int, int>{
+  0x6200: 0x604B, // 戀 -> 恋
+  0x842C: 0x4E07, // 萬 -> 万
+  0x6AFB: 0x6A31, // 櫻 -> 樱
+  0x8A69: 0x8BD7, // 詩 -> 诗
+  0x8A9E: 0x8BED, // 語 -> 语
+  0x5B78: 0x5B66, // 學 -> 学
+  0x5712: 0x56ED, // 園 -> 园
+  0x9CE5: 0x9E1F, // 鳥 -> 鸟
+  0x5CF6: 0x5C9B, // 島 -> 岛
+  0x98A8: 0x98CE, // 風 -> 风
+  0x96F2: 0x4E91, // 雲 -> 云
+  0x611B: 0x7231, // 愛 -> 爱
+  0x83EF: 0x534E, // 華 -> 华
+  0x8449: 0x53F6, // 葉 -> 叶
+  0x5922: 0x68A6, // 夢 -> 梦
+  0x8655: 0x5904, // 處 -> 处
+  0x570B: 0x56FD, // 國 -> 国
+  0x6642: 0x65F6, // 時 -> 时
+  0x9593: 0x95F4, // 間 -> 间
+  0x84BC: 0x82CD, // 蒼 -> 苍
+  0x96D9: 0x53CC, // 雙 -> 双
+  0x8F2A: 0x8F6E, // 輪 -> 轮
+  0x8FF4: 0x56DE, // 廻 -> 回
+  0x7DE3: 0x7F18, // 緣 -> 缘
+  0x9928: 0x9986, // 館 -> 馆
+  0x9418: 0x949F, // 鐘 -> 钟
+  0x7A62: 0x79FD, // 穢 -> 秽
+};
+
+/// 名称匹配归一化：小写、全角 ASCII 化、常见繁简字折叠、符号转空格、压缩空白。
 /// 「PURE×CONNECT」→「pure connect」。
 String normalizeForMatch(String s) {
-  var t = s.toLowerCase();
-  // 全角可见字符 (U+FF01-U+FF5E) → 半角
-  t = t.replaceAllMapped(RegExp(r'[\uFF01-\uFF5E]'),
-      (m) => String.fromCharCode(m[0]!.codeUnitAt(0) - 0xFEE0));
+  final buf = StringBuffer();
+  for (final r in s.toLowerCase().runes) {
+    if (r >= 0xFF01 && r <= 0xFF5E) {
+      buf.writeCharCode(r - 0xFEE0);
+    } else {
+      buf.writeCharCode(_tradToSimpMap[r] ?? r);
+    }
+  }
+  var t = buf.toString();
   // 非字母/数字统一转空格（×、・、-、' 等都视作词边界）
   t = t.replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ');
   return t.replaceAll(RegExp(r'\s+'), ' ').trim();

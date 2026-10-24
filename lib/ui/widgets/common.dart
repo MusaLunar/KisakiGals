@@ -1,4 +1,4 @@
-/// 通用 UI 组件：封面图、玻璃面板、评分、空态。
+/// 通用 UI 组件：封面图版、半透明面板、铭黄专色评分、源徽标。
 library;
 
 import 'dart:io';
@@ -10,8 +10,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../core/constants.dart';
-import '../../providers.dart';
 import '../../core/paths.dart';
+import '../../providers.dart';
+import '../design.dart';
 import '../theme.dart';
 
 /// 封面宽高比：Galgame 封面标准 **2:3**（宽:高）。
@@ -21,8 +22,6 @@ const double kCoverAspect = 2 / 3;
 double coverHeight(double width) => width / kCoverAspect;
 
 /// 可拖动窗口区域。
-/// 用法：作为全屏路由最顶部**横跨整宽**的一条拖动条（高度 24-32）。
-/// 旧实现把它包在标题行外层，只有按钮之间的缝隙可拖动，几乎点不中。
 class WindowDragBar extends StatelessWidget {
   final Widget? child;
   final double height;
@@ -43,10 +42,7 @@ class WindowDragBar extends StatelessWidget {
   }
 }
 
-/// 封面图：本地文件优先 → 网络缓存 → 占位；NSFW 可模糊/占位。
-/// 模糊强度与显示模式来自响应式 provider，设置中切换立即生效。
-/// 本地图片存在性缓存：避免每帧/每张卡片都做同步 stat（列表滚动与页面切换的主要卡顿源）。
-/// 以「路径 + 修改时间」为键，文件被替换后会自动失效。
+/// 本地图片存在性缓存：避免每帧/每张卡片都做同步 stat。
 final Map<String, bool> _fileExistsCache = {};
 
 bool _existsCached(String path) {
@@ -98,37 +94,60 @@ class CoverImage extends ConsumerWidget {
     this.width,
     this.height,
     this.fit = BoxFit.cover,
-    this.borderRadius = const BorderRadius.all(Radius.circular(14)),
+    this.borderRadius = const BorderRadius.all(Radius.circular(Radii.md)),
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    if (!nsfw) {
+      return _renderImage(context, dark, blur: false);
+    }
     final mode = ref.watch(nsfwModeProvider);
-    final blurStrength = ref.watch(nsfwBlurProvider);
-    if (!nsfw || mode == 'show') {
+    if (mode == 'show') {
       return _renderImage(context, dark, blur: false);
     }
     if (mode == 'blur') {
+      final blurStrength = ref.watch(nsfwBlurProvider);
       return _renderImage(context, dark, blur: true, sigma: blurStrength);
     }
-    // placeholder 占位图
     return _frame(context, child: _placeholder(dark));
   }
 
-  Widget _renderImage(BuildContext context, bool dark, {required bool blur, double sigma = 12}) {
+  /// 按显示尺寸与设备像素比计算合理的解码宽度，避免直接把 1200x1800+ 原图全量解码进显存。
+  int _computeDecodeWidth(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.5);
+    final w = width;
+    if (w != null && w.isFinite && w > 0) {
+      return (w * dpr).round().clamp(96, 960);
+    }
+    // 网格卡片内 AspectRatio 未显式传 width 时，按 210lp * dpr 解码
+    return (210 * dpr).round().clamp(280, 560);
+  }
+
+  Widget _renderImage(BuildContext context, bool dark,
+      {required bool blur, double sigma = 12}) {
     Widget? image;
-    // 数据库里可能存的是相对数据目录的路径（换设备后仍可用）
-    final resolvedPath = path.isEmpty ? '' : AppPaths.instance.resolveStored(path);
+    final decodeWidth = _computeDecodeWidth(context);
+    final resolvedPath =
+        path.isEmpty ? '' : AppPaths.instance.resolveStored(path);
     if (resolvedPath.isNotEmpty && _existsCached(resolvedPath)) {
-      image = Image.file(File(resolvedPath),
-          fit: fit, width: width, height: height, gaplessPlayback: true);
+      image = Image.file(
+        File(resolvedPath),
+        fit: fit,
+        width: width,
+        height: height,
+        cacheWidth: decodeWidth,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+      );
     } else if ((networkUrl ?? '').isNotEmpty) {
       image = CachedNetworkImage(
         imageUrl: networkUrl!,
         fit: fit,
         width: width,
         height: height,
+        memCacheWidth: decodeWidth,
         fadeInDuration: Duration.zero,
         fadeOutDuration: Duration.zero,
         placeholder: (_, __) => _placeholder(dark),
@@ -141,7 +160,8 @@ class CoverImage extends ConsumerWidget {
             imageFilter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
             child: image)
         : image;
-    return _frame(context, child: ClipRRect(borderRadius: borderRadius, child: content));
+    return _frame(context,
+        child: ClipRRect(borderRadius: borderRadius, child: content));
   }
 
   Widget _frame(BuildContext context, {required Widget child}) => Container(
@@ -156,16 +176,18 @@ class CoverImage extends ConsumerWidget {
 
   Widget _placeholder(bool dark) => Container(
         alignment: Alignment.center,
-        color: dark ? const Color(0xFF332A3C) : KisakiColors.pinkContainer,
+        color: dark ? KisakiColors.nightContainer : KisakiColors.paperContainer,
         child: Icon(
-          Icons.local_florist_rounded,
-          size: 34,
-          color: dark ? KisakiColors.nightInkSoft : KisakiColors.pink.withValues(alpha: 0.55),
+          Icons.auto_stories_rounded,
+          size: 30,
+          color: dark
+              ? KisakiColors.nightInkSoft.withValues(alpha: 0.55)
+              : KisakiColors.inkSoft.withValues(alpha: 0.45),
         ),
       );
 }
 
-/// 毛玻璃面板（亚克力观感）。
+/// 毛玻璃面板。
 class GlassPanel extends StatelessWidget {
   final Widget child;
   final BorderRadius borderRadius;
@@ -175,7 +197,7 @@ class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
     required this.child,
-    this.borderRadius = const BorderRadius.all(Radius.circular(24)),
+    this.borderRadius = const BorderRadius.all(Radius.circular(Radii.xl)),
     this.padding = const EdgeInsets.all(20),
     this.tint,
   });
@@ -184,7 +206,9 @@ class GlassPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final base = tint ??
-        (dark ? Colors.white.withValues(alpha: 0.10) : Colors.white.withValues(alpha: 0.86));
+        (dark
+            ? const Color(0xCC161820)
+            : const Color(0xE0FAF7F2));
     return ClipRRect(
       borderRadius: borderRadius,
       child: BackdropFilter(
@@ -195,10 +219,8 @@ class GlassPanel extends StatelessWidget {
             color: base,
             borderRadius: borderRadius,
             border: Border.all(
-              // 背景图之上必须给出可辨的边界（原先白描边在白卡上等于没有）
-              color: dark
-                  ? Colors.white.withValues(alpha: 0.14)
-                  : Colors.black.withValues(alpha: 0.08),
+              color: Elev.border(dark),
+              width: 1,
             ),
           ),
           child: child,
@@ -208,17 +230,19 @@ class GlassPanel extends StatelessWidget {
   }
 }
 
-/// 评分条（可交互）。
+/// 评分条（可交互，采用专色铭黄 Y）。
 class RatingBar extends StatelessWidget {
   final double value; // 0-10
   final ValueChanged<double>? onChanged;
   final double size;
 
-  const RatingBar({super.key, required this.value, this.onChanged, this.size = 28});
+  const RatingBar(
+      {super.key, required this.value, this.onChanged, this.size = 28});
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.primary;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final color = KisakiColors.ratingInk(dark);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(5, (i) {
@@ -246,7 +270,7 @@ class RatingBar extends StatelessWidget {
   }
 }
 
-/// 源徽标（显示数据来源）。
+/// 源徽标（显示数据来源，杂志角标排版）。
 class SourceBadge extends StatelessWidget {
   final String source;
   const SourceBadge({super.key, required this.source});
@@ -255,30 +279,39 @@ class SourceBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
+    final isCustom = source == 'custom';
+    final color = isCustom
+        ? scheme.onSurfaceVariant
+        : (dark ? KisakiColors.magentaDark : KisakiColors.magenta);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: source == 'custom'
-            ? scheme.surfaceContainerHighest
-            : dark
-                ? KisakiColors.pink.withValues(alpha: 0.22)
-                : KisakiColors.pinkContainer,
+        borderRadius: BorderRadius.circular(Radii.xs),
+        color: isCustom
+            ? scheme.surfaceContainerHigh
+            : color.withValues(alpha: dark ? 0.18 : 0.10),
+        border: Border.all(
+          color: isCustom
+              ? Elev.border(dark)
+              : color.withValues(alpha: dark ? 0.36 : 0.25),
+          width: 1,
+        ),
       ),
       child: Text(
-        source == 'custom' ? '自定义' : source.toUpperCase(),
-        style: TextStyle(
+        isCustom ? '自定义' : source.toUpperCase(),
+        style: Type.micro.copyWith(
           fontSize: 10,
           fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
-          color: dark ? KisakiColors.pinkSoft : KisakiColors.onPinkContainer,
+          letterSpacing: 0.35,
+          color: color,
         ),
       ),
     );
   }
 }
 
-/// 平台评分显示（标签+分数）。
+/// 平台评分显示（标签+分数，专色铭黄 Y + 等宽数字）。
 class PlatformRatingChip extends StatelessWidget {
   final String label;
   final double rating;
@@ -290,28 +323,40 @@ class PlatformRatingChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     if (rating <= 0) return const SizedBox.shrink();
+    final ratingColor = KisakiColors.ratingInk(dark);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        color: dark
-            ? KisakiColors.lavender.withValues(alpha: 0.2)
-            : KisakiColors.lavenderContainer,
+        borderRadius: BorderRadius.circular(Radii.sm),
+        color: ratingColor.withValues(alpha: dark ? 0.14 : 0.10),
+        border: Border.all(
+          color: ratingColor.withValues(alpha: dark ? 0.35 : 0.26),
+          width: 1,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft)),
+          Icon(Icons.star_rounded, size: 13, color: ratingColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: Type.micro.copyWith(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft,
+            ),
+          ),
           const SizedBox(width: 5),
-          Text(rating.toStringAsFixed(1),
-              style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                  color: dark ? KisakiColors.lavenderSoft : KisakiColors.lavender)),
+          Text(
+            rating.toStringAsFixed(1),
+            style: Type.mono.copyWith(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: ratingColor,
+            ),
+          ),
         ],
       ),
     );
@@ -323,7 +368,8 @@ class PlayStatusChip extends StatelessWidget {
   final PlayStatus status;
   final bool selected;
   final VoidCallback? onTap;
-  const PlayStatusChip(this.status, {super.key, this.selected = false, this.onTap});
+  const PlayStatusChip(this.status,
+      {super.key, this.selected = false, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -332,7 +378,8 @@ class PlayStatusChip extends StatelessWidget {
       label: Text(status.label),
       selected: selected,
       onSelected: onTap == null ? null : (_) => onTap!(),
-      avatar: Icon(_icon, size: 16, color: selected ? scheme.onPrimary : scheme.primary),
+      avatar: Icon(_icon,
+          size: 16, color: selected ? scheme.onPrimary : scheme.primary),
       backgroundColor: Colors.transparent,
       showCheckmark: false,
     );

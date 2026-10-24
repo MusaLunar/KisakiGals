@@ -1,12 +1,10 @@
-/// 主页：问候与速览 / 最近游玩 Hero / 动态时间线 / 为你推荐。
+/// 主页：誌面 (Shimen) 卷首特辑 Bento 矩阵 / 最近游玩图版列 / 发售表式动态与推荐.
 ///
-/// 重构要点：
-/// - 页面骨架交给 [KPage]（标题区 + 统一留白），整页滚动；
-///   卡片内**不再嵌套滚动视图**：动态/推荐改为「限制条数 + 底部留白」，
-///   修掉旧布局末条被裁成半截的问题（固定高度 + 卡内 ListView 的老毛病）；
-///   被条数限制挡掉的旧动态在「全部动态」浮层里继续滚动查看。
-/// - 全部卡片走 [KCard] / [KStat] / [KMediaRow]，间距圆角阴影动效取
-///   design.dart 的 token，不再手写裸 Container + BoxDecoration。
+/// 核心版式升级：
+/// - 卷首特辑 Bento 区：左侧为主打作品特辑卡（支持一键启动与封面微缩放物理），
+///   右侧咬合本周/本月/总计三格专色青蓝 (Process Cyan) 等宽数字统计矩阵；
+/// - 消除「卡中套卡」(Card-inside-Card) 冗余描边：动态时间线采用杂志日程表式
+///   悬挂时间列 + 1px 裁切细线分隔，严守单一海拔原则。
 library;
 
 import 'dart:async';
@@ -28,10 +26,7 @@ import '../shell/tabs.dart';
 import '../theme.dart';
 import '../widgets/common.dart' show CoverImage;
 
-/// 动态时间线展示上限（限制条数，避免整页被无限拉长）。
 const int _kTimelineLimit = 6;
-
-/// 推荐展示上限。
 const int _kRecommendLimit = 5;
 
 class HomePage extends ConsumerStatefulWidget {
@@ -69,14 +64,12 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  // ================= 页面内容 =================
-
   Widget _content(HomeData data) {
     return KPage(
-      // 超宽屏（>1440）下居中限宽，避免卡片与数据带被拉稀
       maxContentWidth: 1440,
       title: _greeting(),
-      subtitle: '共 ${data.gameCount} 部作品 · 累计 ${fmtDuration(data.all.totalSeconds)}',
+      subtitle:
+          '共 ${data.gameCount} 部作品 · 累计 ${fmtDuration(data.all.totalSeconds)}',
       actions: [
         KIconAction(
           icon: Icons.refresh_rounded,
@@ -91,10 +84,10 @@ class _HomePageState extends ConsumerState<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          StaggeredFadeIn(index: 0, child: _overviewSection(data)),
-          const SizedBox(height: Gap.lg),
-          StaggeredFadeIn(index: 1, child: _heroSection(data)),
-          const SizedBox(height: Gap.lg),
+          StaggeredFadeIn(index: 0, child: _leadBentoSection(data)),
+          const SizedBox(height: Gap.xl),
+          StaggeredFadeIn(index: 1, child: _recentShelfSection(data)),
+          const SizedBox(height: Gap.xl),
           StaggeredFadeIn(index: 2, child: _feedRow(data)),
         ],
       ),
@@ -115,49 +108,131 @@ class _HomePageState extends ConsumerState<HomePage> {
     return '$hello，今天也想见见她们吗？';
   }
 
-  // ================= 1. 速览三卡 =================
+  // ================= 1. 卷首特辑 + 专色青蓝数据 Bento =================
 
-  Widget _overviewSection(HomeData data) {
-    final scheme = Theme.of(context).colorScheme;
+  Widget _leadBentoSection(HomeData data) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final leadGame =
+        data.recentGames.isNotEmpty ? data.recentGames.first : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const KSectionTitle('速览'),
-        Row(
-          children: [
-            Expanded(
-              child: _statCard(
-                title: '本周',
-                icon: Icons.calendar_view_week_rounded,
-                accent: scheme.primary,
-                stats: data.week,
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 860;
+            final statsGrid = Row(
+              children: [
+                Expanded(
+                  child: _statCard(
+                    title: '本周',
+                    icon: Icons.calendar_view_week_rounded,
+                    accent: cyanInk,
+                    stats: data.week,
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+                Expanded(
+                  child: _statCard(
+                    title: '本月',
+                    icon: Icons.calendar_view_month_rounded,
+                    accent: cyanInk,
+                    stats: data.month,
+                  ),
+                ),
+                const SizedBox(width: Gap.md),
+                Expanded(
+                  child: _statCard(
+                    title: '总计',
+                    icon: Icons.all_inclusive_rounded,
+                    accent: Theme.of(context).colorScheme.primary,
+                    stats: data.all,
+                  ),
+                ),
+              ],
+            );
+
+            if (leadGame == null) {
+              return statsGrid;
+            }
+
+            final featureCard = _LeadFeatureCard(
+              game: leadGame,
+              onContinue: () => _continueGame(leadGame),
+              onOpen: leadGame.id == null
+                  ? null
+                  : () => _openGameDetail(leadGame.id!, initial: leadGame),
+            );
+
+            if (!wide) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  featureCard,
+                  const SizedBox(height: Gap.md),
+                  statsGrid,
+                ],
+              );
+            }
+
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(flex: 6, child: featureCard),
+                  const SizedBox(width: Gap.md),
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: _statCard(
+                                  title: '本周',
+                                  icon: Icons.calendar_view_week_rounded,
+                                  accent: cyanInk,
+                                  stats: data.week,
+                                ),
+                              ),
+                              const SizedBox(width: Gap.md),
+                              Expanded(
+                                child: _statCard(
+                                  title: '本月',
+                                  icon: Icons.calendar_view_month_rounded,
+                                  accent: cyanInk,
+                                  stats: data.month,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: Gap.md),
+                        Expanded(
+                          child: _statCard(
+                            title: '总计',
+                            icon: Icons.all_inclusive_rounded,
+                            accent: Theme.of(context).colorScheme.primary,
+                            stats: data.all,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: Gap.lg),
-            Expanded(
-              child: _statCard(
-                title: '本月',
-                icon: Icons.calendar_view_month_rounded,
-                accent: scheme.secondary,
-                stats: data.month,
-              ),
-            ),
-            const SizedBox(width: Gap.lg),
-            Expanded(
-              child: _statCard(
-                title: '总计',
-                icon: Icons.all_inclusive_rounded,
-                accent: scheme.tertiary,
-                stats: data.all,
-              ),
-            ),
-          ],
+            );
+          },
         ),
       ],
     );
   }
 
-  /// 速览卡：数值走 [KStat]（内部已用 AnimatedCount），点击进统计页。
   Widget _statCard({
     required String title,
     required IconData icon,
@@ -174,9 +249,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  // ================= 2. 最近游玩（紧凑横排，同屏可见多部） =================
+  // ================= 2. 最近游玩图版横排 =================
 
-  Widget _heroSection(HomeData data) {
+  Widget _recentShelfSection(HomeData data) {
     final games = data.recentGames;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -209,7 +284,6 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
           )
         else
-          // 横向滚动的一排小卡：一屏能看到 6-8 部（原先一个大 Hero 只显示一部）
           SizedBox(
             height: _kRecentTileHeight + 8,
             child: ListView.separated(
@@ -225,8 +299,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   onContinue: () => _continueGame(games[i]),
                   onOpen: games[i].id == null
                       ? null
-                      : () => _openGameDetail(games[i].id!,
-                          initial: games[i]),
+                      : () => _openGameDetail(games[i].id!, initial: games[i]),
                 ),
               ),
             ),
@@ -235,13 +308,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 最近游玩卡片的整体高度（封面 84 + 标题/副标题两行 + 内边距）
   static const double _kRecentTileHeight = 84 / (2 / 3) + 62;
 
-  // ================= 3. 动态 + 推荐 =================
+  // ================= 3. 发售表式动态列 + 为你推荐 =================
 
-  /// 动态与推荐并排，两列等高（IntrinsicHeight）；
-  /// 两卡内部都只是 Column，没有嵌套滚动，因此不会出现半截条目。
   Widget _feedRow(HomeData data) {
     return IntrinsicHeight(
       child: Row(
@@ -256,15 +326,16 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _timelineColumn(List<ActivityItem> activity) {
-    final scheme = Theme.of(context).colorScheme;
-    final shown = activity.length > _kTimelineLimit
-        ? _kTimelineLimit
-        : activity.length;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final shown =
+        activity.length > _kTimelineLimit ? _kTimelineLimit : activity.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         KSectionTitle(
           '动态',
+          accentColor: cyanInk,
           trailing: _titleSlot(
             activity.isEmpty
                 ? null
@@ -274,9 +345,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                       KBadge(
                         text: '最近 $shown 条',
                         icon: Icons.timeline_rounded,
-                        color: scheme.secondary,
+                        color: cyanInk,
                       ),
-                      // 超出卡片条数的旧记录：浮层里继续看
                       if (activity.length > _kTimelineLimit)
                         KIconAction(
                           icon: Icons.list_alt_rounded,
@@ -287,15 +357,20 @@ class _HomePageState extends ConsumerState<HomePage> {
                   ),
           ),
         ),
-        Expanded(child: KCard(child: _timelineBody(activity))),
+        Expanded(
+          child: KCard(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: _timelineBody(activity),
+          ),
+        ),
       ],
     );
   }
 
-  /// 标题右侧固定 38 高的槽位：左右两列标题行等高，两张卡片顶边对齐。
-  Widget _titleSlot(Widget? child) => SizedBox(height: 38, child: child);
+  Widget _titleSlot(Widget? child) => SizedBox(height: 36, child: child);
 
   Widget _timelineBody(List<ActivityItem> activity) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     if (activity.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: Gap.xl),
@@ -311,21 +386,21 @@ class _HomePageState extends ConsumerState<HomePage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(height: Gap.xxs),
-          _activityRow(items[i]),
+          if (i > 0)
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: Elev.border(dark),
+            ),
+          _ActivityRow(
+            item: items[i],
+            onTap: () => _openGameDetail(items[i].gameId),
+          ),
         ],
-        // 底部留白：最后一条不贴卡片下沿（评审指出的裁切问题）
-        const SizedBox(height: Gap.xs),
       ],
     );
   }
 
-  Widget _activityRow(ActivityItem a) {
-    return _ActivityRow(item: a, onTap: () => _openGameDetail(a.gameId));
-  }
-
-  /// 「全部动态」浮层：卡片里只留最近几条，更早的记录在这里滚动查看
-  /// （保留旧版时间线可滚动浏览全部动态的能力）。
   void _openAllActivity(List<ActivityItem> activities) {
     showKisakiDialog<void>(
       context: context,
@@ -349,12 +424,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// 刷新入口：加载中换成同尺寸的指示器，避免标题行高度跳动。
   Widget _recommendAction() {
     if (_loadingRecommendations) {
       return const Padding(
         padding: EdgeInsets.only(left: 6),
-        child: SizedBox(width: 38, height: 38, child: KLoading(size: 18)),
+        child: SizedBox(width: 36, height: 36, child: KLoading(size: 18)),
       );
     }
     return KIconAction(
@@ -366,6 +440,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _recommendBody() {
     final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final tags = _topTags();
     final recs = _recommendations;
 
@@ -378,7 +453,10 @@ class _HomePageState extends ConsumerState<HomePage> {
             runSpacing: Gap.xs,
             children: [
               for (final t in tags)
-                KBadge(text: '#${t.name}', color: scheme.secondary),
+                KBadge(
+                  text: '#${t.name}',
+                  color: KisakiColors.temporalInk(dark),
+                ),
             ],
           ),
           const SizedBox(height: Gap.md),
@@ -389,7 +467,6 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: KLoading(),
           )
         else if (recs == null)
-          // 首屏空态：骨架占位 + 卡内刷新按钮（旧版这里是大片死白）
           ...[
             const _RecommendSkeleton(rows: 4),
             const SizedBox(height: Gap.md),
@@ -420,7 +497,11 @@ class _HomePageState extends ConsumerState<HomePage> {
           )
         else
           ...[
-            for (final g in recs.take(_kRecommendLimit)) _recommendRow(g),
+            for (var i = 0; i < recs.take(_kRecommendLimit).length; i++) ...[
+              if (i > 0)
+                Divider(height: 1, thickness: 1, color: Elev.border(dark)),
+              _recommendRow(recs[i]),
+            ],
           ],
         const SizedBox(height: Gap.xs),
       ],
@@ -429,30 +510,25 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _recommendRow(ScrapedGame g) {
     final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final ratingColor = KisakiColors.ratingInk(dark);
     final source = KisakiSources.labels[g.source] ?? g.source;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Gap.sm),
-      child: InteractiveSurface(
-        onTap: () => _openResourceSearch(g.displayName),
-        borderRadius: BorderRadius.circular(Radii.md),
-        color: Colors.transparent,
-        outline: scheme.primary,
-        // 行式条目：只保留 hover 描边与按压回弹，不做整行上浮
-        borderOnIdle: false,
-        elevated: false,
-        lift: 0,
-        padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 6),
+
+    return FluidPressable(
+      onTap: () => _openResourceSearch(g.displayName),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Row(
           children: [
             CoverImage(
               path: '',
               networkUrl: g.coverUrl,
               nsfw: g.nsfw,
-              width: 32,
-              height: 48,
+              width: 34,
+              height: 51,
               borderRadius: BorderRadius.circular(Radii.xs),
             ),
-            const SizedBox(width: Gap.sm + 2),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -461,23 +537,26 @@ class _HomePageState extends ConsumerState<HomePage> {
                     g.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Type.body
-                        .copyWith(fontWeight: FontWeight.w600, height: 1.3),
+                    style: Type.body.copyWith(
+                      fontWeight: FontWeight.w700,
+                      height: 1.28,
+                    ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Row(
                     children: [
                       if (g.rating > 0) ...[
-                        const Icon(Icons.star_rounded,
-                            size: 12, color: KisakiColors.star),
+                        Icon(Icons.star_rounded, size: 12, color: ratingColor),
                         const SizedBox(width: 3),
                         Text(
                           g.rating.toStringAsFixed(1),
-                          style: Type.micro.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w700),
+                          style: Type.mono.copyWith(
+                            fontSize: 11,
+                            color: ratingColor,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                        const SizedBox(width: Gap.sm),
+                        const SizedBox(width: 8),
                       ],
                       Expanded(
                         child: Text(
@@ -505,12 +584,6 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _switchTab(int index) =>
       ref.read(tabIndexProvider.notifier).state = index;
 
-  /// 跳到探索页并**按该作品名发起一次关键词搜索**（榜单里找到它 → 点开详情
-  /// 就能看到资源下载链接）。
-  ///
-  /// 只负责把关键词写进 [resourceQueryProvider]（语义 = 待预填的关键词）并切页：
-  /// 探索页会消费它——填进搜索框并立刻发起搜索，消费完把 provider 清空，
-  /// 这样对同一部作品再点一次仍然会真正触发（值从 '' 变化才触发监听）。
   void _openResourceSearch(String query) {
     if (query.isNotEmpty) {
       ref.read(resourceQueryProvider.notifier).state = query;
@@ -561,17 +634,149 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 }
 
-// ================= Hero 卡 =================
+// ================= 卷首主打特辑卡 (Lead Feature Card) =================
 
-/// 最近游玩 Hero：封面 + 元信息 + 继续游戏；正在计时时右侧显示本局实时时长。
-/// 最近游玩卡片：竖向小卡（封面 2:3 + 名称 + 上次游玩）。
-///
-/// 与旧版区别：旧版是一个大 Hero（一屏只显示一部，还要左右翻页），
-/// 现在是一排可横向滚动的小卡，同屏可见 6-8 部，鼠标悬停即出现启动按钮。
+class _LeadFeatureCard extends ConsumerStatefulWidget {
+  final Game game;
+  final VoidCallback onContinue;
+  final VoidCallback? onOpen;
+
+  const _LeadFeatureCard({
+    required this.game,
+    required this.onContinue,
+    this.onOpen,
+  });
+
+  @override
+  ConsumerState<_LeadFeatureCard> createState() => _LeadFeatureCardState();
+}
+
+class _LeadFeatureCardState extends ConsumerState<_LeadFeatureCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final game = widget.game;
+    final running = ref.watch(trackingGameProvider) == game.id;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final ratingColor = KisakiColors.ratingInk(dark);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: KCard(
+        onTap: widget.onOpen,
+        padding: const EdgeInsets.all(14),
+        borderColor: running
+            ? cyanInk.withValues(alpha: 0.55)
+            : scheme.primary.withValues(alpha: dark ? 0.32 : 0.22),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // 2:3 杂志封面图版（悬停时内部微缩放 1.035x）
+            SizedBox(
+              width: 96,
+              height: 144,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(Radii.sm),
+                child: AnimatedScale(
+                  scale: _hover ? Motion.coverHoverScale : 1.0,
+                  duration: Motion.normal,
+                  curve: Motion.enter,
+                  child: CoverImage(
+                    path: game.coverPath,
+                    nsfw: game.nsfw,
+                    borderRadius: BorderRadius.circular(Radii.sm),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    children: [
+                      KBadge(
+                        text: running ? '正在运行' : game.playStatus.label,
+                        color: running ? cyanInk : scheme.primary,
+                        icon: running
+                            ? Icons.bolt_rounded
+                            : Icons.bookmark_rounded,
+                      ),
+                      if (game.userRating > 0) ...[
+                        const SizedBox(width: 6),
+                        KBadge(
+                          text: game.userRating.toStringAsFixed(1),
+                          color: ratingColor,
+                          icon: Icons.star_rounded,
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    game.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.title.copyWith(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (game.developer.isNotEmpty) game.developer,
+                      if (game.totalSeconds > 0)
+                        '累计 ${fmtDuration(game.totalSeconds)}',
+                      if (game.lastPlayedAt != null)
+                        '上次 ${fmtRelativeShort(game.lastPlayedAt!)}',
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.caption.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      KPill(
+                        label: running ? '正在游玩' : '立即启动',
+                        icon: running
+                            ? Icons.sports_esports_rounded
+                            : Icons.play_arrow_rounded,
+                        color: running ? cyanInk : scheme.primary,
+                        onTap: running ? widget.onOpen : widget.onContinue,
+                      ),
+                      const SizedBox(width: 8),
+                      KPill(
+                        label: '作品详情',
+                        filled: false,
+                        onTap: widget.onOpen,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ================= 最近游玩小图版 =================
+
 class _RecentTile extends ConsumerStatefulWidget {
   final Game game;
-
-  /// 最近一次游玩的那部：加主色描边并常驻启动按钮
   final bool primary;
   final VoidCallback onContinue;
   final VoidCallback? onOpen;
@@ -596,6 +801,7 @@ class _RecentTileState extends ConsumerState<_RecentTile> {
     final scheme = Theme.of(context).colorScheme;
     final game = widget.game;
     final running = ref.watch(trackingGameProvider) == game.id;
+    final cyanInk = KisakiColors.temporalInk(dark);
 
     return SizedBox(
       width: 124,
@@ -616,62 +822,65 @@ class _RecentTileState extends ConsumerState<_RecentTile> {
               borderRadius: BorderRadius.circular(Radii.md),
               border: Border.all(
                 color: running || widget.primary
-                    ? scheme.primary.withValues(alpha: 0.45)
+                    ? scheme.primary.withValues(alpha: 0.55)
                     : (_hover
-                        ? scheme.primary.withValues(alpha: 0.30)
+                        ? scheme.primary.withValues(alpha: 0.36)
                         : Elev.border(dark)),
+                width: 1,
               ),
-              boxShadow:
-                  _hover ? Elev.cardHover(dark, scheme.primary) : Elev.card(dark, scheme.primary),
+              boxShadow: _hover
+                  ? Elev.cardHover(dark, scheme.primary)
+                  : Elev.card(dark, scheme.primary),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(Radii.thumb),
+                    borderRadius: BorderRadius.circular(Radii.xs),
                     child: Stack(
                       children: [
                         Positioned.fill(
                           child: RepaintBoundary(
                             child: AnimatedScale(
-                              scale: _hover ? 1.04 : 1.0,
+                              scale: _hover ? Motion.coverHoverScale : 1.0,
                               duration: Motion.fast,
                               curve: Motion.enter,
                               child: CoverImage(
                                 path: game.coverPath,
                                 nsfw: game.nsfw,
-                                borderRadius: BorderRadius.circular(Radii.thumb),
+                                borderRadius: BorderRadius.circular(Radii.xs),
                               ),
                             ),
                           ),
                         ),
-                      // 悬停/最近游玩：在封面右下角浮出启动按钮
-                      if (_hover || widget.primary || running)
-                        Positioned(
-                          right: 4,
-                          bottom: 4,
-                          child: KOverlayIconButton(
-                            icon: running
-                                ? Icons.sports_esports_rounded
-                                : Icons.play_arrow_rounded,
-                            tooltip: running ? '游玩中' : '启动游戏',
-                            color: running ? KisakiColors.pink : Colors.white,
-                            onTap: running ? widget.onOpen : widget.onContinue,
+                        if (_hover || widget.primary || running)
+                          Positioned(
+                            right: 4,
+                            bottom: 4,
+                            child: KOverlayIconButton(
+                              icon: running
+                                  ? Icons.sports_esports_rounded
+                                  : Icons.play_arrow_rounded,
+                              tooltip: running ? '游玩中' : '启动游戏',
+                              color: running ? cyanInk : Colors.white,
+                              onTap:
+                                  running ? widget.onOpen : widget.onContinue,
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Text(
                   game.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Type.caption.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: dark ? KisakiColors.nightInk : KisakiColors.ink),
+                    fontWeight: FontWeight.w700,
+                    color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                  ),
                 ),
                 const SizedBox(height: 1),
                 Text(
@@ -682,11 +891,11 @@ class _RecentTileState extends ConsumerState<_RecentTile> {
                           : fmtRelativeShort(game.lastPlayedAt!)),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Type.micro.copyWith(
-                      color: running
-                          ? scheme.primary
-                          : scheme.onSurfaceVariant,
-                      fontWeight: running ? FontWeight.w700 : FontWeight.w400),
+                  style: Type.mono.copyWith(
+                    fontSize: 10.5,
+                    color: running ? cyanInk : scheme.onSurfaceVariant,
+                    fontWeight: running ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
               ],
             ),
@@ -697,44 +906,102 @@ class _RecentTileState extends ConsumerState<_RecentTile> {
   }
 }
 
-// ================= 动态条目 / 全部动态 =================
+// ================= 发售表式动态行 / 全部动态 =================
 
-/// 动态条目：封面 + 游戏名 + 类型徽标 + 相对时间，点击进详情。
-class _ActivityRow extends StatelessWidget {
+/// 发售表式动态行：左侧等宽悬挂时间列 + 2:3 缩略图版 + 标题 + 右侧 CMYK 专色动作徽标（无嵌套内卡边框）
+class _ActivityRow extends StatefulWidget {
   final ActivityItem item;
   final VoidCallback onTap;
 
   const _ActivityRow({required this.item, required this.onTap});
 
   @override
+  State<_ActivityRow> createState() => _ActivityRowState();
+}
+
+class _ActivityRowState extends State<_ActivityRow> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final ratingColor = KisakiColors.ratingInk(dark);
+    final item = widget.item;
+
     final (icon, color, text) = switch (item.type) {
-      'added' => (Icons.add_circle_rounded, scheme.secondary, '添加了游戏'),
+      'added' => (Icons.add_circle_rounded, cyanInk, '收录入库'),
       'rated' => (
           Icons.star_rounded,
-          KisakiColors.star,
-          item.detail.isEmpty ? '给出了评分' : '留下了评价'
+          ratingColor,
+          item.detail.isEmpty ? '给出评分' : '留下评价'
         ),
       _ => (Icons.play_circle_rounded, scheme.primary, '开始游玩'),
     };
-    return KMediaRow(
-      coverPath: item.coverPath,
-      coverWidth: 32,
-      title: item.gameName,
-      badges: [
-        KBadge(text: text, icon: icon, color: color),
-        Text(
-          fmtRelative(item.at),
-          style: Type.micro.copyWith(color: scheme.onSurfaceVariant),
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: FluidPressable(
+        onTap: widget.onTap,
+        scaleFactor: 0.985,
+        child: AnimatedContainer(
+          duration: Motion.fast,
+          curve: Motion.enter,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          decoration: BoxDecoration(
+            color: _hover
+                ? (dark ? Colors.white : const Color(0xFF16151A))
+                    .withValues(alpha: 0.04)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(Radii.sm),
+          ),
+          child: Row(
+            children: [
+              // 悬挂等宽时间索引列
+              SizedBox(
+                width: 68,
+                child: Text(
+                  fmtRelativeShort(item.at),
+                  style: Type.mono.copyWith(
+                    fontSize: 11,
+                    color: cyanInk,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 30,
+                height: 45,
+                child: CoverImage(
+                  path: item.coverPath,
+                  borderRadius: BorderRadius.circular(Radii.xs),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  item.gameName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.body.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              KBadge(text: text, icon: icon, color: color),
+            ],
+          ),
         ),
-      ],
-      onTap: onTap,
+      ),
     );
   }
 }
 
-/// 「全部动态」浮层：卡片只展示最近几条，历史记录在这里滚动查看。
 class _AllActivitySheet extends StatelessWidget {
   final List<ActivityItem> activities;
   final ValueChanged<int> onSelect;
@@ -743,14 +1010,15 @@ class _AllActivitySheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // 行高固定（KMediaRow 约 70），按条数给高度并做上下限，避免空荡荡或超高
-    final listHeight = (activities.length * 72.0).clamp(180.0, 440.0);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final listHeight = (activities.length * 64.0).clamp(180.0, 440.0);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: KCard(
           borderRadius: Radii.sheet,
+          overlayShadow: true,
           padding: const EdgeInsets.fromLTRB(Gap.lg, Gap.md, Gap.lg, Gap.lg),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -763,7 +1031,7 @@ class _AllActivitySheet extends StatelessWidget {
                   KBadge(
                     text: '${activities.length} 条',
                     icon: Icons.timeline_rounded,
-                    color: scheme.secondary,
+                    color: cyanInk,
                   ),
                   const Spacer(),
                   KIconAction(
@@ -776,12 +1044,18 @@ class _AllActivitySheet extends StatelessWidget {
               const SizedBox(height: Gap.md),
               SizedBox(
                 height: listHeight,
-                child: ListView(
+                child: ListView.separated(
                   padding: const EdgeInsets.only(bottom: Gap.sm),
-                  children: [
-                    for (final a in activities)
-                      _ActivityRow(item: a, onTap: () => onSelect(a.gameId)),
-                  ],
+                  itemCount: activities.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: Elev.border(dark),
+                  ),
+                  itemBuilder: (_, i) => _ActivityRow(
+                    item: activities[i],
+                    onTap: () => onSelect(activities[i].gameId),
+                  ),
                 ),
               ),
             ],
@@ -792,9 +1066,6 @@ class _AllActivitySheet extends StatelessWidget {
   }
 }
 
-// ================= 推荐骨架 =================
-
-/// 推荐空态骨架：低对比占位块，避免大片死白。
 class _RecommendSkeleton extends StatelessWidget {
   final int rows;
   const _RecommendSkeleton({this.rows = 3});
@@ -809,7 +1080,10 @@ class _RecommendSkeleton extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: Gap.md),
             child: Row(
               children: [
-                _Bone(color: scheme.surfaceContainerHighest, width: 32, height: 48),
+                _Bone(
+                    color: scheme.surfaceContainerHighest,
+                    width: 32,
+                    height: 48),
                 const SizedBox(width: Gap.md),
                 Expanded(
                   child: Column(
@@ -838,12 +1112,12 @@ class _RecommendSkeleton extends StatelessWidget {
   }
 }
 
-/// 占位块：只用基础组件（圆角裁剪 + 纯色块），不写手搓 BoxDecoration。
 class _Bone extends StatelessWidget {
   final Color color;
   final double width;
   final double height;
-  const _Bone({required this.color, required this.width, required this.height});
+  const _Bone(
+      {required this.color, required this.width, required this.height});
 
   @override
   Widget build(BuildContext context) {
@@ -857,13 +1131,6 @@ class _Bone extends StatelessWidget {
   }
 }
 
-// ================= 侧栏 Tab 索引 =================
-//
-// 索引已集中到 `lib/ui/shell/tabs.dart`（[Tabs]）：这里只保留这几个别名，
-// 免得页面里再出现裸数字（新增页面时索引一变就会全线错位）。
-// 探索页现在只有一种形态（没有「资源」模式了）：这里的入口会先把关键词写进
-// `resourceQueryProvider`，探索页据此预填搜索框并**立刻发起一次关键词搜索**，
-// 资源下载链接则由该作品的详情弹窗自动去查。
 const int _kLibraryTab = Tabs.library;
 const int _kSearchTab = Tabs.discover;
 const int _kStatsTab = Tabs.stats;

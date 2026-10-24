@@ -213,32 +213,32 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
         for (final g in list) {
           if (!_passes(filter, g)) continue;
           if (!seenIds.add(_dedupKey(g))) continue;
-          // 跨源去重：同一部作品在不同源里 sourceId 不同，用规范化标题兜一层
-          final tk = normalizeForMatch(g.displayName);
+          // 跨源去重：同一部作品在不同源里 sourceId 不同，用压扁后的规范化标题兜一层
+          final tk = normalizeForMatch(g.displayName).replaceAll(' ', '');
           if (tk.isNotEmpty && !seenTitles.add(tk)) continue;
           merged.add(g);
         }
       }
-      // 排序：规范化后标题完全等于关键词的最优先，其次包含关键词，再按评分/票数
-      final q = normalizeForMatch(filter.keyword);
-      int rank(ScrapedGame g) {
-        final t = normalizeForMatch(g.displayName);
-        if (t == q) return 0;
-        if (t.contains(q)) return 1;
-        final ja = normalizeForMatch(g.name);
-        if (ja == q) return 0;
-        if (ja.contains(q)) return 1;
-        for (final a in g.aliases) {
-          final na = normalizeForMatch(a);
-          if (na == q) return 0;
-          if (na.contains(q)) return 1;
+      // 排序：复用全局 bestMatchScore（忽略中间符号/全半角/繁简，如「千恋万花」精确命中「千恋＊万花」），
+      // 最高匹配分优先，同分时短标题与高评分优先。
+      final kw = filter.keyword;
+      int matchScoreOf(ScrapedGame g) {
+        var best = 0;
+        for (final cand in [g.displayName, g.nameCn, g.name, ...g.aliases]) {
+          if (cand.isEmpty) continue;
+          final sc = bestMatchScore(kw, cand);
+          if (sc > best) best = sc;
         }
-        return 2;
+        return best;
       }
 
       merged.sort((a, b) {
-        final r = rank(a).compareTo(rank(b));
-        if (r != 0) return r;
+        final sa = matchScoreOf(a);
+        final sb = matchScoreOf(b);
+        if (sa != sb) return sb.compareTo(sa);
+        if (sa >= 55 && a.displayName.length != b.displayName.length) {
+          return a.displayName.length.compareTo(b.displayName.length);
+        }
         return b.rating.compareTo(a.rating);
       });
       return DiscoverFeedState(

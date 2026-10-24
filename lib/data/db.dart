@@ -14,7 +14,15 @@ Future<Database> openAppDb(String dbPath, {Database? inMemoryForTest}) async {
     dbPath,
     options: OpenDatabaseOptions(
       version: kSchemaVersion,
-      onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+        try {
+          await db.rawQuery('PRAGMA journal_mode = WAL');
+          await db.execute('PRAGMA synchronous = NORMAL');
+          await db.execute('PRAGMA temp_store = MEMORY');
+          await db.execute('PRAGMA cache_size = -16000');
+        } catch (_) {}
+      },
       onCreate: (db, v) => db.transaction((tx) async {
         for (final ddl in kCreateTables) {
           await tx.execute(ddl);
@@ -45,9 +53,25 @@ Future<Database> openAppDb(String dbPath, {Database? inMemoryForTest}) async {
               "ALTER TABLE games ADD COLUMN save_path TEXT NOT NULL DEFAULT ''");
         }
       },
+      onOpen: (db) async {
+        for (final idx in kPerformanceIndexes) {
+          try {
+            await db.execute(idx);
+          } catch (_) {}
+        }
+      },
     ),
   );
 }
+
+const List<String> kPerformanceIndexes = [
+  'CREATE INDEX IF NOT EXISTS idx_games_status ON games(play_status)',
+  'CREATE INDEX IF NOT EXISTS idx_games_last_played ON games(last_played_at)',
+  'CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_games_fav ON games(is_favorite)',
+  'CREATE INDEX IF NOT EXISTS idx_sources_game ON game_sources(game_id)',
+  'CREATE INDEX IF NOT EXISTS idx_sources_lookup ON game_sources(source, source_id)',
+];
 
 const List<String> kCreateTables = [
   '''

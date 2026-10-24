@@ -27,9 +27,6 @@ import 'game_card.dart';
 import 'game_card_actions.dart';
 import 'game_list_tile.dart';
 
-/// 网格/列表的卡片间距（4/8px 栅格上的 16）。
-const double _gridSpacing = Gap.lg;
-
 class LibraryPage extends ConsumerStatefulWidget {
   const LibraryPage({super.key});
 
@@ -180,7 +177,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           KToolbar(
             children: [
               SizedBox(
-                width: 300,
+                width: kCatalogSearchWidth,
                 child: TextField(
                   controller: _searchCtrl,
                   decoration: const InputDecoration(
@@ -223,43 +220,62 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(child: _buildBody(games, layout, filter)),
-                AnimatedSize(
-                  duration: Motion.normal,
-                  curve: Motion.enter,
-                  alignment: Alignment.topRight,
-                  child: _sidebarVisible
-                      ? Padding(
-                          padding: const EdgeInsets.only(left: Gap.lg),
-                          child: RepaintBoundary(
-                            child: _FilterSidebar(
-                              filter: filter,
-                              onClear: _clearAllFilters,
-                            ),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
+                KFilterSidebarSlot(
+                  visible: _sidebarVisible,
+                  child: _FilterSidebar(
+                    filter: filter,
+                    onClear: _clearAllFilters,
+                  ),
                 ),
               ],
             ),
           ),
-          // 批量操作栏：居中浮层，不挤压网格高度
-          if (_batchMode)
-            Padding(
-              padding: const EdgeInsets.only(top: Gap.md, bottom: Gap.lg),
-              child: _BatchBar(
-                selected: _selected,
-                onSelectAll: (all) => setState(() {
-                  final list = ref.read(gamesProvider).valueOrNull ?? const [];
-                  _selected.clear();
-                  if (all) {
-                    for (final g in list) {
-                      _selected.add(g.id!);
-                    }
-                  }
-                }),
-                onDone: _exitBatchMode,
+          // 批量操作栏：居中浮层，平滑展开/收起避免网格跳动
+          AnimatedSize(
+            duration: Motion.normal,
+            curve: Motion.enter,
+            alignment: Alignment.bottomCenter,
+            child: AnimatedSwitcher(
+              duration: Motion.normal,
+              reverseDuration: Motion.fast,
+              switchInCurve: Motion.enter,
+              switchOutCurve: Motion.exit,
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.0, 0.24),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.97, end: 1.0).animate(anim),
+                    child: child,
+                  ),
+                ),
               ),
+              child: _batchMode
+                  ? Padding(
+                      key: const ValueKey('batch-bar-visible'),
+                      padding:
+                          const EdgeInsets.only(top: Gap.md, bottom: Gap.lg),
+                      child: _BatchBar(
+                        selected: _selected,
+                        onSelectAll: (all) => setState(() {
+                          final list =
+                              ref.read(gamesProvider).valueOrNull ?? const [];
+                          _selected.clear();
+                          if (all) {
+                            for (final g in list) {
+                              _selected.add(g.id!);
+                            }
+                          }
+                        }),
+                        onDone: _exitBatchMode,
+                      ),
+                    )
+                  : const SizedBox.shrink(key: ValueKey('batch-bar-hidden')),
             ),
+          ),
         ],
       ),
     );
@@ -294,9 +310,25 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 final ratings =
                     ref.watch(platformRatingsProvider).valueOrNull ??
                         const <int, double>{};
-                return layout == 'list'
-                    ? _buildList(list, ratings, constraints)
-                    : _buildGrid(list, ratings, constraints);
+                return AnimatedSwitcher(
+                  duration: Motion.normal,
+                  switchInCurve: Motion.enter,
+                  switchOutCurve: Motion.exit,
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: ScaleTransition(
+                      scale:
+                          Tween<double>(begin: 0.985, end: 1.0).animate(anim),
+                      child: child,
+                    ),
+                  ),
+                  child: KeyedSubtree(
+                    key: ValueKey<String>(layout),
+                    child: layout == 'list'
+                        ? _buildList(list, ratings, constraints)
+                        : _buildGrid(list, ratings, constraints),
+                  ),
+                );
               },
             ),
       loading: () => const KLoading(size: 26),
@@ -308,25 +340,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     );
   }
 
-  /// 大封面网格：封面严格 2:3，单元高度由封面高度反推。
+  /// 大封面网格：封面严格 2:3，单元高度由封面高度反推（与探索页共用同一套网格度量）。
   Widget _buildGrid(
       List<Game> list, Map<int, double> ratings, BoxConstraints c) {
-    final count = (c.maxWidth / 190).floor().clamp(2, 10);
-    final cellW = (c.maxWidth - _gridSpacing * (count - 1)) / count;
-    // 卡片有内边距，封面按**内容宽度**保持 2:3，再补上内边距与文字区
-    final coverW = cellW - kGameCardPadding.horizontal;
-    final cellH = coverW / kCoverAspect +
-        kGameCardPadding.vertical +
-        kGameCardMetaHeight;
     return GridView.builder(
       padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
       clipBehavior: Clip.none,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: count,
-        mainAxisSpacing: _gridSpacing,
-        crossAxisSpacing: _gridSpacing,
-        childAspectRatio: cellW / cellH,
-      ),
+      gridDelegate:
+          buildCatalogGridDelegate(c.maxWidth, coverAspect: kCoverAspect),
       itemCount: list.length,
       itemBuilder: (context, i) {
         final g = list[i];
@@ -347,20 +368,13 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     );
   }
 
-  /// 紧凑列表：左 2:3 小封面 + 右名称，多列自适应，一页容纳更多条目。
+  /// 紧凑列表：左 2:3 小封面 + 右名称，多列自适应，一页容纳更多条目（与探索页共用同一套列表度量）。
   Widget _buildList(
       List<Game> list, Map<int, double> ratings, BoxConstraints c) {
-    const tileW = 320.0;
-    final cols = (c.maxWidth / tileW).floor().clamp(1, 6);
     return GridView.builder(
       padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
       clipBehavior: Clip.none,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cols,
-        mainAxisSpacing: _gridSpacing,
-        crossAxisSpacing: _gridSpacing,
-        mainAxisExtent: 88,
-      ),
+      gridDelegate: buildCatalogListDelegate(c.maxWidth),
       itemCount: list.length,
       itemBuilder: (context, i) {
         final g = list[i];
@@ -406,6 +420,7 @@ class _FilterSidebar extends ConsumerWidget {
     void apply() => ref.read(libraryVersionProvider.notifier).state++;
 
     return FilterSidebar(
+      title: '筛选 / FILTER',
       // 「清除全部筛选」置顶（有筛选时才显示）
       leading: filter.hasActive ? FilterClearButton(onTap: onClear) : null,
       sections: [

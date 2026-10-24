@@ -20,8 +20,6 @@
 /// [_DiscoverPageState._consumePendingQuery]。
 library;
 
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -36,48 +34,17 @@ import '../../scraping/scraped_game.dart';
 import '../design.dart';
 import '../kit.dart';
 import '../theme.dart';
-import '../widgets/common.dart' show CoverImage;
+import '../widgets/common.dart' show CoverImage, kCoverAspect;
 import '../widgets/filter_sidebar.dart';
 import '../widgets/notifications.dart';
 import 'discover_filter_state.dart';
 import 'discover_state.dart';
-import 'resource_links.dart';
+import 'game_explore_page.dart';
 
 /// 距底部多少像素开始预取下一页。
 /// 400 大约是「一行到一行半」的高度：滚动到底时下一页通常已经就位，
 /// 不会出现「滚到底停住 → 等一秒 → 才出卡片」的顿挫。
 const double _kPrefetchDistance = 400;
-
-/// 搜索结果网格排版：最大列宽 220、间距 16/16、卡片 2:3。
-///
-/// 骨架卡与真实卡片共用同一份 delegate：加载完成时不会出现布局跳动。
-const SliverGridDelegate _kGridDelegate =
-    SliverGridDelegateWithMaxCrossAxisExtent(
-  maxCrossAxisExtent: 220,
-  mainAxisSpacing: 16,
-  crossAxisSpacing: 16,
-  childAspectRatio: 2 / 3,
-);
-
-/// 工具条搜索框宽度（与游戏库的搜索框同宽，两个页面的工具条节奏一致）。
-const double _kSearchWidth = 300;
-
-/// 详情弹窗尺寸：**固定 720×560**。
-///
-/// 为什么定死而不是"内容自适应"：这个弹窗里有两块会变的区域（简介长度、
-/// 资源条数），自适应会让每次打开的形状都不一样，同一个应用里同一种弹窗
-/// 长得不一样很廉价。720×560 在窗口最小尺寸 1080×680（见 `main.dart` 的
-/// `minimumSize`）下四周仍有余量，也不会顶到标题栏。
-const double _kDetailWidth = 720;
-const double _kDetailHeight = 560;
-
-/// 弹窗左栏（元数据）宽度。
-///
-/// 取 208：弹窗内容宽 720-40=680，右栏（资源下载）因此拿到 680-208-16=456，
-/// 正好放得下「两行标题 + 标签徽标 + 下载页/入库两个按钮」的一行而不折行；
-/// 左栏 208 能放 148×222 的 2:3 封面 + 标题 + 徽标，正文窄一点可以接受
-/// （左栏自带滚动条）。
-const double _kDetailMetaWidth = 208;
 
 /// 只过滤**已加载**的条目（标题/中文名/别名/开发商/标签），不发请求。
 ///
@@ -153,6 +120,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         .setBool(SettingsStore.kDiscoverSidebar, _sidebarVisible);
   }
 
+  /// 排版切换（大封面网格 / 紧凑列表）并持久化到设置，与游戏库保持一致。
+  Future<void> _toggleLayout() async {
+    final next = ref.read(discoverLayoutProvider) == 'list' ? 'grid' : 'list';
+    ref.read(discoverLayoutProvider.notifier).state = next;
+    await AppServices.I.settings.setString(SettingsStore.kDiscoverLayout, next);
+  }
+
   // ==================== 搜索框（关键词搜索 + 本地过滤） ====================
 
   /// 提交关键词：回车 / 点「搜索」。
@@ -218,6 +192,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   Widget build(BuildContext context) {
     final filter = ref.watch(discoverFilterProvider);
     final feed = ref.watch(discoverFeedProvider);
+    final layout = ref.watch(discoverLayoutProvider);
 
     // 深链的两条路：本页**重新挂载**时由 initState 读走（外壳切页会重建页面，
     // 这是常规路径）；本页已经挂载时由这里兜住——比如将来把入口放进页内，
@@ -246,7 +221,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _toolbar(data, items.length, shown, filter),
+          _toolbar(data, items.length, shown, filter, layout),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -256,6 +231,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     feed: feed,
                     data: data,
                     items: items,
+                    layout: layout,
                     // 传空串：网格原样展示数据源结果，不做本地按标题过滤
                     // （源站按别名/原名匹配，标题里未必逐字包含关键词）
                     query: '',
@@ -263,10 +239,10 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                     onClearQuery: _clearSearch,
                   ),
                 ),
-                if (_sidebarVisible) ...[
-                  const SizedBox(width: Gap.lg),
-                  const _DiscoverFilterSidebar(),
-                ],
+                KFilterSidebarSlot(
+                  visible: _sidebarVisible,
+                  child: const _DiscoverFilterSidebar(),
+                ),
               ],
             ),
           ),
@@ -293,12 +269,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     int loaded,
     int shown,
     DiscoverFilter filter,
+    String layout,
   ) {
     return KToolbar(
       children: [
-        // 搜索框：宽度与游戏库工具条的搜索框一致（300）。
+        // 搜索框：宽度与游戏库工具条的搜索框一致（kCatalogSearchWidth = 300）。
         // 输入 = 过滤已加载条目；回车 = 按关键词向当前来源搜索。
-        SizedBox(width: _kSearchWidth, child: _searchField()),
+        SizedBox(width: kCatalogSearchWidth, child: _searchField()),
         const SizedBox(width: Gap.sm),
         KPill(
           label: '搜索',
@@ -307,7 +284,7 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         ),
         // 视图操作一律右对齐（与游戏库的工具条同一个布局节奏）
         const Spacer(),
-        ..._exploreActions(data, loaded, shown),
+        ..._exploreActions(data, loaded, shown, layout),
       ],
     );
   }
@@ -333,10 +310,12 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       );
 
   List<Widget> _exploreActions(
-      DiscoverFeedState? data, int loaded, int shown) {
+      DiscoverFeedState? data, int loaded, int shown, String layout) {
     return [
       KBadge(
-        icon: Icons.grid_view_rounded,
+        icon: layout == 'list'
+            ? Icons.view_list_rounded
+            : Icons.grid_view_rounded,
         // 数据源报告没有下一页时直接说清楚，省得用户一直往下滚
         text: data == null
             ? '尚未加载'
@@ -351,6 +330,13 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         tooltip: _sidebarVisible ? '隐藏筛选栏' : '显示筛选栏',
         active: _sidebarVisible,
         onTap: _toggleSidebar,
+      ),
+      KIconAction(
+        icon: layout == 'list'
+            ? Icons.grid_view_rounded
+            : Icons.view_list_rounded,
+        tooltip: layout == 'list' ? '切换为大封面网格' : '切换为紧凑列表',
+        onTap: _toggleLayout,
       ),
       KIconAction(
         icon: Icons.refresh_rounded,
@@ -371,6 +357,9 @@ class _ExplorePane extends ConsumerStatefulWidget {
   final DiscoverFeedState? data;
   final List<ScrapedGame> items;
 
+  /// 当前排版：`grid` = 大封面网格；`list` = 紧凑列表（与游戏库保持一致）
+  final String layout;
+
   /// 本地过滤词（= 输入框内容；与已提交关键词一致时为空串，见页面 build）
   final String query;
 
@@ -384,6 +373,7 @@ class _ExplorePane extends ConsumerStatefulWidget {
     required this.feed,
     required this.data,
     required this.items,
+    required this.layout,
     required this.query,
     required this.keyword,
     required this.onClearQuery,
@@ -562,23 +552,72 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
     final preloading = data.preloading;
     final tailError = data.error;
     final tail = (preloading ? 4 : 0) + (tailError == null ? 0 : 1);
+    final isList = widget.layout == 'list';
 
-    return GridView.builder(
-      controller: _scroll,
-      clipBehavior: Clip.none,
-      padding: const EdgeInsets.only(bottom: Gap.xl),
-      gridDelegate: _kGridDelegate,
-      itemCount: visible.length + tail,
-      itemBuilder: (context, index) {
-        if (index >= visible.length) {
-          if (preloading && index < visible.length + 4) {
-            return const _DiscoverSkeletonCard();
-          }
-          return _tailErrorCard(tailError ?? '');
-        }
-        final g = visible[index];
-        return RepaintBoundary(
-          child: _tile(g, inLibrary: library.containsKey(discoverLibraryKey(g))),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final gridDelegate = isList
+            ? buildCatalogListDelegate(constraints.maxWidth)
+            : buildCatalogGridDelegate(
+                constraints.maxWidth,
+                coverAspect: kCoverAspect,
+              );
+
+        return AnimatedSwitcher(
+          duration: Motion.normal,
+          switchInCurve: Motion.enter,
+          switchOutCurve: Motion.exit,
+          transitionBuilder: (child, anim) => FadeTransition(
+            opacity: anim,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.985, end: 1.0).animate(anim),
+              child: child,
+            ),
+          ),
+          child: KeyedSubtree(
+            key: ValueKey<String>(widget.layout),
+            child: GridView.builder(
+              controller: _scroll,
+              clipBehavior: Clip.none,
+              padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
+              gridDelegate: gridDelegate,
+              itemCount: visible.length + tail,
+              itemBuilder: (context, index) {
+                if (index >= visible.length) {
+                  if (preloading && index < visible.length + 4) {
+                    return isList
+                        ? const _DiscoverSkeletonListTile()
+                        : const _DiscoverSkeletonCard();
+                  }
+                  return _tailErrorCard(tailError ?? '');
+                }
+                final g = visible[index];
+                final key = discoverLibraryKey(g);
+                final inLib = library.containsKey(key);
+                final adding = _adding.contains(key);
+                final itemWidget = isList
+                    ? _DiscoverGameListTile(
+                        game: g,
+                        inLibrary: inLib,
+                        adding: adding,
+                        onTap: () => _openDetail(g),
+                        onAdd: () => _addToLibrary(g),
+                      )
+                    : _DiscoverGameCard(
+                        game: g,
+                        inLibrary: inLib,
+                        adding: adding,
+                        onTap: () => _openDetail(g),
+                        onAdd: () => _addToLibrary(g),
+                      );
+                return RepaintBoundary(
+                  child: index < 24
+                      ? StaggeredFadeIn(index: index, child: itemWidget)
+                      : itemWidget,
+                );
+              },
+            ),
+          ),
         );
       },
     );
@@ -611,13 +650,26 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
     );
   }
 
-  /// 首屏骨架：整屏 8 个占位卡（与真实卡片同尺寸，避免加载完成时布局跳动）。
+  /// 首屏骨架：整屏 8 个占位卡（与真实卡片/列表项同尺寸，避免加载完成时布局跳动）。
   Widget _skeletonGrid() {
-    return GridView.builder(
-      padding: const EdgeInsets.only(bottom: Gap.xl),
-      gridDelegate: _kGridDelegate,
-      itemCount: 8,
-      itemBuilder: (_, __) => const _DiscoverSkeletonCard(),
+    final isList = widget.layout == 'list';
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final gridDelegate = isList
+            ? buildCatalogListDelegate(constraints.maxWidth)
+            : buildCatalogGridDelegate(
+                constraints.maxWidth,
+                coverAspect: kCoverAspect,
+              );
+        return GridView.builder(
+          padding: const EdgeInsets.only(top: Gap.xs, bottom: Gap.xl),
+          gridDelegate: gridDelegate,
+          itemCount: 8,
+          itemBuilder: (_, __) => isList
+              ? const _DiscoverSkeletonListTile()
+              : const _DiscoverSkeletonCard(),
+        );
+      },
     );
   }
 
@@ -662,94 +714,18 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
     );
   }
 
-  // ==================== 卡片 ====================
+  // ==================== 游戏探索百科页 ====================
 
-  Widget _tile(ScrapedGame g, {required bool inLibrary}) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final key = discoverLibraryKey(g);
-    final adding = _adding.contains(key);
-    final year = _yearOf(g.releaseDate);
-    return KCard(
-      padding: const EdgeInsets.all(8),
-      onTap: () => _openDetail(g),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // 该作品还不在库里，只有网络封面（本地无文件）
-                CoverImage(
-                  path: '',
-                  networkUrl: g.coverUrl,
-                  nsfw: g.nsfw,
-                  borderRadius: BorderRadius.circular(Radii.thumb),
-                ),
-                // 年份 / 评分压在封面底部左右两侧（浮层角标自带黑底，任何封面上都看得清）
-                Positioned(
-                  left: 6,
-                  bottom: 6,
-                  child: KOverlayTag(
-                    text: year == null ? '未定' : '$year',
-                    icon: Icons.event_rounded,
-                  ),
-                ),
-                if (g.rating > 0)
-                  Positioned(
-                    right: 6,
-                    bottom: 6,
-                    child: KOverlayTag(
-                      text: g.rating.toStringAsFixed(1),
-                      icon: Icons.star_rounded,
-                      color: KisakiColors.star,
-                    ),
-                  ),
-                // 入库按钮放**右上角**：封面底部左右已经被年份/评分占用，
-                // 三个浮层挤在一条底边上会互相重叠。
-                Positioned(
-                  right: 6,
-                  top: 6,
-                  child: adding
-                      ? const SizedBox(
-                          width: 26, height: 26, child: KLoading(size: 16))
-                      : KOverlayIconButton(
-                          icon: inLibrary
-                              ? Icons.check_rounded
-                              : Icons.library_add_rounded,
-                          tooltip: inLibrary ? '已在游戏库' : '入库',
-                          color:
-                              inLibrary ? KisakiColors.pinkSoft : Colors.white,
-                          // 已在库：只显示对勾且不可再点
-                          onTap: inLibrary ? null : () => _addToLibrary(g),
-                        ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            g.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Type.caption.copyWith(
-              fontWeight: FontWeight.w600,
-              color: dark ? KisakiColors.nightInk : KisakiColors.ink,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==================== 详情弹窗 ====================
-
-  /// 打开详情弹窗（不跳游戏库详情页：该作品还不在库里，
-  /// GameDetailPage 需要一个已存在的 gameId）。
+  /// 打开游戏探索百科页（展示发行资料、角色与声优、制作人员、相关游戏，
+  /// 以及媒体/动画/音乐/漫画/轻小说/下载六合一 Tab）。
   Future<void> _openDetail(ScrapedGame g) {
-    return showKisakiDialog<void>(
-      context: context,
-      builder: (_) => _DiscoverDetailDialog(game: g, onAdd: _addToLibrary),
+    return Navigator.of(context).push<void>(
+      FadeThroughRoute.builder(
+        builder: (_) => GameExplorePage(
+          seedGame: g,
+          onAdd: _addToLibrary,
+        ),
+      ),
     );
   }
 
@@ -798,256 +774,302 @@ class _ExplorePaneState extends ConsumerState<_ExplorePane> {
       if (mounted) setState(() => _adding.remove(key));
     }
   }
-
-  static int? _yearOf(String date) =>
-      date.length < 4 ? null : int.tryParse(date.substring(0, 4));
 }
 
-// ==================== 骨架卡 ====================
+int? _discoverYearOf(String date) =>
+    date.length < 4 ? null : int.tryParse(date.substring(0, 4));
 
-/// 网格里的骨架卡：与真实卡片同尺寸（2:3 + 一行标题）。
+// ==================== 探索卡片与紧凑列表项（与游戏库视觉完全对齐） ====================
+
+/// 探索页大封面网格卡片：与游戏库 [GameCard] 共享 6px 内边距、严格 2:3 封面、
+/// 悬停封面微放大 (`Motion.coverHoverScale`)、36px 两行标题槽位与底部次要信息行。
+class _DiscoverGameCard extends StatefulWidget {
+  final ScrapedGame game;
+  final bool inLibrary;
+  final bool adding;
+  final VoidCallback onTap;
+  final VoidCallback onAdd;
+
+  const _DiscoverGameCard({
+    required this.game,
+    required this.inLibrary,
+    required this.adding,
+    required this.onTap,
+    required this.onAdd,
+  });
+
+  @override
+  State<_DiscoverGameCard> createState() => _DiscoverGameCardState();
+}
+
+class _DiscoverGameCardState extends State<_DiscoverGameCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final g = widget.game;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final year = _discoverYearOf(g.releaseDate);
+    final sourceLabel = KisakiSources.labels[g.source] ?? g.source;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: KCard(
+        padding: kCatalogCardPadding,
+        onTap: widget.onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: kCoverAspect,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(Radii.sm),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned.fill(
+                      child: RepaintBoundary(
+                        child: AnimatedScale(
+                          scale: _hover ? Motion.coverHoverScale : 1.0,
+                          duration: Motion.fast,
+                          curve: Motion.enter,
+                          child: CoverImage(
+                            path: '',
+                            networkUrl: g.coverUrl,
+                            nsfw: g.nsfw,
+                            borderRadius: BorderRadius.circular(Radii.sm),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 左下角：发售年份角标
+                    if (year != null)
+                      Positioned(
+                        left: 6,
+                        bottom: 6,
+                        child: KOverlayTag(
+                          text: '$year',
+                          icon: Icons.event_rounded,
+                        ),
+                      ),
+                    // 右下角：源站评分角标（专色铭黄星标）
+                    if (g.rating > 0)
+                      Positioned(
+                        right: 6,
+                        bottom: 6,
+                        child: KOverlayTag(
+                          text: g.rating.toStringAsFixed(1),
+                          icon: Icons.star_rounded,
+                          color: KisakiColors.star,
+                        ),
+                      ),
+                    // 右上角：一键入库 / 已在库圆钮
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: widget.adding
+                          ? const SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: KLoading(size: 16),
+                            )
+                          : KOverlayIconButton(
+                              size: 26,
+                              icon: widget.inLibrary
+                                  ? Icons.check_rounded
+                                  : Icons.library_add_rounded,
+                              tooltip: widget.inLibrary ? '已在游戏库' : '入库',
+                              color: widget.inLibrary
+                                  ? KisakiColors.magentaDark
+                                  : Colors.white,
+                              onTap: widget.inLibrary ? null : widget.onAdd,
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: Gap.sm),
+            SizedBox(
+              height: kCatalogCardTitleHeight,
+              child: Text(
+                g.displayName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Type.body.copyWith(
+                  fontWeight: FontWeight.w700,
+                  height: 1.30,
+                  color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                ),
+              ),
+            ),
+            const SizedBox(height: Gap.xxs),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _secondary(g, year),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        Type.caption.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+                const SizedBox(width: Gap.xs),
+                KBadge(
+                  text: widget.inLibrary ? '已在库' : sourceLabel,
+                  color: widget.inLibrary ? cyanInk : scheme.primary,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _secondary(ScrapedGame g, int? year) {
+    if (g.developer.isNotEmpty) return g.developer;
+    if (year != null) return '$year 年发售';
+    return '发行日未定';
+  }
+}
+
+/// 探索页紧凑列表条目：与游戏库 [GameListTile] 共用 [KMediaRow] 88px 行高与版式。
+class _DiscoverGameListTile extends StatelessWidget {
+  final ScrapedGame game;
+  final bool inLibrary;
+  final bool adding;
+  final VoidCallback onTap;
+  final VoidCallback onAdd;
+
+  const _DiscoverGameListTile({
+    required this.game,
+    required this.inLibrary,
+    required this.adding,
+    required this.onTap,
+    required this.onAdd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final cyanInk = KisakiColors.temporalInk(dark);
+    final ratingColor = KisakiColors.ratingInk(dark);
+    final year = _discoverYearOf(game.releaseDate);
+    final sourceLabel = KisakiSources.labels[game.source] ?? game.source;
+
+    return KMediaRow(
+      coverUrl: game.coverUrl,
+      nsfw: game.nsfw,
+      title: game.displayName,
+      badges: [
+        KBadge(
+          text: inLibrary ? '已在库' : sourceLabel,
+          color: inLibrary ? cyanInk : scheme.primary,
+        ),
+        if (game.rating > 0)
+          KBadge(
+            text: game.rating.toStringAsFixed(1),
+            icon: Icons.star_rounded,
+            color: ratingColor,
+          ),
+        if (year != null)
+          Text(
+            '$year',
+            style: Type.mono.copyWith(
+              fontSize: 11,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        if (game.developer.isNotEmpty)
+          Text(
+            game.developer,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+          ),
+      ],
+      onTap: onTap,
+      trailing: adding
+          ? const SizedBox(width: 28, height: 28, child: KLoading(size: 16))
+          : KIconAction(
+              icon: inLibrary
+                  ? Icons.check_rounded
+                  : Icons.library_add_rounded,
+              tooltip: inLibrary ? '已在游戏库' : '入库',
+              active: inLibrary,
+              enabled: !inLibrary,
+              onTap: inLibrary ? null : onAdd,
+            ),
+    );
+  }
+}
+
+// ==================== 骨架卡与骨架列表项 ====================
+
+/// 网格里的骨架卡：与真实卡片同尺寸（2:3 封面 + 两行标题槽 + 副信息行）。
 class _DiscoverSkeletonCard extends StatelessWidget {
   const _DiscoverSkeletonCard();
 
   @override
   Widget build(BuildContext context) {
     return KCard(
-      padding: const EdgeInsets.all(8),
+      padding: kCatalogCardPadding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: const [
-          Expanded(
+          AspectRatio(
+            aspectRatio: kCoverAspect,
             child: KSkeleton(
-                width: double.infinity,
-                height: double.infinity,
-                radius: Radii.sm),
+              width: double.infinity,
+              height: double.infinity,
+              radius: Radii.sm,
+            ),
           ),
-          SizedBox(height: 8),
-          KSkeleton(height: 10, width: 90),
+          SizedBox(height: Gap.sm),
+          SizedBox(
+            height: kCatalogCardTitleHeight,
+            child: KSkeletonLines(lines: 2, lastLineFactor: 0.65, gap: 6),
+          ),
+          SizedBox(height: Gap.xxs),
+          KSkeleton(height: 10, width: 84),
         ],
       ),
     );
   }
 }
 
-// ==================== 详情弹窗 ====================
-
-/// 条目详情：**左栏元数据 + 右栏资源下载**，底部一行操作。
-///
-/// 布局取舍（小窗口 1080×680 下也不挤）：弹窗 720×560 里**竖向空间是稀缺
-/// 资源**（560 减去内边距只剩 ~470），而资源列表的长度是不封顶的（5 个来源
-/// × 若干条 + 每源错误）。因此把不封顶的那一块放进右侧自适应列、给它自己的
-/// 常驻滚动条；左栏（封面 + 名称 + 徽标 + 开发商 + 标签 + 简介）是有界的，
-/// 固定 208 宽、自己滚动。两块各滚各的，简介再长也不会把资源列表挤没，
-/// 资源再多也不会让封面区变形——这比"上下两段"更适合矮而宽的桌面弹窗。
-///
-/// 自己 watch 已在库索引（而不是从页面传一个 bool 进来）：入库成功后
-/// libraryVersionProvider 自增会刷新索引，弹窗里的按钮立刻变成「已在库」。
-class _DiscoverDetailDialog extends ConsumerStatefulWidget {
-  final ScrapedGame game;
-  final Future<void> Function(ScrapedGame) onAdd;
-
-  const _DiscoverDetailDialog({required this.game, required this.onAdd});
-
-  @override
-  ConsumerState<_DiscoverDetailDialog> createState() =>
-      _DiscoverDetailDialogState();
-}
-
-class _DiscoverDetailDialogState extends ConsumerState<_DiscoverDetailDialog> {
-  /// 正在入库（底部按钮与资源行的入库按钮共用这一个状态）
-  bool _busy = false;
-
-  Future<void> _add() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    await widget.onAdd(widget.game);
-    if (mounted) setState(() => _busy = false);
-  }
+/// 紧凑列表里的骨架条目：与 [KMediaRow] 88px 高度一致。
+class _DiscoverSkeletonListTile extends StatelessWidget {
+  const _DiscoverSkeletonListTile();
 
   @override
   Widget build(BuildContext context) {
-    final g = widget.game;
-    final library = ref.watch(discoverLibraryIndexProvider).valueOrNull ??
-        const <String, Game>{};
-    final inLibrary = library.containsKey(discoverLibraryKey(g));
-
-    return LayoutBuilder(builder: (context, c) {
-      // 固定 720×560，但按可用空间收缩（系统缩放把窗口变得极小时不溢出）
-      final w =
-          math.min(_kDetailWidth, math.max(320.0, c.maxWidth - Gap.xl * 2));
-      final h =
-          math.min(_kDetailHeight, math.max(260.0, c.maxHeight - Gap.xl * 2));
-      return Center(
-        child: SizedBox(
-          width: w,
-          height: h,
-          child: KCard(
-            borderRadius: Radii.sheet,
-            padding: const EdgeInsets.all(Gap.lg),
+    return KCard(
+      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
+      borderRadius: BorderRadius.circular(Radii.md),
+      child: Row(
+        children: const [
+          KSkeleton(width: 44, height: 66, radius: Radii.xs),
+          SizedBox(width: 12),
+          Expanded(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        width: _kDetailMetaWidth,
-                        child: _meta(g, inLibrary),
-                      ),
-                      const SizedBox(width: Gap.lg),
-                      // 资源下载区：进入即查（有内存缓存则直接复用），
-                      // 每个来源的错误单独显示（见 resource_links.dart）
-                      Expanded(
-                        child: ResourceLinkSection(
-                          game: g,
-                          onAdd: _add,
-                          inLibrary: inLibrary,
-                          adding: _busy,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: Gap.md),
-                _footer(g, inLibrary),
+                KSkeleton(height: 12, width: 150),
+                SizedBox(height: 8),
+                KSkeleton(height: 10, width: 96),
               ],
             ),
           ),
-        ),
-      );
-    });
-  }
-
-  /// 左栏：封面（2:3）+ 名称 + 基本信息徽标 + 开发商 + 标签 + 简介 + 别名。
-  /// 内容长了就在本栏内滚动（常驻滚动条）。
-  Widget _meta(ScrapedGame g, bool inLibrary) {
-    final scheme = Theme.of(context).colorScheme;
-    final source = KisakiSources.labels[g.source] ?? g.source;
-    final year =
-        g.releaseDate.length < 4 ? null : g.releaseDate.substring(0, 4);
-    return KScrollArea(
-      // 不要底部渐隐：渐隐用的是页面底色，在弹窗卡片底色上会露出一条色差
-      bottomFade: false,
-      padding: const EdgeInsets.only(right: Gap.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: SizedBox(
-              // 2:3 封面：左栏 208 宽下的舒适尺寸（再大就把标题挤到折叠线以下）
-              width: 148,
-              height: 222,
-              child: CoverImage(
-                path: '',
-                networkUrl: g.coverUrl,
-                nsfw: g.nsfw,
-                borderRadius: BorderRadius.circular(Radii.md),
-              ),
-            ),
-          ),
-          const SizedBox(height: Gap.md),
-          Text(g.displayName,
-              maxLines: 3, overflow: TextOverflow.ellipsis, style: Type.title),
-          if (g.name.isNotEmpty && g.name != g.displayName) ...[
-            const SizedBox(height: 2),
-            Text(g.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
-          ],
-          const SizedBox(height: Gap.md),
-          Wrap(
-            spacing: Gap.sm,
-            runSpacing: Gap.xs,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              KBadge(text: source, icon: Icons.public_rounded),
-              if (g.rating > 0)
-                KBadge(
-                  text: '评分 ${g.rating.toStringAsFixed(1)}',
-                  icon: Icons.star_rounded,
-                  color: KisakiColors.star,
-                ),
-              if (g.voteCount > 0) KBadge(text: '${g.voteCount} 票'),
-              if (year != null) KBadge(text: '$year 年'),
-              if (g.nsfw)
-                const KBadge(
-                    text: 'R18',
-                    icon: Icons.block_rounded,
-                    color: KisakiColors.danger),
-              if (inLibrary)
-                const KBadge(
-                    text: '已在库',
-                    icon: Icons.check_rounded,
-                    color: KisakiColors.success),
-            ],
-          ),
-          if (g.developer.isNotEmpty) ...[
-            const SizedBox(height: Gap.md),
-            Text('开发商：${g.developer}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
-          ],
-          if (g.tags.isNotEmpty) ...[
-            const SizedBox(height: Gap.md),
-            Wrap(
-              spacing: Gap.xs + 2,
-              runSpacing: Gap.xs,
-              children: [
-                for (final t in g.tags.take(8))
-                  KBadge(text: t.name, color: scheme.secondary),
-              ],
-            ),
-          ],
-          const SizedBox(height: Gap.md),
-          const KSectionTitle('简介', padding: EdgeInsets.only(bottom: 6)),
-          Text(
-            g.summary.isEmpty ? '（该数据源没有提供简介）' : g.summary,
-            style: Type.body,
-          ),
-          if (g.aliases.isNotEmpty) ...[
-            const SizedBox(height: Gap.md),
-            Text('别名：${g.aliases.join(" / ")}',
-                style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
-          ],
         ],
       ),
-    );
-  }
-
-  /// 底部一行：别名摘要（左）+ 关闭 / 入库（右）。
-  Widget _footer(ScrapedGame g, bool inLibrary) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            '资源链接来自各资源站的发布页，只提供链接、不托管资源',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Type.micro.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ),
-        KPill(
-          label: '关闭',
-          filled: false,
-          onTap: () => Navigator.of(context).pop(),
-        ),
-        const SizedBox(width: Gap.sm),
-        if (_busy)
-          const SizedBox(
-              width: 96, height: 36, child: KLoading(size: 18))
-        else
-          KPill(
-            label: inLibrary ? '已在库' : '入库',
-            icon:
-                inLibrary ? Icons.check_rounded : Icons.library_add_rounded,
-            onTap: inLibrary ? null : _add,
-          ),
-      ],
     );
   }
 }
@@ -1220,6 +1242,7 @@ class _DiscoverFilterSidebarState
     _syncYearFields(filter);
 
     return FilterSidebar(
+      title: '筛选 / FILTER',
       // 「清除全部筛选」置顶，仅在筛选生效时显示（保留来源、排序与关键词）
       leading: filter.hasActiveFilters
           ? FilterClearButton(

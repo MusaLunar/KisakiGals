@@ -1,9 +1,10 @@
-/// 游戏库网格卡片：2:3 大封面 + 标题两行 + 次要信息。
+/// 游戏库网格卡片：2:3 杂志图版封面 + 标题两行 + 次要信息 + CMYK 专色角标.
 ///
-/// 视觉取向（上一轮评审重点）：
-/// - 卡片**不透明**：常态就有底色（白 / nightCard）+ 硬阴影 + 1px 描边；
-/// - hover：上浮 + 微缩放 + 柔光阴影（由 kit 的 InteractiveSurface 提供）；
-/// - 角标压在封面上，用半透明深色底座保证任何封面下都能看清。
+/// 视觉取向：
+/// - 卡片采用铜版纸白 / 凹版暗炭底色 + 1px 裁切细线；
+/// - 悬停时封面在裁切框内平滑放大 (1.035x)，纸面微抬升；
+/// - 评分角标使用专色铭黄 (Process Yellow-Gold)，游玩中角标使用专色青蓝 (Process Cyan)，
+///   收藏与批量选中状态使用专色洋红 (Process Magenta)。
 library;
 
 import 'package:flutter/material.dart';
@@ -21,25 +22,14 @@ import '../theme.dart';
 import '../widgets/common.dart' show CoverImage, kCoverAspect;
 import 'game_card_actions.dart';
 
-/// 网格卡片内边距：封面按**卡片内容宽度**严格保持 2:3。
-const EdgeInsets kGameCardPadding = EdgeInsets.all(6);
-
-/// 网格卡片**封面下方**的文字区高度：
-/// 间距 8 + 标题两行 36 + 间距 2 + 次要信息 17 = 63。
-/// library_page 用它推算网格单元高度，避免封面被单元比例拉伸。
-const double kGameCardMetaHeight = 63;
-
-/// 标题区固定两行高度：一行标题与两行标题的基线保持一致。
-const double _titleBoxHeight = 36;
-
-/// 封面角标的半透明深色底座（黑 55%）。
-const Color _coverScrim = Color(0x8C000000);
+const EdgeInsets kGameCardPadding = kCatalogCardPadding;
+const double kGameCardMetaHeight = kCatalogCardMetaHeight;
+const double _titleBoxHeight = kCatalogCardTitleHeight;
+const Color _coverScrim = Color(0xBF0F1015);
 
 class GameCard extends ConsumerStatefulWidget {
   final Game game;
   final double? bestPlatformRating;
-
-  /// 批量管理
   final bool selectionMode;
   final bool selected;
   final ValueChanged<bool>? onSelectionChanged;
@@ -65,13 +55,13 @@ class _GameCardState extends ConsumerState<GameCard> {
     final game = widget.game;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
+    final cyanInk = KisakiColors.temporalInk(dark);
     final picked = widget.selectionMode && widget.selected;
-    // 平台评分优先，其次我的评分（都没有就不显示角标）
-    final rating = (widget.bestPlatformRating != null && widget.bestPlatformRating! > 0)
-        ? widget.bestPlatformRating
-        : (game.userRating > 0 ? game.userRating : null);
+    final rating =
+        (widget.bestPlatformRating != null && widget.bestPlatformRating! > 0)
+            ? widget.bestPlatformRating
+            : (game.userRating > 0 ? game.userRating : null);
 
-    // 选中态底色与卡片底色混合成不透明色，避免卡片"透出"页面背景
     final baseFill = dark ? KisakiColors.nightCard : Colors.white;
     final fill = picked
         ? Color.alphaBlend(
@@ -82,14 +72,12 @@ class _GameCardState extends ConsumerState<GameCard> {
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
-        // 右键菜单：InteractiveSurface 只接管主键手势，副键在这里补
         onSecondaryTapUp: (details) => GameCardActions.showContextMenu(
             context, ref, game, details.globalPosition),
         child: KCard(
           padding: kGameCardPadding,
           color: fill,
           onTap: () async {
-            // 批量模式：整张卡片都是一次选中开关
             if (widget.selectionMode) {
               widget.onSelectionChanged?.call(!widget.selected);
               return;
@@ -106,46 +94,43 @@ class _GameCardState extends ConsumerState<GameCard> {
               AspectRatio(
                 aspectRatio: kCoverAspect,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(Radii.md),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                   child: Stack(
                     children: [
                       Positioned.fill(
                         child: RepaintBoundary(
                           child: AnimatedScale(
-                            scale: _hover ? 1.03 : 1.0,
+                            scale: _hover ? Motion.coverHoverScale : 1.0,
                             duration: Motion.fast,
                             curve: Motion.enter,
                             child: CoverImage(
                               path: game.coverPath,
                               nsfw: game.nsfw,
-                              borderRadius: BorderRadius.circular(Radii.md),
+                              borderRadius: BorderRadius.circular(Radii.sm),
                             ),
                           ),
                         ),
                       ),
-                      // 状态角标（想玩是默认状态，不显示，免得整页都是角标）
                       if (game.playStatus != PlayStatus.wish)
                         Positioned(
                           left: 6,
                           top: 6,
                           child: _StatusBadge(status: game.playStatus),
                         ),
-                      // 批量勾选圈 / 收藏星标（批量模式下让位给勾选）
                       Positioned(
                         right: 6,
                         top: 6,
                         child: widget.selectionMode
-                            ? _SelectDot(selected: picked)
+                            ? KSelectDot(selected: picked)
                             : _FavoriteButton(game: game),
                       ),
-                      // 游玩中
-                      if (ref.watch(trackingGameProvider) == game.id)
+                      if (ref.watch(
+                          trackingGameProvider.select((id) => id == game.id)))
                         const Positioned(
                           left: 6,
                           bottom: 6,
                           child: _PlayingTag(),
                         ),
-                      // 评分角标
                       if (rating != null)
                         Positioned(
                           right: 6,
@@ -156,36 +141,50 @@ class _GameCardState extends ConsumerState<GameCard> {
                   ),
                 ),
               ),
-            const SizedBox(height: Gap.sm),
-            // 固定两行高度：长标题最多两行省略号，不与次要信息抢位
-            SizedBox(
-              height: _titleBoxHeight,
-              child: Text(
-                game.displayName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Type.body.copyWith(
-                  fontWeight: FontWeight.w600,
-                  height: 1.32,
-                  color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+              const SizedBox(height: Gap.sm),
+              SizedBox(
+                height: _titleBoxHeight,
+                child: Text(
+                  game.displayName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.body.copyWith(
+                    fontWeight: FontWeight.w700,
+                    height: 1.30,
+                    color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: Gap.xxs),
-            Text(
-              _secondary(game),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
-            ),
-          ],
+              const SizedBox(height: Gap.xxs),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _secondary(game),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          Type.caption.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ),
+                  if (game.playStatus != PlayStatus.wish) ...[
+                    const SizedBox(width: Gap.xs),
+                    KBadge(
+                      text: game.playStatus.label,
+                      color: game.playStatus == PlayStatus.playing
+                          ? cyanInk
+                          : scheme.primary,
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
-  /// 次要信息：开发商优先，其次最近游玩时间。
   static String _secondary(Game g) => g.developer.isNotEmpty
       ? g.developer
       : (g.lastPlayedAt != null
@@ -195,7 +194,6 @@ class _GameCardState extends ConsumerState<GameCard> {
 
 // ============================ 封面角标 ============================
 
-/// 封面角标底座：半透明深色药丸（保证在任意封面上都可读）。
 class _CoverTag extends StatelessWidget {
   final Widget child;
   final Color color;
@@ -204,7 +202,7 @@ class _CoverTag extends StatelessWidget {
   const _CoverTag({
     required this.child,
     this.color = _coverScrim,
-    this.padding = const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    this.padding = const EdgeInsets.symmetric(horizontal: 6.5, vertical: 3),
   });
 
   @override
@@ -212,13 +210,16 @@ class _CoverTag extends StatelessWidget {
         padding: padding,
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(Radii.xs),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.22),
+            width: 1,
+          ),
         ),
         child: child,
       );
 }
 
-/// 游玩状态角标（图标 + 深色底）。
 class _StatusBadge extends StatelessWidget {
   final PlayStatus status;
   const _StatusBadge({required this.status});
@@ -233,12 +234,12 @@ class _StatusBadge extends StatelessWidget {
     };
     return _CoverTag(
       padding: const EdgeInsets.all(4),
-      child: Icon(icon, size: 15, color: Colors.white),
+      child: Icon(icon, size: 14, color: Colors.white),
     );
   }
 }
 
-/// 评分角标：星标 + 分数（平台评分优先，其次我的评分）。
+/// 评分角标：专色铭黄星标 + 等宽数字
 class _RatingTag extends StatelessWidget {
   final double value;
   const _RatingTag({required this.value});
@@ -248,25 +249,29 @@ class _RatingTag extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.star_rounded, size: 13, color: Color(0xFFFFD54F)),
+            const Icon(Icons.star_rounded, size: 12.5, color: KisakiColors.star),
             const SizedBox(width: 3),
             Text(
               value.toStringAsFixed(1),
-              style: Type.caption.copyWith(
-                  color: Colors.white, fontWeight: FontWeight.w700, height: 1.2),
+              style: Type.mono.copyWith(
+                fontSize: 11,
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                height: 1.15,
+              ),
             ),
           ],
         ),
       );
 }
 
-/// 游玩中角标（主色实心，与侧栏「游玩中」呼应）。
+/// 游玩中角标：专色青蓝实心底
 class _PlayingTag extends StatelessWidget {
   const _PlayingTag();
 
   @override
   Widget build(BuildContext context) => _CoverTag(
-        color: Theme.of(context).colorScheme.primary,
+        color: KisakiColors.cyan,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -275,43 +280,23 @@ class _PlayingTag extends StatelessWidget {
               maxOpacity: 1.0,
               minScale: 0.90,
               maxScale: 1.10,
-              child: const Icon(Icons.play_arrow_rounded, size: 13, color: Colors.white),
+              child: const Icon(Icons.play_arrow_rounded,
+                  size: 13, color: Colors.white),
             ),
             const SizedBox(width: 3),
-            Text('游戏中',
-                style: Type.caption.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    height: 1.2)),
+            Text(
+              '游戏中',
+              style: Type.micro.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                height: 1.15,
+              ),
+            ),
           ],
         ),
       );
 }
 
-/// 批量勾选圈（压在封面上）：未选中用深色底 + 白描边，任何封面都看得见。
-class _SelectDot extends StatelessWidget {
-  final bool selected;
-  const _SelectDot({required this.selected});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 22,
-      height: 22,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected ? scheme.primary : _coverScrim,
-        border: Border.all(color: Colors.white, width: 1.5),
-      ),
-      child: selected
-          ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
-          : null,
-    );
-  }
-}
-
-/// 收藏星标：卡片上的快捷开关（与右键菜单里的「加入/取消收藏」同一份数据）。
 class _FavoriteButton extends ConsumerWidget {
   final Game game;
   const _FavoriteButton({required this.game});
@@ -333,14 +318,28 @@ class _FavoriteButton extends ConsumerWidget {
           child: Container(
             width: 26,
             height: 26,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _coverScrim,
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.22),
+                width: 1,
+              ),
             ),
-            child: Icon(
-              fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              size: 15,
-              color: fav ? KisakiColors.pink : Colors.white,
+            child: AnimatedSwitcher(
+              duration: Motion.fast,
+              switchInCurve: Motion.spring,
+              switchOutCurve: Motion.exit,
+              transitionBuilder: (child, anim) => ScaleTransition(
+                scale: Tween<double>(begin: 0.65, end: 1.0).animate(anim),
+                child: FadeTransition(opacity: anim, child: child),
+              ),
+              child: Icon(
+                fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                key: ValueKey<bool>(fav),
+                size: 14,
+                color: fav ? KisakiColors.magentaDark : Colors.white,
+              ),
             ),
           ),
         ),

@@ -43,7 +43,26 @@ class GameRepository implements GameRepositoryLike {
     return rows.isEmpty ? null : Game.fromRow(rows.first);
   }
 
+  /// 最近游玩的 N 部游戏（定制化托盘右键菜单快捷启动用）。
+  /// 优先按 `last_played_at DESC` 取有过游玩记录的作品；不足时按可执行文件与最近更新补齐。
+  Future<List<Game>> recentPlayedGames({int limit = 2}) async {
+    final rows = await db.rawQuery('''
+      SELECT * FROM games
+      ORDER BY
+        CASE WHEN last_played_at != '' THEN 0 ELSE 1 END ASC,
+        last_played_at DESC,
+        CASE WHEN exe_path != '' THEN 0 ELSE 1 END ASC,
+        updated_at DESC,
+        id DESC
+      LIMIT ?
+    ''', [limit]);
+    return rows.map(Game.fromRow).toList();
+  }
+
   /// 组合筛选 + 搜索 + 排序。
+  ///
+  /// 关键词搜索支持符号穿透与繁简归一（例如搜「千恋万花」可命中库内「千恋＊万花」、
+  /// 搜「pure connect」可命中「PURE×CONNECT」），同时兼容原有的原串子串与标签匹配。
   Future<List<Game>> listGames({
     String? query,
     PlayStatus? status,
@@ -56,12 +75,6 @@ class GameRepository implements GameRepositoryLike {
     final where = <String>[];
     final args = <Object?>[];
 
-    if (query != null && query.trim().isNotEmpty) {
-      final q = '%${query.trim()}%';
-      where.add(
-          '(name LIKE ? OR name_cn LIKE ? OR aliases LIKE ? OR developer LIKE ? OR EXISTS(SELECT 1 FROM game_tags t WHERE t.game_id = games.id AND t.tag LIKE ?))');
-      args.addAll([q, q, q, q, q]);
-    }
     if (status != null) {
       where.add('play_status = ?');
       args.add(status.value);
@@ -104,10 +117,42 @@ class GameRepository implements GameRepositoryLike {
         ORDER BY best_platform_rating DESC
       ''';
     } else {
-      sql = 'SELECT * FROM games ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'} ORDER BY ${orderBy[sort]}';
+      sql =
+          'SELECT * FROM games ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'} ORDER BY ${orderBy[sort]}';
     }
     final rows = await db.rawQuery(sql, args);
-    return rows.map(Game.fromRow).toList();
+    final games = rows.map(Game.fromRow).toList();
+
+    final trimmedQuery = query?.trim() ?? '';
+    if (trimmedQuery.isEmpty) return games;
+
+    // 预查标签命中集合（支持原串 LIKE 与归一化匹配）
+    final tagRows = await db.rawQuery(
+        'SELECT game_id, tag FROM game_tags WHERE tag LIKE ?',
+        ['%$trimmedQuery%']);
+    final tagHitIds = <int>{
+      for (final r in tagRows)
+        if (r['game_id'] is int) r['game_id'] as int,
+    };
+
+    final qLow = trimmedQuery.toLowerCase();
+    bool matchesGame(Game g) {
+      if (g.id != null && tagHitIds.contains(g.id)) return true;
+      final fields = <String>[
+        g.name,
+        g.nameCn,
+        g.developer,
+        ...g.aliases,
+      ];
+      for (final f in fields) {
+        if (f.isEmpty) continue;
+        if (f.toLowerCase().contains(qLow)) return true;
+        if (bestMatchScore(trimmedQuery, f) > 0) return true;
+      }
+      return false;
+    }
+
+    return games.where(matchesGame).toList();
   }
 
   /// 平台评分最高值（排序/展示用）。
@@ -359,26 +404,31 @@ class GameRepository implements GameRepositoryLike {
         .toList();
   }
 
-  /// 主页动态：添加 + 游玩 + 评分记录合并。
+  /// 主页动态：添加 + 游玩 + 评分记录合并（单条 JOIN 查询，避免 N+1）。
   Future<List<ActivityItem>> recentActivity({int limit = 30}) async {
     final rows = await db.rawQuery('''
-      SELECT 'played' AS type, game_id, start_ts AS at, '' AS detail FROM game_sessions
-      UNION ALL
-      SELECT 'added' AS type, id, created_at AS at, '' AS detail FROM games
-      UNION ALL
-      SELECT 'rated' AS type, id, updated_at AS at, user_review AS detail FROM games WHERE user_rating > 0
-      ORDER BY at DESC LIMIT ?
+      SELECT act.type, act.game_id, act.at, act.detail,
+             g.name, g.name_cn, g.cover_path
+      FROM (
+        SELECT 'played' AS type, game_id, start_ts AS at, '' AS detail FROM game_sessions
+        UNION ALL
+        SELECT 'added' AS type, id AS game_id, created_at AS at, '' AS detail FROM games
+        UNION ALL
+        SELECT 'rated' AS type, id AS game_id, updated_at AS at, user_review AS detail FROM games WHERE user_rating > 0
+      ) act
+      INNER JOIN games g ON g.id = act.game_id
+      ORDER BY act.at DESC LIMIT ?
     ''', [limit]);
     final result = <ActivityItem>[];
     for (final r in rows) {
       final gid = (r['game_id'] ?? 0) as int;
-      final g = await getGame(gid);
-      if (g == null) continue;
+      final nameCn = (r['name_cn'] ?? '') as String;
+      final name = (r['name'] ?? '') as String;
       result.add(ActivityItem(
         type: (r['type'] ?? 'played') as String,
         gameId: gid,
-        gameName: g.displayName,
-        coverPath: g.coverPath,
+        gameName: nameCn.isNotEmpty ? nameCn : name,
+        coverPath: (r['cover_path'] ?? '') as String,
         at: DateTime.tryParse((r['at'] ?? '') as String) ?? DateTime.now(),
         detail: (r['detail'] ?? '') as String,
       ));

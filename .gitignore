@@ -13,3 +13,4 @@ tools_sqlite3.dll
 .flutter-plugins-dependencies
 stage_pkg/
 docs/screens/_review/
+.impeccable/

@@ -15,6 +15,9 @@ import 'package:kisakigals/data/game_repository.dart';
 import 'package:kisakigals/data/models.dart';
 import 'package:kisakigals/scraping/rate_limiter.dart';
 import 'package:kisakigals/scraping/scraped_game.dart';
+import 'package:kisakigals/services/game_explore_service.dart';
+import 'package:kisakigals/services/kungal_oauth.dart';
+import 'package:kisakigals/services/update_checker.dart';
 
 void main() {
   // Windows 测试环境：使用 System32 的 winsqlite3.dll
@@ -173,6 +176,41 @@ void main() {
           (await repo.listGames(sort: GameSort.userRatingDesc)).first.name,
           'Alpha');
       expect((await repo.listGames(favorite: true)).length, 0);
+
+      // 符号穿透与繁简折叠搜索：「千恋万花」能匹配库内的「千恋＊万花」与「千戀＊萬花」
+      await repo.insertGame(Game(name: 'Senren Banka', nameCn: '千恋＊万花'));
+      expect((await repo.listGames(query: '千恋万花')).map((g) => g.nameCn),
+          ['千恋＊万花']);
+    });
+
+    test('recentPlayedGames 返回最近游玩的 2 部游戏', () async {
+      final g1 = await repo.insertGame(Game(name: 'G1', nameCn: '游戏一'));
+      final g2 = await repo.insertGame(Game(name: 'G2', nameCn: '游戏二'));
+      final g3 = await repo.insertGame(Game(name: 'G3', nameCn: '游戏三'));
+      final now = DateTime.now();
+      await repo.addSession(GameSession(
+        gameId: g1,
+        start: now.subtract(const Duration(hours: 3)),
+        end: now.subtract(const Duration(hours: 2)),
+        seconds: 600,
+      ));
+      await repo.addSession(GameSession(
+        gameId: g3,
+        start: now.subtract(const Duration(hours: 1)),
+        end: now.subtract(const Duration(minutes: 30)),
+        seconds: 1200,
+      ));
+      await repo.addSession(GameSession(
+        gameId: g2,
+        start: now.subtract(const Duration(minutes: 20)),
+        end: now,
+        seconds: 900,
+      ));
+
+      final recent = await repo.recentPlayedGames(limit: 2);
+      expect(recent.length, 2);
+      expect(recent[0].id, g2);
+      expect(recent[1].id, g3);
     });
 
     test('upsertSource 与 sourcesOf', () async {
@@ -192,6 +230,73 @@ void main() {
           gameId: id, start: now, end: now, seconds: 60));
       final cloud = await repo.tagCloud(period: StatsPeriod.all);
       expect(cloud.first.name, '纯爱');
+    });
+
+    test('recentActivity JOIN 查询无 N+1 且顺序正确', () async {
+      final id = await repo.insertGame(
+          Game(name: 'Senren Banka', nameCn: '千恋＊万花', userRating: 8.5));
+      final now = DateTime.now();
+      await repo.addSession(GameSession(
+          gameId: id, start: now, end: now, seconds: 120));
+      final acts = await repo.recentActivity(limit: 10);
+      expect(acts, isNotEmpty);
+      expect(acts.every((a) => a.gameName == '千恋＊万花'), isTrue);
+    });
+  });
+
+  group('GitHub 更新检测与 KunGal OAuth PKCE', () {
+    test('AppInfo.version 为 1.1.0 且版本号比较正确', () {
+      expect(AppInfo.version, '1.1.0');
+      expect(GithubUpdateChecker.compareVersions('v1.1.0', '1.1.0'), 0);
+      expect(GithubUpdateChecker.compareVersions('1.2.0', '1.1.0'), 1);
+      expect(GithubUpdateChecker.compareVersions('1.0.1', '1.1.0'), -1);
+      expect(GithubUpdateChecker.compareVersions('1.1.0', '1.1.0-beta.1'), 1);
+    });
+
+    test('KunOAuthService PKCE S256 生成符合 RFC 7636', () {
+      final pkce = KunOAuthService.generatePkcePair();
+      expect(pkce.verifier.length, greaterThanOrEqualTo(43));
+      expect(pkce.challenge.length, 43);
+      expect(pkce.verifier.contains('='), isFalse);
+      expect(pkce.challenge.contains('='), isFalse);
+    });
+  });
+
+  group('NextMoe 与游戏探索百科多语种解析', () {
+    test('正确解析 NextMoe Map 字典中的本地化语言', () {
+      final map = {
+        'en': {'value': 'Mimi Wuhui', 'is_machine': false},
+        'ja': {'value': '秘密舞会', 'is_machine': false},
+        'zh-Hans': {'value': '秘密舞会', 'is_machine': false},
+      };
+      expect(GameExploreService.extractLocalizedText(map), '秘密舞会');
+      expect(
+        GameExploreService.extractLocalizedText(
+          map,
+          langPriority: ['en', 'zh-Hans'],
+        ),
+        'Mimi Wuhui',
+      );
+    });
+
+    test('正确防御并提取 Stringified Map 文本（解决截图报错现象）', () {
+      const rawStringified =
+          '{en: {value: Mimi Wuhui, is_machine: false}, ja: {value: 秘密舞会, is_machine: false}, zh-Hans: {value: 秘密舞会, is_machine: false}}';
+      expect(
+        GameExploreService.extractLocalizedText(rawStringified),
+        '秘密舞会',
+      );
+    });
+
+    test('提取所有多语种别名', () {
+      final map = {
+        'en': {'value': 'Mimi Wuhui', 'is_machine': false},
+        'ja': {'value': '秘密舞会', 'is_machine': false},
+        'zh-Hans': {'value': '秘密舞会', 'is_machine': false},
+      };
+      final aliases = GameExploreService.extractAllLocalizedTexts(map);
+      expect(aliases, contains('Mimi Wuhui'));
+      expect(aliases, contains('秘密舞会'));
     });
   });
 }

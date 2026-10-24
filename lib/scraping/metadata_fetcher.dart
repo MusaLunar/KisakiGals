@@ -159,7 +159,8 @@ class MetadataFetcher {
     _adapters[KisakiSources.hikarinagi] = HikarinagiAdapter(buildDio(), limiters);
     _adapters[KisakiSources.steam] = SteamAdapter(buildDio(), limiters);
     _adapters[KisakiSources.cngal] = CngalAdapter(buildDio(), limiters);
-    _adapters[KisakiSources.kun] = KunAdapter(buildDio(), limiters);
+    _adapters[KisakiSources.kun] =
+        KunAdapter(buildDio(), limiters, token: _tokens[KisakiSources.kun]);
     _adapters[KisakiSources.touchgal] =
         TouchGalAdapter(buildDio(), limiters, token: _tokens[KisakiSources.touchgal]);
     _adapters[KisakiSources.dlsite] = DlsiteAdapter(buildDio(), limiters);

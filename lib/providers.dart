@@ -91,6 +91,9 @@ class LibraryFilter {
 /// 游戏库排版：`grid` = 大封面网格；`list` = 紧凑列表（左封面右名称，一页看更多）
 final libraryLayoutProvider = StateProvider<String>((ref) => 'grid');
 
+/// 探索页排版：`grid` = 大封面网格；`list` = 紧凑列表（与游戏库保持一致的切换体验）
+final discoverLayoutProvider = StateProvider<String>((ref) => 'grid');
+
 /// 「待预填的关键词」：主页的「找资源」入口写入，探索页消费。
 ///
 /// 语义是**一次性**的：探索页读走后会立刻把它清空（写进搜索框并马上发起一次

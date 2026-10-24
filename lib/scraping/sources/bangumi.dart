@@ -33,7 +33,7 @@ class BangumiAdapter extends SourceAdapter {
     final response = await limitedPost('$base/v0/search/subjects?limit=20',
         data: {
           'keyword': kw,
-          'sort': 'rank',
+          'sort': 'match',
           'filter': {'type': [4], 'nsfw': true},
         },
         headers: _headers);

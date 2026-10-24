@@ -1,36 +1,31 @@
-/// KisakiGals UI 组件库（Kit）。
+/// KisakiGals UI 组件库 (Kit) — 誌面 (Shimen) 视觉小说杂志特辑版面系统.
 ///
-/// 全应用**只使用这里的原语**构建界面，页面里不再出现裸 Container +
-/// 手写 BoxDecoration。风格取向：
-/// - 简约（参考 ReinaManager）：大圆角、近明度两级底色、1px 低对比描边、
-///   去渐变、4/8px 栅格、次要信息弱化。
-/// - 精致（参考 ChronoTide）：常态硬阴影 → hover 柔光、微上浮与微缩放、
-///   按压回弹、克制的动效时长。
+/// 核心准则：
+/// - 铜版纸象牙白 / 凹版暗墨底版 + CMYK 专色职能分工；
+/// - 杜绝 eyebrow/kicker 眉标杂音，采用杂志栏头定位标尺与 1px 裁切细线；
+/// - 全量接入 FluidPressable (t=0 瞬发 + 10px 迟滞边界 + 速度继承弹簧)；
+/// - 时间、评分与统计数字强制使用 Tabular 等宽字形对齐。
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'design.dart';
 import 'theme.dart';
-import 'widgets/common.dart'
-    show CoverImage, cachedFileExists, GlassPanel;
+import 'widgets/common.dart' show CoverImage, cachedFileExists;
 export 'widgets/common.dart' show invalidateFileExistsCache;
 
-// ============================ 页面骨架 ============================
+// ============================ 1. 杂志版心骨架 ============================
 
-/// 页面骨架：统一标题区（大标题 + 副标题 + 右侧操作）+ 内容留白。
+/// 页面骨架：杂志刊头式顶栏 + 1px 裁切细线 + 宽幅版心
 class KPage extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget? subtitleWidget;
-
-  /// 标题左侧图标（页面语义标识）
   final IconData? leadingIcon;
   final List<Widget> actions;
   final Widget child;
   final bool scrollable;
-
-  /// 内容最大宽度（超宽屏下避免元素被拉得过稀；null = 自适应全宽）
   final double? maxContentWidth;
 
   const KPage({
@@ -48,56 +43,100 @@ class KPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 14, 24, 14),
+          padding: const EdgeInsets.fromLTRB(28, 18, 28, 14),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // 专色洋红书眉定位标尺
+              Container(
+                width: 3.5,
+                height: subtitle != null || subtitleWidget != null ? 36 : 24,
+                margin: const EdgeInsets.only(right: 12),
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
               if (leadingIcon != null) ...[
                 Container(
-                  width: 38,
-                  height: 38,
+                  width: 34,
+                  height: 34,
                   margin: const EdgeInsets.only(right: 12),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: scheme.primary.withValues(alpha: 0.11),
+                    color: scheme.primary.withValues(alpha: dark ? 0.18 : 0.10),
+                    borderRadius: BorderRadius.circular(Radii.sm),
+                    border: Border.all(
+                      color: scheme.primary.withValues(alpha: 0.28),
+                      width: 1,
+                    ),
                   ),
-                  child: Icon(leadingIcon, size: 20, color: scheme.primary),
+                  child: Icon(leadingIcon, size: 18, color: scheme.primary),
                 ),
               ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(title, style: Type.display),
-                    if (subtitleWidget != null) ...
-                      [const SizedBox(height: 3), subtitleWidget!]
-                    else if (subtitle != null) ...[
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Type.display.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    if (subtitleWidget != null) ...[
+                      const SizedBox(height: 4),
+                      subtitleWidget!,
+                    ] else if (subtitle != null) ...[
                       const SizedBox(height: 3),
-                      Text(subtitle!,
-                          style: Type.caption
-                              .copyWith(color: scheme.onSurfaceVariant)),
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Type.caption.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.38,
+                        ),
+                      ),
                     ],
                   ],
                 ),
               ),
-              ...actions,
+              if (actions.isNotEmpty) ...[
+                const SizedBox(width: 16),
+                Row(mainAxisSize: MainAxisSize.min, children: actions),
+              ],
             ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Divider(
+            color: Elev.border(dark),
+            height: 1,
+            thickness: 1,
           ),
         ),
         Expanded(
           child: Center(
             child: ConstrainedBox(
-              // 超宽屏下限制内容宽度，避免元素被拉得过稀（评审：>1600px 时
-              // Hero 数据带跟着窗口一起变宽，观感松散）
               constraints: BoxConstraints(
-                  maxWidth: maxContentWidth ?? double.infinity),
+                maxWidth: maxContentWidth ?? double.infinity,
+              ),
               child: scrollable
                   ? KScrollArea(child: child)
                   : Padding(
-                      padding: const EdgeInsets.fromLTRB(Gap.pageH, 0, Gap.pageH, 0),
+                      padding: const EdgeInsets.fromLTRB(
+                          Gap.pageH, 14, Gap.pageH, 0),
                       child: child,
                     ),
             ),
@@ -108,11 +147,7 @@ class KPage extends StatelessWidget {
   }
 }
 
-/// 滚动区域：常驻滚动条 + 可选底部渐隐。
-///
-/// 桌面端默认滚动条只在滚动时出现，长内容被裁时用户不知道还能往下滚；
-/// 底部渐隐则提示"下面还有内容"，滚到底自动淡出（否则最后一条一直蒙灰）。
-/// 各长页面（主页/统计/设置）此前各写一遍 Stack，现统一到这里。
+/// 滚动区域：定制滚动条与底部纸色渐隐
 class KScrollArea extends StatefulWidget {
   final Widget child;
   final EdgeInsets padding;
@@ -122,9 +157,9 @@ class KScrollArea extends StatefulWidget {
   const KScrollArea({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.fromLTRB(Gap.pageH, 0, Gap.pageH, Gap.xl),
+    this.padding = const EdgeInsets.fromLTRB(Gap.pageH, 14, Gap.pageH, Gap.xxl),
     this.bottomFade = true,
-    this.fadeHeight = 36,
+    this.fadeHeight = 32,
   });
 
   @override
@@ -198,25 +233,23 @@ class _KScrollAreaState extends State<KScrollArea> {
   }
 }
 
-/// 分区标题的固定槽位：并排两列时保证标题行等高（否则卡片顶边会错位）。
+/// 区块槽位（保证多栏标题水平基线对齐）
 class KSectionSlot extends StatelessWidget {
   final Widget? child;
   const KSectionSlot({super.key, this.child});
 
   @override
-  Widget build(BuildContext context) =>
-      SizedBox(height: 38, child: Center(child: child ?? const SizedBox.shrink()));
+  Widget build(BuildContext context) => SizedBox(
+      height: 36, child: Center(child: child ?? const SizedBox.shrink()));
 }
 
-/// 分区标题（用于页面内的分组）。
+/// 杂志分栏标题：带 2.5px 专色标尺与延展细线
 class KSectionTitle extends StatelessWidget {
   final String text;
   final Widget? trailing;
   final EdgeInsets padding;
-
-  /// 是否预留 38 高的右侧槽位（并排/无动作的区块也放空槽位，
-  /// 使各区块标题行等高、节奏一致）
   final bool reserveSlot;
+  final Color? accentColor;
 
   const KSectionTitle(
     this.text, {
@@ -224,19 +257,47 @@ class KSectionTitle extends StatelessWidget {
     this.trailing,
     this.padding = const EdgeInsets.only(bottom: 12),
     this.reserveSlot = false,
+    this.accentColor,
   });
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final tickColor = accentColor ?? scheme.primary;
+
     return Padding(
       padding: padding,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(text, style: Type.section),
-          const Spacer(),
-          if (trailing != null)
-            trailing!
-          else if (reserveSlot)
+          Container(
+            width: 3,
+            height: 14,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: tickColor,
+              borderRadius: BorderRadius.circular(1.5),
+            ),
+          ),
+          Text(
+            text,
+            style: Type.section.copyWith(
+              color: scheme.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: Elev.border(dark),
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            trailing!,
+          ] else if (reserveSlot)
             const KSectionSlot(),
         ],
       ),
@@ -244,9 +305,9 @@ class KSectionTitle extends StatelessWidget {
   }
 }
 
-// ============================ 卡片 ============================
+// ============================ 2. 纸张图版与统计格 ============================
 
-/// 全应用唯一的卡片原语。
+/// 全应用核心图版卡片原语（严格遵循单一海拔原则：1px 裁切细线或浮层阴影）
 class KCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
@@ -255,17 +316,9 @@ class KCard extends StatelessWidget {
   final bool glass;
   final bool dense;
   final Color? color;
-
-  /// 浮层阴影（菜单/浮动操作栏用）；为 true 时改用 Elev.overlay
   final bool overlayShadow;
-
-  /// 扁平卡：只描边、不投影（用于卡内再嵌卡片，避免硬阴影叠加显脏）
   final bool flat;
-
-  /// 自定义描边色（语义化浮层，例如错误通知卡）
   final Color? borderColor;
-
-  /// 右键菜单（避免外部再包一层 GestureDetector）
   final void Function(Offset position)? onSecondaryTapAt;
 
   const KCard({
@@ -286,57 +339,68 @@ class KCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final highContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
     final scheme = Theme.of(context).colorScheme;
     final pad = dense ? Gap.cardPaddingDense : padding;
     final fill = color ?? (dark ? KisakiColors.nightCard : Colors.white);
 
     if (glass) {
-      final panel = GlassPanel(
-        borderRadius: borderRadius,
+      final surface = AppleGlassSurface(
+        borderRadius: borderRadius.topLeft.x,
         padding: pad,
-        tint: color,
+        tintColor: color,
+        borderWidth: 1.0,
+        borderColor: borderColor,
+        shadows: flat
+            ? null
+            : (overlayShadow
+                ? Elev.overlay(dark)
+                : Elev.card(dark, scheme.primary)),
         child: child,
       );
-      // 毛玻璃卡也要能点（GlassPanel 本身没有点击能力）
-      return onTap == null
-          ? panel
-          : GestureDetector(
-              behavior: HitTestBehavior.opaque, onTap: onTap, child: panel);
+      if (onTap == null && onSecondaryTapAt == null) return surface;
+      return FluidPressable(
+        onTap: onTap,
+        onSecondaryTapAt: onSecondaryTapAt,
+        child: surface,
+      );
     }
+
     final shadows = flat
         ? const <BoxShadow>[]
         : (overlayShadow
             ? Elev.overlay(dark)
             : Elev.card(dark, scheme.primary));
-    final body = onTap != null
-        ? InteractiveSurface(
-            onTap: onTap,
-            borderRadius: borderRadius,
-            color: fill,
-            outline: scheme.primary,
-            padding: pad,
-            // 浮层/扁平模式下不再叠加硬阴影，避免双层投影
-            elevated: !overlayShadow && !flat,
-            child: child,
-          )
-        : DecoratedBox(
-            decoration: BoxDecoration(
-              color: fill,
-              borderRadius: borderRadius,
-              border: Border.all(color: borderColor ?? Elev.border(dark)),
-              boxShadow: shadows,
-            ),
-            child: Padding(padding: pad, child: child),
-          );
-    if (onSecondaryTapAt == null) return body;
-    return GestureDetector(
-      onSecondaryTapUp: (d) => onSecondaryTapAt!(d.globalPosition),
-      child: body,
+
+    if (onTap != null || onSecondaryTapAt != null) {
+      return InteractiveSurface(
+        onTap: onTap,
+        onSecondaryTapAt: onSecondaryTapAt,
+        borderRadius: borderRadius,
+        color: fill,
+        outline: scheme.primary,
+        padding: pad,
+        elevated: !overlayShadow && !flat,
+        child: child,
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: borderRadius,
+        border: Border.all(
+          color: borderColor ?? Elev.border(dark, highContrast: highContrast),
+          width: 1,
+        ),
+        boxShadow: shadows,
+      ),
+      child: Padding(padding: pad, child: child),
     );
   }
 }
 
-/// 统计块：图标 + 标签 + 数值 + 说明（主页/详情页共用）。
+/// 杂志数据格 (Bento Stat Cell)：支持 CMYK 专色标尺与 Tabular 大数字
 class KStat extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -361,44 +425,61 @@ class KStat extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
-    final color = accent ?? scheme.primary;
+    final color = accent ?? KisakiColors.temporalInk(dark);
+
     return KCard(
       glass: glass,
       onTap: onTap,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            width: 42,
-            height: 42,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: color.withValues(alpha: dark ? 0.20 : 0.12),
+              borderRadius: BorderRadius.circular(Radii.md),
+              color: color.withValues(alpha: dark ? 0.16 : 0.10),
+              border: Border.all(
+                color: color.withValues(alpha: dark ? 0.32 : 0.22),
+                width: 1,
+              ),
             ),
-            child: Icon(icon, size: 21, color: color),
+            child: Icon(icon, size: 20, color: color),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 13),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
-                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.caption.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
                 AnimatedCount(
                   text: value,
                   style: Type.numeric.copyWith(
-                      color: dark ? KisakiColors.nightInk : KisakiColors.ink),
+                    fontSize: 17,
+                    color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                  ),
                 ),
                 if (hint != null) ...[
                   const SizedBox(height: 2),
-                  Text(hint!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Type.micro
-                          .copyWith(color: scheme.onSurfaceVariant)),
+                  Text(
+                    hint!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.micro.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -409,9 +490,9 @@ class KStat extends StatelessWidget {
   }
 }
 
-// ============================ 控件 ============================
+// ============================ 3. 操作控件 ============================
 
-/// 工具栏：页面顶部一排操作（搜索、筛选、视图切换、主操作）。
+/// 响应式工具栏
 class KToolbar extends StatelessWidget {
   final List<Widget> children;
   const KToolbar({super.key, required this.children});
@@ -420,19 +501,33 @@ class KToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(children: children),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 780;
+          return compact
+              ? Wrap(
+                  alignment: WrapAlignment.start,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: Gap.sm,
+                  runSpacing: Gap.sm,
+                  children: [
+                    for (final child in children)
+                      if (child is! Spacer) child,
+                  ],
+                )
+              : Row(children: children);
+        },
+      ),
     );
   }
 }
 
-/// 图标按钮：hover 淡底 + 按压回弹 + 选中态。
+/// 图标动作按钮：1px 细线框 + 瞬发按压反馈
 class KIconAction extends StatefulWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback? onTap;
   final bool active;
-
-  /// 置灰但保留位置（例如未选中任何项时的批量操作）
   final bool enabled;
 
   const KIconAction({
@@ -450,51 +545,89 @@ class KIconAction extends StatefulWidget {
 
 class _KIconActionState extends State<KIconAction> {
   bool _hover = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
+
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
-        cursor: SystemMouseCursors.click,
+        cursor: widget.enabled && widget.onTap != null
+            ? SystemMouseCursors.click
+            : MouseCursor.defer,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
-        child: PressableScale(
-          onTap: widget.onTap,
-          pressedScale: 0.92,
-          child: AnimatedContainer(
-            duration: Motion.fast,
-            curve: Motion.enter,
-            width: 38,
-            height: 38,
-            margin: const EdgeInsets.only(left: 6),
-            decoration: BoxDecoration(
-              color: widget.active
-                  ? scheme.primary.withValues(alpha: dark ? 0.24 : 0.14)
-                  : (_hover
-                      ? (dark
-                          ? Colors.white.withValues(alpha: 0.07)
-                          : Colors.black.withValues(alpha: 0.04))
-                      : Colors.transparent),
-              borderRadius: BorderRadius.circular(11),
-              border: Border.all(
-                color: widget.active
-                    ? scheme.primary.withValues(alpha: 0.40)
-                    : (_hover ? Elev.border(dark) : Colors.transparent),
+        child: Semantics(
+          button: true,
+          enabled: widget.enabled && widget.onTap != null,
+          label: widget.tooltip,
+          selected: widget.active,
+          child: Focus(
+            onFocusChange: (value) => setState(() => _focused = value),
+            onKeyEvent: (node, event) {
+              if (widget.enabled &&
+                  event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.space)) {
+                widget.onTap?.call();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: FluidPressable(
+              onTap: widget.enabled ? widget.onTap : null,
+              child: AnimatedContainer(
+                duration: Motion.fast,
+                curve: Motion.enter,
+                width: 36,
+                height: 36,
+                margin: const EdgeInsets.only(left: 6),
+                decoration: BoxDecoration(
+                  color: widget.active
+                      ? scheme.primary.withValues(alpha: dark ? 0.22 : 0.12)
+                      : (_focused
+                          ? scheme.primary.withValues(alpha: dark ? 0.16 : 0.08)
+                          : (_hover
+                              ? (dark
+                                  ? Colors.white.withValues(alpha: 0.07)
+                                  : const Color(0xFF16151A)
+                                      .withValues(alpha: 0.05))
+                              : Colors.transparent)),
+                  borderRadius: BorderRadius.circular(Radii.md),
+                  border: Border.all(
+                    color: widget.active || _focused
+                        ? scheme.primary.withValues(alpha: 0.55)
+                        : (_hover ? Elev.border(dark) : Colors.transparent),
+                    width: 1,
+                  ),
+                  boxShadow: widget.active || _focused
+                      ? Elev.focusGlow(dark, scheme.primary)
+                      : null,
+                ),
+                child: AnimatedSwitcher(
+                  duration: Motion.fast,
+                  switchInCurve: Motion.spring,
+                  switchOutCurve: Motion.exit,
+                  transitionBuilder: (child, anim) => ScaleTransition(
+                    scale: Tween<double>(begin: 0.72, end: 1.0).animate(anim),
+                    child: FadeTransition(opacity: anim, child: child),
+                  ),
+                  child: Icon(
+                    widget.icon,
+                    key: ValueKey<int>(Object.hash(widget.icon, widget.active)),
+                    size: 18,
+                    color: !widget.enabled
+                        ? scheme.onSurfaceVariant.withValues(alpha: 0.38)
+                        : (widget.active
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant),
+                  ),
+                ),
               ),
-              boxShadow: widget.active
-                  ? Elev.focusGlow(dark, scheme.primary)
-                  : null,
             ),
-            child: Icon(widget.icon,
-                size: 19,
-                color: !widget.enabled
-                    ? scheme.onSurfaceVariant.withValues(alpha: 0.38)
-                    : (widget.active
-                        ? scheme.primary
-                        : scheme.onSurfaceVariant)),
           ),
         ),
       ),
@@ -502,7 +635,7 @@ class _KIconActionState extends State<KIconAction> {
   }
 }
 
-/// 标签（筛选/状态）：选中为主色淡底 + 主色描边。
+/// 索引筛选标签
 class KChip extends StatefulWidget {
   final String label;
   final bool selected;
@@ -531,55 +664,67 @@ class _KChipState extends State<KChip> {
     final scheme = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final color = widget.color ?? scheme.primary;
+
     return MouseRegion(
-      cursor: widget.onTap == null
-          ? MouseCursor.defer
-          : SystemMouseCursors.click,
+      cursor:
+          widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: Motion.fast,
-          curve: Motion.enter,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? color.withValues(alpha: dark ? 0.24 : 0.13)
-                : (_hover
-                    ? (dark ? Colors.white : Colors.black)
-                        .withValues(alpha: 0.05)
-                    : Colors.transparent),
-            borderRadius: Radii.chip,
-            border: Border.all(
+      child: Semantics(
+        button: true,
+        enabled: widget.onTap != null,
+        selected: widget.selected,
+        label: widget.label,
+        child: FluidPressable(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.enter,
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5.5),
+            decoration: BoxDecoration(
               color: widget.selected
-                  ? color.withValues(alpha: 0.55)
-                  : Elev.border(dark),
-            ),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (widget.icon != null) ...[
-              Icon(widget.icon,
-                  size: 12,
-                  color: widget.selected ? color : scheme.onSurfaceVariant),
-              const SizedBox(width: 4),
-            ],
-            Text(
-              widget.label,
-              style: Type.caption.copyWith(
-                color: widget.selected ? color : scheme.onSurfaceVariant,
-                fontWeight:
-                    widget.selected ? FontWeight.w700 : FontWeight.w500,
+                  ? color.withValues(alpha: dark ? 0.22 : 0.12)
+                  : (_hover
+                      ? (dark ? Colors.white : const Color(0xFF16151A))
+                          .withValues(alpha: 0.05)
+                      : Colors.transparent),
+              borderRadius: BorderRadius.circular(Radii.sm),
+              border: Border.all(
+                color: widget.selected
+                    ? color.withValues(alpha: 0.65)
+                    : Elev.border(dark),
+                width: 1,
               ),
             ),
-          ]),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.icon != null) ...[
+                  Icon(
+                    widget.icon,
+                    size: 13,
+                    color: widget.selected ? color : scheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 5),
+                ],
+                Text(
+                  widget.label,
+                  style: Type.caption.copyWith(
+                    color: widget.selected ? color : scheme.onSurfaceVariant,
+                    fontWeight:
+                        widget.selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-/// 主按钮（药丸）：统一高度与内边距，支持悬浮微上浮、发光及按压弹性回弹。
+/// 核心动作按钮：支持实心专色洋红与 1px 裁切线框态
 class KPill extends StatefulWidget {
   final String label;
   final IconData? icon;
@@ -602,7 +747,6 @@ class KPill extends StatefulWidget {
 
 class _KPillState extends State<KPill> {
   bool _hover = false;
-  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -613,11 +757,14 @@ class _KPillState extends State<KPill> {
 
     final child = widget.icon == null
         ? Text(widget.label, style: Type.label)
-        : Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(widget.icon, size: 17),
-            const SizedBox(width: 7),
-            Text(widget.label, style: Type.label),
-          ]);
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(widget.icon, size: 16),
+              const SizedBox(width: 7),
+              Text(widget.label, style: Type.label),
+            ],
+          );
 
     final bgColor = widget.filled
         ? primary
@@ -630,47 +777,35 @@ class _KPillState extends State<KPill> {
     final borderColor = widget.filled
         ? Colors.transparent
         : (_hover
-            ? primary.withValues(alpha: dark ? 0.45 : 0.35)
+            ? primary.withValues(alpha: dark ? 0.55 : 0.42)
             : Elev.border(dark));
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: enabled ? (_) => setState(() => _hover = true) : null,
-      onExit: enabled
-          ? (_) => setState(() {
-                _hover = false;
-                _pressed = false;
-              })
-          : null,
-      child: GestureDetector(
-        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-        onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-        onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+      onExit: enabled ? (_) => setState(() => _hover = false) : null,
+      child: FluidPressable(
         onTap: widget.onTap,
-        child: RepaintBoundary(
-          child: AnimatedScale(
-            scale: _pressed ? 0.95 : (_hover ? 1.02 : 1.0),
-            duration: Motion.press,
-            curve: Motion.spring,
-            child: AnimatedContainer(
-              duration: Motion.fast,
-              curve: Motion.enter,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: Radii.pill,
-                border: Border.all(color: borderColor, width: 1.2),
-                boxShadow: (widget.filled && _hover && enabled)
-                    ? Elev.buttonHover(dark, primary)
-                    : null,
-              ),
-              child: DefaultTextStyle(
-                style: Type.label.copyWith(color: fgColor),
-                child: IconTheme(
-                  data: IconThemeData(color: fgColor, size: 17),
-                  child: child,
-                ),
-              ),
+        child: AnimatedContainer(
+          duration: Motion.fast,
+          curve: Motion.enter,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9.5),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(Radii.md),
+            border: Border.all(color: borderColor, width: 1),
+            boxShadow: (widget.filled && _hover && enabled)
+                ? Elev.buttonHover(dark, primary)
+                : null,
+          ),
+          child: DefaultTextStyle(
+            style: Type.label.copyWith(
+              color: fgColor,
+              fontWeight: FontWeight.w700,
+            ),
+            child: IconTheme(
+              data: IconThemeData(color: fgColor, size: 16),
+              child: child,
             ),
           ),
         ),
@@ -679,7 +814,7 @@ class _KPillState extends State<KPill> {
   }
 }
 
-/// 空状态。
+/// 空状态容器
 class KEmpty extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -687,8 +822,6 @@ class KEmpty extends StatelessWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
   final IconData actionIcon;
-
-  /// 紧凑变体：用于卡片内部（图标圈与间距更小）
   final bool compact;
 
   const KEmpty({
@@ -705,44 +838,63 @@ class KEmpty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: compact ? 40 : 58,
-            height: compact ? 40 : 58,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: scheme.primary.withValues(alpha: 0.10),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: compact ? 42 : 60,
+              height: compact ? 42 : 60,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(Radii.md),
+                color: scheme.primary.withValues(alpha: dark ? 0.14 : 0.08),
+                border: Border.all(
+                  color: scheme.primary.withValues(alpha: 0.25),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                icon,
+                size: compact ? 20 : 28,
+                color: scheme.primary,
+              ),
             ),
-            child: Icon(icon,
-                size: compact ? 19 : 26,
-                color: scheme.primary.withValues(alpha: 0.8)),
-          ),
-          SizedBox(height: compact ? 9 : 14),
-          Text(title, style: compact ? Type.label : Type.section),
-          if (subtitle != null) ...[
-            const SizedBox(height: 5),
-            Text(subtitle!,
-                textAlign: TextAlign.center,
-                style:
-                    Type.caption.copyWith(color: scheme.onSurfaceVariant)),
+            SizedBox(height: compact ? 10 : 14),
+            Text(
+              title,
+              style: (compact ? Type.label : Type.title).copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Text(
+                  subtitle!,
+                  textAlign: TextAlign.center,
+                  style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 16),
+              KPill(label: actionLabel!, icon: actionIcon, onTap: onAction),
+            ],
           ],
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 16),
-            KPill(label: actionLabel!, icon: actionIcon, onTap: onAction),
-          ],
-        ],
+        ),
       ),
     );
   }
 }
 
-/// 加载指示（统一尺寸与线宽）。
+/// 加载圈
 class KLoading extends StatelessWidget {
   final double size;
-  const KLoading({super.key, this.size = 24});
+  const KLoading({super.key, this.size = 26});
 
   @override
   Widget build(BuildContext context) => Center(
@@ -754,7 +906,7 @@ class KLoading extends StatelessWidget {
       );
 }
 
-/// 骨架占位块（加载态用，避免各页手写裸 Container + BoxDecoration）。
+/// 骨架块
 class KSkeleton extends StatelessWidget {
   final double? width;
   final double height;
@@ -780,7 +932,7 @@ class KSkeleton extends StatelessWidget {
   }
 }
 
-/// 骨架文本行（末行按比例缩短，视觉上更像真实段落）。
+/// 骨架文本多行
 class KSkeletonLines extends StatelessWidget {
   final int lines;
   final double lastLineFactor;
@@ -813,7 +965,7 @@ class KSkeletonLines extends StatelessWidget {
   }
 }
 
-/// 小徽标（来源/状态/计数）。
+/// 印刷专色小徽章
 class KBadge extends StatelessWidget {
   final String text;
   final Color? color;
@@ -825,25 +977,36 @@ class KBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = color ?? Theme.of(context).colorScheme.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
       decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(6),
+        color: c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(Radii.xs),
+        border: Border.all(
+          color: c.withValues(alpha: 0.28),
+          width: 1,
+        ),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (icon != null) ...[
-          Icon(icon, size: 11, color: c),
-          const SizedBox(width: 3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: c),
+            const SizedBox(width: 3.5),
+          ],
+          Text(
+            text,
+            style: Type.micro.copyWith(
+              color: c,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
-        Text(text,
-            style: Type.micro
-                .copyWith(color: c, fontWeight: FontWeight.w700)),
-      ]),
+      ),
     );
   }
 }
 
-/// 列表行：左内容 + 右尾部（设置项、资源结果等复用）。
+/// 列表项行
 class KRow extends StatelessWidget {
   final Widget? leading;
   final String title;
@@ -863,64 +1026,59 @@ class KRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // 用透明 Material 承载水波纹：否则反馈会被 KCard 的不透明底色遮住
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-        child: Row(
-          children: [
-            if (leading != null) ...[leading!, const SizedBox(width: 10)],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(Radii.md),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Row(
+            children: [
+              if (leading != null) ...[leading!, const SizedBox(width: 12)],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: Type.body),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(subtitle!,
+                      style: Type.body.copyWith(fontWeight: FontWeight.w500),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Type.caption
-                            .copyWith(color: scheme.onSurfaceVariant)),
+                            .copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            if (trailing != null) ...[const SizedBox(width: 10), trailing!],
-          ],
+              if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
 }
 
-/// 封面缩略图（左封面右文字的行式条目，游戏库紧凑列表与搜索结果共用）。
+/// 发售表/目录式媒体行：严格对齐 Tabular 时间列与图版微缩图
 class KMediaRow extends StatelessWidget {
   final String coverPath;
-
-  /// 网络封面（本地无封面时使用，例如搜刮预览/推荐结果）
   final String? coverUrl;
   final String title;
   final String? subtitle;
   final double coverWidth;
   final bool selected;
   final bool nsfw;
-
-  /// 徽章换行间距（徽章较多时避免挤在一起）
   final double badgeRunSpacing;
-
-  /// 标题区高度（默认 34，容纳两行标题）
   final double titleHeight;
-
-  /// 右侧时间文本（等宽数字 + 固定宽度右对齐，用于时间线类列表）
   final String? timeText;
   final double timeWidth;
   final Widget? trailing;
@@ -940,7 +1098,7 @@ class KMediaRow extends StatelessWidget {
     this.badgeRunSpacing = 4,
     this.titleHeight = 34,
     this.timeText,
-    this.timeWidth = 78,
+    this.timeWidth = 84,
     this.trailing,
     this.onTap,
     this.onSecondaryTapAt,
@@ -952,94 +1110,95 @@ class KMediaRow extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     final coverH = coverWidth / (2 / 3);
-    return GestureDetector(
-      onSecondaryTapUp: onSecondaryTapAt == null
-          ? null
-          : (d) => onSecondaryTapAt!(d.globalPosition),
-      child: InteractiveSurface(
-        onTap: onTap,
-        padding: const EdgeInsets.fromLTRB(8, 8, 10, 8),
-        borderRadius: BorderRadius.circular(Radii.lg),
-        // 选中态用不透明底色（半透明会在卡片上显得发灰）
-        color: selected
-            ? Color.alphaBlend(scheme.primary.withValues(alpha: 0.10),
-                dark ? KisakiColors.nightCard : Colors.white)
-            : (dark ? KisakiColors.nightCard : Colors.white),
-        outline: scheme.primary,
-        child: Row(
-          children: [
-            SizedBox(
-              width: coverWidth,
-              height: coverH,
-              child: CoverImage(
-                path: coverPath,
-                networkUrl: coverUrl,
-                nsfw: nsfw,
-                borderRadius: BorderRadius.circular(8),
-              ),
+
+    return InteractiveSurface(
+      onTap: onTap,
+      onSecondaryTapAt: onSecondaryTapAt,
+      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
+      borderRadius: BorderRadius.circular(Radii.md),
+      color: selected
+          ? Color.alphaBlend(
+              scheme.primary.withValues(alpha: dark ? 0.22 : 0.12),
+              dark ? KisakiColors.nightCard : Colors.white,
+            )
+          : (dark ? KisakiColors.nightCard : Colors.white),
+      outline: scheme.primary,
+      child: Row(
+        children: [
+          SizedBox(
+            width: coverWidth,
+            height: coverH,
+            child: CoverImage(
+              path: coverPath,
+              networkUrl: coverUrl,
+              nsfw: nsfw,
+              borderRadius: BorderRadius.circular(Radii.xs),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                // 顶对齐：一行/两行标题的行基线保持一致
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    height: titleHeight,
-                    child: Text(title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Type.body.copyWith(
-                            fontWeight: FontWeight.w600,
-                            height: 1.25,
-                            color: dark
-                                ? KisakiColors.nightInk
-                                : KisakiColors.ink)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  height: titleHeight,
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.body.copyWith(
+                      fontWeight: FontWeight.w700,
+                      height: 1.24,
+                      color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  if (badges.isNotEmpty)
-                    Wrap(spacing: 5, runSpacing: badgeRunSpacing, children: badges)
-                  else if (subtitle != null)
-                    Text(subtitle!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Type.caption
-                            .copyWith(color: scheme.onSurfaceVariant)),
-                ],
-              ),
+                ),
+                const SizedBox(height: 2),
+                if (badges.isNotEmpty)
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: badgeRunSpacing,
+                    children: badges,
+                  )
+                else if (subtitle != null)
+                  Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        Type.caption.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+              ],
             ),
-            if (timeText != null) ...[
-              SizedBox(
-                width: timeWidth,
-                child: Text(
-                  timeText!,
-                  textAlign: TextAlign.right,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Type.caption.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      fontFeatures: const [FontFeature.tabularFigures()]),
+          ),
+          if (timeText != null) ...[
+            SizedBox(
+              width: timeWidth,
+              child: Text(
+                timeText!,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Type.mono.copyWith(
+                  color: KisakiColors.temporalInk(dark),
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
-            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+            ),
           ],
-        ),
+          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+        ],
       ),
     );
   }
 }
 
-/// 封面图存在性检查（供页面复用，避免各页自行 stat）。
 bool coverExists(String path) => cachedFileExists(path);
 
-// ============================ 封面之上的浮层元素 ============================
-//
-// 以下三个原语用于「压在封面图上的角标 / 按钮 / 勾选圈」：
-// 它们必须自带遮罩或描边，否则在任意封面图上都会看不清。
+// ============================ 4. 封面图版角标小部件 ============================
 
-/// 封面角标（状态、平台评分、游玩中等）。
+/// 封面图版角标标签
 class KOverlayTag extends StatelessWidget {
   final String text;
   final IconData? icon;
@@ -1057,24 +1216,34 @@ class KOverlayTag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        color: const Color(0xFF0F1015).withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(Radii.xs),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.22),
+          width: 1,
+        ),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (icon != null) ...[
-          Icon(icon, size: 11, color: color),
-          const SizedBox(width: 3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 3.5),
+          ],
+          Text(
+            text,
+            style: Type.micro.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
-        Text(text,
-            style: Type.micro
-                .copyWith(color: color, fontWeight: FontWeight.w700)),
-      ]),
+      ),
     );
   }
 }
 
-/// 封面上的圆形按钮（收藏、移除等）。
+/// 封面上的圆形动作按钮
 class KOverlayIconButton extends StatefulWidget {
   final IconData icon;
   final String tooltip;
@@ -1104,10 +1273,11 @@ class _KOverlayIconButtonState extends State<KOverlayIconButton> {
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
-        cursor: SystemMouseCursors.click,
+        cursor:
+            widget.onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
-        child: PressableScale(
+        child: FluidPressable(
           onTap: widget.onTap,
           child: AnimatedContainer(
             duration: Motion.fast,
@@ -1116,11 +1286,28 @@ class _KOverlayIconButtonState extends State<KOverlayIconButton> {
             height: widget.size,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.black.withValues(alpha: _hover ? 0.68 : 0.5),
-              border:
-                  Border.all(color: Colors.white.withValues(alpha: 0.22)),
+              color: const Color(0xFF0F1015)
+                  .withValues(alpha: _hover ? 0.86 : 0.72),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.24),
+                width: 1,
+              ),
             ),
-            child: Icon(widget.icon, size: widget.size * 0.55, color: c),
+            child: AnimatedSwitcher(
+              duration: Motion.fast,
+              switchInCurve: Motion.spring,
+              switchOutCurve: Motion.exit,
+              transitionBuilder: (child, anim) => ScaleTransition(
+                scale: Tween<double>(begin: 0.65, end: 1.0).animate(anim),
+                child: FadeTransition(opacity: anim, child: child),
+              ),
+              child: Icon(
+                widget.icon,
+                key: ValueKey<Object>(Object.hash(widget.icon, c)),
+                size: widget.size * 0.54,
+                color: c,
+              ),
+            ),
           ),
         ),
       ),
@@ -1128,7 +1315,7 @@ class _KOverlayIconButtonState extends State<KOverlayIconButton> {
   }
 }
 
-/// 批量选择勾选圈（压在封面上）：未选中也有清晰描边。
+/// 批量选择勾选圆点
 class KSelectDot extends StatelessWidget {
   final bool selected;
   final double size;
@@ -1138,20 +1325,89 @@ class KSelectDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
+    return AnimatedContainer(
+      duration: Motion.fast,
+      curve: Motion.enter,
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: selected
             ? scheme.primary
-            : Colors.black.withValues(alpha: 0.42),
-        border: Border.all(color: Colors.white, width: 1.6),
+            : const Color(0xFF0F1015).withValues(alpha: 0.65),
+        border: Border.all(
+          color: Colors.white,
+          width: 1.5,
+        ),
       ),
-      child: selected
-          ? Icon(Icons.check_rounded,
-              size: size * 0.62, color: Colors.white)
-          : const SizedBox.shrink(),
+      child: AnimatedSwitcher(
+        duration: Motion.fast,
+        switchInCurve: Motion.spring,
+        switchOutCurve: Motion.exit,
+        transitionBuilder: (child, anim) => ScaleTransition(
+          scale: Tween<double>(begin: 0.55, end: 1.0).animate(anim),
+          child: FadeTransition(opacity: anim, child: child),
+        ),
+        child: selected
+            ? Icon(
+                Icons.check_rounded,
+                key: const ValueKey('kselect-checked'),
+                size: size * 0.64,
+                color: Colors.white,
+              )
+            : const SizedBox.shrink(key: ValueKey('kselect-empty')),
+      ),
     );
   }
+}
+
+// ============================ 5. 统一书目网格与列表排版度量 ============================
+
+/// 游戏库与探索页共用的标准工具栏搜索框宽度（保证切页时工具栏节奏完全一致）。
+const double kCatalogSearchWidth = 300;
+
+/// 游戏库与探索页共用的网格/列表间距（16px）。
+const double kCatalogGridSpacing = Gap.lg;
+
+/// 游戏库与探索页共用的大封面卡片内边距（6px）。
+const EdgeInsets kCatalogCardPadding = EdgeInsets.all(6);
+
+/// 游戏库与探索页共用的卡片标题区固定高度（两行 13.5px 标题）。
+const double kCatalogCardTitleHeight = 36;
+
+/// 游戏库与探索页共用的卡片底部元数据区总高度（间距 + 两行标题 + 副信息行）。
+const double kCatalogCardMetaHeight = 63;
+
+/// 构建游戏库与探索页统一的 2:3 大封面网格 Delegate：
+/// 封面严格按内容宽度保持 2:3 比例，再加上内边距与底部文字区高度反推单元格宽高比。
+SliverGridDelegateWithFixedCrossAxisCount buildCatalogGridDelegate(
+  double maxWidth, {
+  double coverAspect = 2 / 3,
+}) {
+  final count = (maxWidth / 184).floor().clamp(2, 8);
+  final cellW = (maxWidth - kCatalogGridSpacing * (count - 1)) / count;
+  final coverW = cellW - kCatalogCardPadding.horizontal;
+  final cellH = coverW / coverAspect +
+      kCatalogCardPadding.vertical +
+      kCatalogCardMetaHeight;
+  return SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: count,
+    mainAxisSpacing: kCatalogGridSpacing,
+    crossAxisSpacing: kCatalogGridSpacing,
+    childAspectRatio: cellW / cellH,
+  );
+}
+
+/// 构建游戏库与探索页统一的紧凑列表 Delegate（固定行高 88px，自适应多列）。
+SliverGridDelegateWithFixedCrossAxisCount buildCatalogListDelegate(
+  double maxWidth,
+) {
+  const tileW = 320.0;
+  final cols = (maxWidth / tileW).floor().clamp(1, 6);
+  return SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: cols,
+    mainAxisSpacing: kCatalogGridSpacing,
+    crossAxisSpacing: kCatalogGridSpacing,
+    mainAxisExtent: 88,
+  );
 }

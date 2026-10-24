@@ -100,6 +100,9 @@ class SettingsStore {
   /// 游戏库排版（grid=大封面网格 / list=紧凑列表）
   static const kLibraryLayout = 'library.layout';
 
+  /// 探索页排版（grid=大封面网格 / list=紧凑列表）
+  static const kDiscoverLayout = 'discover.layout';
+
   /// 游戏库右侧筛选栏是否展开（工具条上的筛选图标切换）
   static const kLibrarySidebar = 'library.sidebar';
 

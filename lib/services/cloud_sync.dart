@@ -11,6 +11,7 @@ import 'package:dio/io.dart';
 import '../core/constants.dart';
 import '../core/utils.dart';
 import '../data/models.dart';
+import 'kungal_oauth.dart';
 
 /// 平台 id → 本地游戏 解析器。
 typedef GameResolver = Game? Function(String sourceId);
@@ -60,6 +61,8 @@ class CloudSyncService {
           return await _vndb(token, resolve, onSave);
         case KisakiSources.hikarinagi:
           return await _hikarinagi(token, resolve, onSave);
+        case KisakiSources.kun:
+          return await _kun(token, resolve, onSave);
         default:
           return const SyncResult(false, 0, 0, '该平台暂不支持同步');
       }
@@ -213,5 +216,127 @@ class CloudSyncService {
     }
     return SyncResult(true, matched, items.length,
         '云端 ${items.length} 条，匹配本地 $matched 部');
+  }
+
+  Future<SyncResult> _kun(String token, GameResolver resolve,
+      Future<void> Function(Game, double?) onSave) async {
+    var activeToken = token.trim();
+    try {
+      final refreshed = await KunOAuthService.instance.validAccessToken();
+      if (refreshed != null && refreshed.isNotEmpty) {
+        activeToken = refreshed;
+      }
+    } catch (_) {}
+    if (activeToken.isEmpty) {
+      return const SyncResult(false, 0, 0, '请先通过 OAuth 登录鲲Gal账号');
+    }
+
+    final dio = _dio({
+      'Authorization': 'Bearer $activeToken',
+      'User-Agent': 'MusaLunar/${AppInfo.name}/${AppInfo.version} (Sync)',
+      'Accept': 'application/json',
+    });
+
+    final itemsByWorkId = <String, Map<String, dynamic>>{};
+
+    List<Map<String, dynamic>> extractList(dynamic raw) {
+      if (raw is! Map) return const [];
+      final d = raw['data'];
+      if (d is List) {
+        return [
+          for (final e in d)
+            if (e is Map) Map<String, dynamic>.from(e),
+        ];
+      }
+      if (d is Map) {
+        final list = (d['items'] ?? d['works'] ?? d['states']) as List?;
+        if (list != null) {
+          return [
+            for (final e in list)
+              if (e is Map) Map<String, dynamic>.from(e),
+          ];
+        }
+      }
+      return const [];
+    }
+
+    // 1. 拉取个人作品列表 (/v2/me/works)
+    for (var page = 1; page <= 10; page++) {
+      final r = await dio.get(
+        'https://api.nextmoe.dev/v2/me/works',
+        queryParameters: {'page': page, 'limit': 100},
+        options: Options(validateStatus: (s) => s != null && s < 500),
+      );
+      if (r.statusCode == 401 || r.statusCode == 403) {
+        return const SyncResult(false, 0, 0, '鲲Gal 授权已失效，请重新登录');
+      }
+      if (r.statusCode != 200) break;
+      final pageItems = extractList(r.data);
+      for (final it in pageItems) {
+        final wid =
+            '${it['work_id'] ?? (it['work'] is Map ? (it['work'] as Map)['id'] : null) ?? it['id'] ?? ''}'
+                .trim();
+        if (wid.isNotEmpty) {
+          itemsByWorkId[wid] = {...?itemsByWorkId[wid], ...it};
+        }
+      }
+      if (pageItems.length < 100) break;
+    }
+
+    // 2. 补充拉取个人状态列表 (/v2/me/work-states)
+    try {
+      final sr = await dio.get(
+        'https://api.nextmoe.dev/v2/me/work-states',
+        options: Options(validateStatus: (s) => s != null && s < 500),
+      );
+      if (sr.statusCode == 200) {
+        for (final it in extractList(sr.data)) {
+          final wid = '${it['work_id'] ?? it['id'] ?? ''}'.trim();
+          if (wid.isNotEmpty) {
+            itemsByWorkId[wid] = {...?itemsByWorkId[wid], ...it};
+          }
+        }
+      }
+    } catch (_) {}
+
+    var matched = 0;
+    for (final entry in itemsByWorkId.entries) {
+      final game = resolve(entry.key);
+      if (game == null) continue;
+      final it = entry.value;
+      final rawState =
+          '${it['state'] ?? it['status'] ?? ''}'.trim().toLowerCase();
+      final status = switch (rawState) {
+        'wish' || 'planned' || 'plan_to_play' => PlayStatus.wish,
+        'playing' || 'in_progress' => PlayStatus.playing,
+        'played' || 'completed' || 'finished' => PlayStatus.played,
+        'on_hold' || 'stalled' || 'paused' => PlayStatus.onHold,
+        'dropped' || 'abandoned' => PlayStatus.dropped,
+        _ => null,
+      };
+      if (status != null) game.playStatus = status;
+
+      var rawScore = 0.0;
+      if (it['score'] is num) {
+        rawScore = (it['score'] as num).toDouble();
+      } else if (it['rating'] is Map && (it['rating'] as Map)['score'] is num) {
+        rawScore = ((it['rating'] as Map)['score'] as num).toDouble();
+      } else if (it['rating'] is num) {
+        rawScore = (it['rating'] as num).toDouble();
+      }
+      final normScore = rawScore > 0 ? normalizeRating(rawScore) : 0.0;
+      if (normScore > 0 && game.userRating <= 0) {
+        game.userRating = normScore;
+      }
+      await onSave(game, normScore > 0 ? normScore : null);
+      matched++;
+    }
+
+    return SyncResult(
+      true,
+      matched,
+      itemsByWorkId.length,
+      '鲲Gal 云端 ${itemsByWorkId.length} 条，匹配本地 $matched 部',
+    );
   }
 }

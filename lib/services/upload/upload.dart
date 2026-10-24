@@ -8,6 +8,7 @@ import 'package:dio/io.dart';
 
 import '../../core/constants.dart';
 import '../../data/models.dart';
+import '../kungal_oauth.dart';
 
 class UploadResult {
   final bool ok;
@@ -52,6 +53,8 @@ class ReviewUploader {
           return await _vndb(token, source, rating, comment);
         case KisakiSources.hikarinagi:
           return await _hikarinagi(token, source, rating, comment);
+        case KisakiSources.kun:
+          return await _kun(token, source, rating, comment);
         default:
           return const UploadResult(false, '该平台暂不支持上传');
       }
@@ -137,6 +140,41 @@ class ReviewUploader {
     return UploadResult(false, 'Hikarinagi 返回 ${response.statusCode}');
   }
 
+  Future<UploadResult> _kun(
+      String token, SourceRecord source, double rating, String comment) async {
+    var activeToken = token.trim();
+    try {
+      final refreshed = await KunOAuthService.instance.validAccessToken();
+      if (refreshed != null && refreshed.isNotEmpty) {
+        activeToken = refreshed;
+      }
+    } catch (_) {}
+    if (activeToken.isEmpty) {
+      return const UploadResult(false, '请先通过 OAuth 登录鲲Gal账号');
+    }
+    final wid = int.tryParse(source.sourceId.trim());
+    if (wid == null) return const UploadResult(false, '缺少鲲Gal作品 ID');
+    final dio = _dio({
+      'Authorization': 'Bearer $activeToken',
+      'Content-Type': 'application/json',
+      'User-Agent': 'MusaLunar/${AppInfo.name}/${AppInfo.version}',
+    });
+    final response = await dio.put(
+      'https://api.nextmoe.dev/v2/me/ratings/$wid',
+      data: {
+        'score': double.parse(rating.clamp(0, 10).toStringAsFixed(1)),
+        if (comment.isNotEmpty) 'comment': comment,
+      },
+      options: Options(validateStatus: (s) => s != null && s < 500),
+    );
+    if (response.statusCode == 200 ||
+        response.statusCode == 201 ||
+        response.statusCode == 204) {
+      return const UploadResult(true, '鲲Gal 评分已同步');
+    }
+    return UploadResult(false, '鲲Gal 返回 ${response.statusCode}');
+  }
+
   /// 账号测试连接。
   Future<UploadResult> testAccount(String platform, String token) async {
     try {
@@ -160,6 +198,20 @@ class ReviewUploader {
           final m = Map<String, dynamic>.from(r.data as Map);
           final data = Map<String, dynamic>.from((m['data'] ?? m) as Map);
           return UploadResult(true, '欢迎，${data['nickname'] ?? data['name'] ?? '用户'}');
+        case KisakiSources.kun:
+          var activeToken = token.trim();
+          try {
+            final refreshed = await KunOAuthService.instance.validAccessToken();
+            if (refreshed != null && refreshed.isNotEmpty) {
+              activeToken = refreshed;
+            }
+          } catch (_) {}
+          final dio = _dio({'Authorization': 'Bearer $activeToken'});
+          final r = await dio.get(KunOAuthService.userInfoEndpoint);
+          if (r.data is! Map) return const UploadResult(false, '鲲Gal 返回数据格式异常');
+          final m = Map<String, dynamic>.from(r.data as Map);
+          final name = m['name'] ?? m['preferred_username'] ?? m['sub'] ?? '用户';
+          return UploadResult(true, '欢迎，$name');
         default:
           return const UploadResult(false, '未知平台');
       }

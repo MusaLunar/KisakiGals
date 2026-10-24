@@ -1,0 +1,99 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:kisakigals/ui/design.dart';
+import 'package:kisakigals/ui/kit.dart';
+import 'package:kisakigals/ui/theme.dart';
+
+void main() {
+  test('KisakiGals adopts Designable & Impeccable Camellia Rose palette and Apple geometry', () {
+    final light = buildLightTheme();
+    final dark = buildDarkTheme();
+
+    // 品牌色：山茶花粉 (Camellia Rose)
+    expect(light.colorScheme.primary, const Color(0xFFE85583));
+    expect(light.colorScheme.onPrimary, Colors.white);
+    expect(dark.colorScheme.primary, const Color(0xFFFF6997));
+
+    // Apple 连续曲率圆角
+    expect(Radii.lg, 16.0);
+    expect(Radii.md, 10.0);
+    expect(Radii.chip, BorderRadius.circular(6.0));
+
+    // 自然柔和多层阴影（杜绝 0-blur 硬方块阴影）
+    final cardShadows = Elev.card(false, light.colorScheme.primary);
+    expect(cardShadows.isNotEmpty, true);
+    for (final s in cardShadows) {
+      expect(s.blurRadius, greaterThan(0));
+    }
+  });
+
+  test('AppleSpringSimulation calculates exact harmonic oscillator physics', () {
+    // 临界阻尼模拟 (ζ = 1.0)
+    final critical = AppleSpringSimulation.criticallyDamped(
+      start: 0.0,
+      end: 1.0,
+      velocity: 0.0,
+    );
+    expect(critical.x(0.0), 0.0);
+    expect(critical.x(1.0), closeTo(1.0, 0.01));
+
+    // 欠阻尼动量模拟 (ζ = 0.82)
+    final momentum = AppleSpringSimulation.momentum(
+      start: 0.968,
+      end: 1.0,
+      velocity: 0.0,
+    );
+    expect(momentum.x(0.0), closeTo(0.968, 0.001));
+    expect(momentum.x(0.5), closeTo(1.0, 0.02));
+  });
+
+  test('FluidPhysics logarithmic rubber-banding damps overscroll smoothly', () {
+    final normal = FluidPhysics.clampWithRubberband(
+      value: 50.0,
+      min: 0.0,
+      max: 100.0,
+      dimension: 400.0,
+    );
+    expect(normal, 50.0);
+
+    // 超出最大值时遵循对数衰减渐近线
+    final over = FluidPhysics.clampWithRubberband(
+      value: 150.0,
+      min: 0.0,
+      max: 100.0,
+      dimension: 400.0,
+    );
+    expect(over, greaterThan(100.0));
+    expect(over, lessThan(150.0));
+  });
+
+  testWidgets('KPage renders clean editorial masthead without eyebrow/kicker banner',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildLightTheme(),
+        home: Scaffold(
+          body: KPage(
+            title: '游戏库',
+            subtitle: '共 42 部作品',
+            actions: [
+              KIconAction(
+                icon: Icons.add,
+                tooltip: '添加游戏',
+                onTap: () {},
+              ),
+            ],
+            child: const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+
+    // 严禁 kicker/eyebrow 杂音
+    expect(find.text('KISAKI / 游戏库'), findsNothing);
+    // 标题与副标题清晰呈现
+    expect(find.text('游戏库'), findsOneWidget);
+    expect(find.text('共 42 部作品'), findsOneWidget);
+    expect(find.byTooltip('添加游戏'), findsOneWidget);
+  });
+}

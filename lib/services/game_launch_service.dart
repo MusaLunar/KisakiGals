@@ -19,60 +19,84 @@ import '../ui/widgets/notifications.dart';
 import 'game_launcher.dart';
 
 class GameLaunchService {
+  static bool _launching = false;
+
   /// 启动游戏并开始计时。[ref] 用于刷新「游戏中」状态与库版本。
   static Future<void> launchAndTrack(Game game, WidgetRef ref) async {
     if (game.id == null) return;
+    if (_launching) return;
+
+    final tracker = AppServices.I.tracker;
+    if (tracker.refreshAndCheckActive()) {
+      final runningId = tracker.trackedGameId;
+      if (runningId == game.id) {
+        showNotice('「${game.displayName}」已在运行中，无需重复启动', error: true);
+      } else {
+        final runningGame =
+            runningId != null ? await AppServices.I.repo.getGame(runningId) : null;
+        final runningTitle = runningGame?.displayName ?? '其他游戏';
+        showNotice('「$runningTitle」正在后台运行，请先关闭当前游戏或结束会话后再启动',
+            error: true);
+      }
+      return;
+    }
+
     if (game.exePath.isEmpty || !File(game.exePath).existsSync()) {
       showNotice('未找到游戏可执行文件，请先在「编辑信息」中设置', error: true);
       return;
     }
 
-    final settings = AppServices.I.settings;
-    final mode = await settings.trackingMode();
+    _launching = true;
+    try {
+      final settings = AppServices.I.settings;
+      final mode = await settings.trackingMode();
 
-    // 转区启动：需要 Locale Emulator 路径；缺失则降级为普通启动并提示
-    var lePath = '';
-    if (game.useLocaleEmulator) {
-      lePath = await settings.getString(SettingsStore.kLePath, '');
-      if (lePath.isEmpty || !File(lePath).existsSync()) {
-        lePath = '';
-        showNotice('未配置 Locale Emulator 路径，本次按普通方式启动（可能显示乱码）',
-            error: true);
+      // 转区启动：需要 Locale Emulator 路径；缺失则降级为普通启动并提示
+      var lePath = '';
+      if (game.useLocaleEmulator) {
+        lePath = await settings.getString(SettingsStore.kLePath, '');
+        if (lePath.isEmpty || !File(lePath).existsSync()) {
+          lePath = '';
+          showNotice('未配置 Locale Emulator 路径，本次按普通方式启动（可能显示乱码）',
+              error: true);
+        }
       }
-    }
 
-    final result = await GameLauncher.launch(
-      game.exePath,
-      directory: game.directory,
-      localeEmulatorPath: lePath,
-    );
-    if (!result.ok) {
-      showNotice(result.message.isEmpty ? '启动失败' : result.message, error: true);
-      return;
-    }
-    if (result.message.isNotEmpty) showNotice(result.message);
+      final result = await GameLauncher.launch(
+        game.exePath,
+        directory: game.directory,
+        localeEmulatorPath: lePath,
+      );
+      if (!result.ok) {
+        showNotice(result.message.isEmpty ? '启动失败' : result.message, error: true);
+        return;
+      }
+      if (result.message.isNotEmpty) showNotice(result.message);
 
-    AppServices.I.tracker.startTracking(
-      gameId: game.id!,
-      exePath: game.exePath,
-      directory: game.directory,
-      mode: mode,
-    );
-    ref.read(trackingGameProvider.notifier).state = game.id!;
-    await settings.setString('runtime.last_game', '${game.id}');
+      tracker.startTracking(
+        gameId: game.id!,
+        exePath: game.exePath,
+        directory: game.directory,
+        mode: mode,
+      );
+      ref.read(trackingGameProvider.notifier).state = game.id!;
+      await settings.setString('runtime.last_game', '${game.id}');
 
-    // 启动后动作：最小化主窗口
-    final after = await settings.getString(SettingsStore.kAfterLaunch, 'none');
-    if (after == 'minimize') {
-      // 启动游戏后最小化到托盘（而不是任务栏），避免挡在游戏前面
-      await minimizeToTray();
-    }
+      // 启动后动作：最小化主窗口
+      final after = await settings.getString(SettingsStore.kAfterLaunch, 'none');
+      if (after == 'minimize') {
+        // 启动游戏后最小化到托盘（而不是任务栏），避免挡在游戏前面
+        await minimizeToTray();
+      }
 
-    // 想玩 → 在玩
-    if (game.playStatus == PlayStatus.wish) {
-      game.playStatus = PlayStatus.playing;
-      await AppServices.I.repo.updateGame(game);
+      // 想玩 → 在玩
+      if (game.playStatus == PlayStatus.wish) {
+        game.playStatus = PlayStatus.playing;
+        await AppServices.I.repo.updateGame(game);
+      }
+      ref.read(libraryVersionProvider.notifier).state++;
+    } finally {
+      _launching = false;
     }
-    ref.read(libraryVersionProvider.notifier).state++;
   }
 }

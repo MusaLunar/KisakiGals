@@ -24,6 +24,7 @@ import '../design.dart';
 import '../kit.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/floating_anchor_nav.dart';
 import '../widgets/image_picker.dart';
 import '../widgets/notifications.dart';
 import '../widgets/save_dir_picker_dialog.dart';
@@ -38,6 +39,13 @@ class EditSheet extends riverpod.ConsumerStatefulWidget {
 }
 
 class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _basicKey = GlobalKey();
+  final GlobalKey _launchKey = GlobalKey();
+  final GlobalKey _coverKey = GlobalKey();
+  final GlobalKey _bgKey = GlobalKey();
+  final GlobalKey _metaKey = GlobalKey();
+
   late final TextEditingController _name =
       TextEditingController(text: widget.game.name);
   late final TextEditingController _nameCn =
@@ -170,6 +178,7 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     for (final c in [
       _name,
       _nameCn,
@@ -254,27 +263,86 @@ class _EditSheetState extends riverpod.ConsumerState<EditSheet> {
                 child: _header(context),
               ),
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const KSectionTitle('基本信息'),
-                      KCard(child: _basicInfo(context)),
-                      const SizedBox(height: Gap.xl),
-                      const KSectionTitle('启动与存档'),
-                      KCard(child: _launchAndSave(context)),
-                      const SizedBox(height: Gap.xl),
-                      const KSectionTitle('封面'),
-                      KCard(child: _coverSection(context)),
-                      const SizedBox(height: Gap.xl),
-                      const KSectionTitle('详情页背景'),
-                      KCard(child: _backgroundSection(context)),
-                      const SizedBox(height: Gap.xl),
-                      const KSectionTitle('元数据（平台条目 id）'),
-                      KCard(child: _sourceSection(context)),
-                    ],
-                  ),
+                child: Stack(
+                  children: [
+                    SingleChildScrollView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            key: _basicKey,
+                            child: const KSectionTitle('基本信息'),
+                          ),
+                          KCard(child: _basicInfo(context)),
+                          const SizedBox(height: Gap.xl),
+                          Container(
+                            key: _launchKey,
+                            child: const KSectionTitle('启动与存档'),
+                          ),
+                          KCard(child: _launchAndSave(context)),
+                          const SizedBox(height: Gap.xl),
+                          Container(
+                            key: _coverKey,
+                            child: const KSectionTitle('封面'),
+                          ),
+                          KCard(child: _coverSection(context)),
+                          const SizedBox(height: Gap.xl),
+                          Container(
+                            key: _bgKey,
+                            child: const KSectionTitle('详情页背景'),
+                          ),
+                          KCard(child: _backgroundSection(context)),
+                          const SizedBox(height: Gap.xl),
+                          Container(
+                            key: _metaKey,
+                            child: const KSectionTitle('元数据（平台条目 id）'),
+                          ),
+                          KCard(child: _sourceSection(context)),
+                        ],
+                      ),
+                    ),
+                    Positioned(
+                      right: 28,
+                      top: 14,
+                      child: FloatingAnchorNav(
+                        scrollController: _scrollController,
+                        items: [
+                          AnchorSectionItem(
+                            id: 'basic',
+                            label: '基本信息',
+                            icon: Icons.info_outline_rounded,
+                            key: _basicKey,
+                          ),
+                          AnchorSectionItem(
+                            id: 'launch',
+                            label: '启动与存档',
+                            icon: Icons.sports_esports_outlined,
+                            key: _launchKey,
+                          ),
+                          AnchorSectionItem(
+                            id: 'cover',
+                            label: '游戏封面',
+                            icon: Icons.image_outlined,
+                            key: _coverKey,
+                          ),
+                          AnchorSectionItem(
+                            id: 'bg',
+                            label: '详情页背景',
+                            icon: Icons.wallpaper_rounded,
+                            key: _bgKey,
+                          ),
+                          AnchorSectionItem(
+                            id: 'meta',
+                            label: '平台元数据',
+                            icon: Icons.data_object_rounded,
+                            key: _metaKey,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

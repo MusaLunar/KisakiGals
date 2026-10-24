@@ -39,6 +39,31 @@ class PlaytimeTracker {
 
   int? get trackedGameId => _gameId;
 
+  /// 立即复核当前跟踪的游戏进程是否仍在后台存活。
+  /// 若已捕获过进程但此时进程已全部退出，则立即结算结束跟踪并返回 false，
+  /// 避免在 3 秒轮询宽限期内误拦用户的新启动操作。
+  bool refreshAndCheckActive() {
+    if (_gameId == null) return false;
+    final procs = enumerateProcesses();
+    final alive = procs.any((p) => _watchNames.contains(p.exeFile.toLowerCase()));
+    if (alive) {
+      _sawProcess = true;
+      _misses = 0;
+      return true;
+    }
+    if (_sawProcess) {
+      stopTracking(saveSession: true);
+      return false;
+    }
+    // 刚启动尚未在进程表出现时，10 秒内视为仍在启动中
+    if (_startedAt != null &&
+        DateTime.now().difference(_startedAt!).inSeconds <= 10) {
+      return true;
+    }
+    stopTracking(saveSession: _countedSeconds > 0);
+    return false;
+  }
+
   /// 开始跟踪一个游戏（先启动 exe，再调用）。
   void startTracking({
     required int gameId,
@@ -46,7 +71,7 @@ class PlaytimeTracker {
     required String directory,
     required TimeTrackingMode mode,
   }) {
-    stopTracking(saveSession: false);
+    stopTracking(saveSession: true);
     _gameId = gameId;
     _mode = mode;
     _startedAt = DateTime.now();

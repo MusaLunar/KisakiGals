@@ -18,10 +18,10 @@ class CngalAdapter extends SourceAdapter {
 
   @override
   Future<List<ScrapedGame>> search(String kw) async {
-    // 全站搜索 → 过滤「游戏」类型条目 → 逐条取详情（最多 3 条）
+    // 全站搜索 → 过滤「Game/游戏」类型条目 → 逐条取详情（最多 5 条）
     final response = await limitedGet('$base/api/home/Search',
-        query: {'Text': kw, 'Page': 1});
-    if (response.statusCode != 200) return [];
+        query: {'Text': kw, 'Page': 1, 'Types': 'Game'});
+    if (response.statusCode != 200 || response.data is! Map) return [];
     final data = Map<String, dynamic>.from(response.data as Map);
     final pr = Map<String, dynamic>.from((data['pagedResultDto'] ?? {}) as Map);
     final ids = <String>[];
@@ -30,10 +30,11 @@ class CngalAdapter extends SourceAdapter {
       final entry = item['entry'];
       if (entry is! Map) continue;
       final em = Map<String, dynamic>.from(entry);
-      if ((em['type'] ?? '') == '游戏' && em['id'] != null) {
+      final t = '${em['type'] ?? ''}'.toLowerCase();
+      if ((t == 'game' || t == '游戏' || t == '0') && em['id'] != null) {
         ids.add('${em['id']}');
       }
-      if (ids.length >= 3) break;
+      if (ids.length >= 5) break;
     }
     final results = <ScrapedGame>[];
     for (final id in ids) {
@@ -47,7 +48,7 @@ class CngalAdapter extends SourceAdapter {
   Future<ScrapedGame?> fetchById(String id) async {
     final response = await limitedGet('$base/api/entries/GetEntryView/$id',
         query: {'renderMarkdown': 'false'});
-    if (response.statusCode != 200) return null;
+    if (response.statusCode != 200 || response.data is! Map) return null;
     final m = Map<String, dynamic>.from(response.data as Map);
 
     final tags = ((m['tagState']?['tags'] as List?) ?? [])
@@ -58,14 +59,25 @@ class CngalAdapter extends SourceAdapter {
         .take(10)
         .toList();
 
+    final rawName = ((m['name'] ?? m['originalName']) ?? '').toString().trim();
+    final rawAnother =
+        ((m['anotherName'] ?? m['chineseName']) ?? '').toString().trim();
+    final aliases = rawAnother
+        .split(RegExp(r'[,，/、;；]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty && s != rawName)
+        .toList();
+
     return ScrapedGame(
       source: KisakiSources.cngal,
       sourceId: id,
-      name: ((m['name'] ?? m['originalName']) ?? '') as String,
-      nameCn: ((m['anotherName'] ?? m['chineseName']) ?? '') as String,
+      name: rawName,
+      nameCn: rawName,
+      aliases: aliases,
       coverUrl: ((m['mainPicture'] ?? m['mainImage'] ?? m['thumbnail']) ?? '')
           as String,
-      developer: ((m['developer'] ?? '') ?? '') as String,
+      developer: ((m['productionGroup'] ?? m['developer'] ?? '') ?? '')
+          .toString(),
       releaseDate: SourceAdapter.date(
           (m['startDate'] ?? m['releaseDate'])?.toString()),
       summary: ((m['briefIntroduction'] ?? m['introduction']) ?? '') as String,

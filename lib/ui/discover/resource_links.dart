@@ -68,13 +68,30 @@ List<String> resourceNameCandidates(ScrapedGame g) {
     out.add(t);
   }
 
-  add(g.nameCn);
-  add(g.name);
+  void addWithVariants(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return;
+    add(t);
+    // 去装饰符号紧凑版（例如「千恋＊万花」→「千恋万花」）
+    final compact = t.replaceAll(RegExp(r'[＊*・×]'), '').trim();
+    if (compact.length >= 2 && compact != t) {
+      add(compact);
+    }
+    // 副标题切分主标题（例如「ATRI -My Dear Moments-」→「ATRI」）
+    final mainPart =
+        t.split(RegExp(r'\s*[\-–—~～:：]\s*')).first.trim();
+    if (mainPart.length >= 2 && mainPart != t) {
+      add(mainPart);
+    }
+  }
+
+  addWithVariants(g.nameCn);
+  addWithVariants(g.name);
   for (final a in g.aliases) {
     if (out.length >= kResourceMaxCandidates) break;
     add(a);
   }
-  return out;
+  return out.take(kResourceMaxCandidates).toList();
 }
 
 /// 一部作品的资源链接快照（不可变）。
@@ -388,7 +405,9 @@ class ResourceLinkStore {
   /// 打分：完全匹配 > 前缀 > 中间命中 > 分词命中），因此"本体"总能排在
   /// 一堆带后缀的整合包前面。
   static List<ResourceItem> _rank(List<ResourceItem> items, String name) {
-    final sorted = [...items];
+    final sorted = items
+        .where((it) => ResourceSearcher.relevance(it.title, name) > 0)
+        .toList();
     sorted.sort((a, b) {
       final ra = ResourceSearcher.relevance(a.title, name);
       final rb = ResourceSearcher.relevance(b.title, name);
@@ -480,12 +499,16 @@ class ResourceLinkSection extends StatefulWidget {
   /// 正在入库（显示进度并禁用按钮）
   final bool adding;
 
+  /// 是否自适应高度嵌入外层滚动容器（为 true 时不使用内部 Expanded 滚动区）
+  final bool shrinkWrap;
+
   const ResourceLinkSection({
     super.key,
     required this.game,
     required this.onAdd,
     required this.inLibrary,
     required this.adding,
+    this.shrinkWrap = false,
   });
 
   @override
@@ -493,7 +516,7 @@ class ResourceLinkSection extends StatefulWidget {
 }
 
 class _ResourceLinkSectionState extends State<ResourceLinkSection> {
-  late final String _key;
+  late String _key;
   late ValueNotifier<ResourceLinkState> _state;
 
   @override
@@ -509,27 +532,51 @@ class _ResourceLinkSectionState extends State<ResourceLinkSection> {
   }
 
   @override
+  void didUpdateWidget(covariant ResourceLinkSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextKey = discoverLibraryKey(widget.game);
+    if (nextKey != _key) {
+      _key = nextKey;
+      _state = ResourceLinkStore.instance.entry(_key);
+      ResourceLinkStore.instance
+          .ensureLoaded(_key, resourceNameCandidates(widget.game));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ResourceLinkState>(
       valueListenable: _state,
-      builder: (context, s, _) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          KSectionTitle('资源下载', trailing: _header(s)),
-          Expanded(
-            child: KScrollArea(
-              // 常驻滚动条（KScrollArea 自带），但不要底部渐隐：渐隐用的是
-              // 页面底色，在弹窗卡片的底色上会露出一条色差。
-              bottomFade: false,
-              padding: const EdgeInsets.only(right: Gap.sm, bottom: Gap.xs),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: _body(s),
+      builder: (context, s, _) {
+        if (widget.shrinkWrap) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              KSectionTitle('资源下载', trailing: _header(s)),
+              ..._body(s),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            KSectionTitle('资源下载', trailing: _header(s)),
+            Expanded(
+              child: KScrollArea(
+                // 常驻滚动条（KScrollArea 自带），但不要底部渐隐：渐隐用的是
+                // 页面底色，在弹窗卡片的底色上会露出一条色差。
+                bottomFade: false,
+                padding: const EdgeInsets.only(right: Gap.sm, bottom: Gap.xs),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: _body(s),
+                ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
@@ -653,9 +700,6 @@ class _ResourceLinkSectionState extends State<ResourceLinkSection> {
               padding: const EdgeInsets.only(bottom: Gap.sm),
               child: _ResourceRow(
                 item: it,
-                inLibrary: widget.inLibrary,
-                adding: widget.adding,
-                onAdd: widget.onAdd,
               ),
             ),
         ],
@@ -767,22 +811,16 @@ class _ResourceLinkSectionState extends State<ResourceLinkSection> {
   }
 }
 
-/// 单条资源：标题 + 标签徽标 + 「下载页 / 入库」。
+/// 单条资源：标题 + 标签徽标 + 「下载页」。
 ///
 /// 说明：服务层的 [ResourceItem] 只有 站点/标题/链接/标签 四个字段（没有
 /// 发布日期与大小——发布页上的这些信息在搜索结果里拿不到），因此这里不显示
 /// 日期与体积，只显示站点（在分组标题上）与标签（免登录/需登录/需代理/补丁站）。
 class _ResourceRow extends StatelessWidget {
   final ResourceItem item;
-  final bool inLibrary;
-  final bool adding;
-  final Future<void> Function() onAdd;
 
   const _ResourceRow({
     required this.item,
-    required this.inLibrary,
-    required this.adding,
-    required this.onAdd,
   });
 
   /// 打开下载页：外部浏览器；打不开要如实提示（链接失效是常态）。
@@ -841,17 +879,6 @@ class _ResourceRow extends StatelessWidget {
             filled: false,
             onTap: _open,
           ),
-          const SizedBox(width: Gap.xs + 2),
-          if (adding)
-            const SizedBox(width: 72, height: 36, child: KLoading(size: 16))
-          else
-            KPill(
-              label: inLibrary ? '已在库' : '入库',
-              icon: inLibrary
-                  ? Icons.check_rounded
-                  : Icons.library_add_rounded,
-              onTap: inLibrary ? null : () => onAdd(),
-            ),
         ],
       ),
     );

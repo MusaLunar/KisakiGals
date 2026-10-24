@@ -6,7 +6,7 @@
 
 > 「无论何时，都想与她们再次相见。」
 
-**当前版本：1.0.1** ｜ 作者：MusaLunar ｜ [项目主页](https://github.com/MusaLunar/KisakiGals)
+**当前版本：1.1.0** ｜ 作者：MusaLunar ｜ [项目主页](https://github.com/MusaLunar/KisakiGals)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
@@ -19,10 +19,13 @@
 - 🏠 **主页**：本周/本月/总计速览、最近游玩一键继续、动态时间线、为你推荐
 - 📚 **游戏库**：封面 2:3 网格、筛选边栏（排序/状态/收藏/来源/开发商/标签）、批量管理
 - 🎮 **详情页**：游玩记录卡片（总时长 / 本次实时计时 / 平均单次）、30 天趋势、平台评分、标签与简介
-- 🧭 **探索**：一页两种模式 —— 「探索」浏览 VNDB / Bangumi 榜单（评分、年份、标签筛选，右键栏与游戏库一致）并一键入库；「资源」聚合多个资源站的发布页，并发搜索、按相关度排序，一键打开下载页或直接入库
+- 🧭 **探索与百科**：一页两种模式 —— 「探索」浏览 VNDB / Bangumi 榜单（评分、年份、标签筛选，右键栏与游戏库一致）并一键入库；「资源」聚合多个资源站的发布页，并发搜索、按相关度排序；全新**全景游戏百科**（参考 The-Order），涵盖发行版本、角色声优（立绘与声优阵容）、制作人员、相关作品网络以及动画、音乐、漫画、轻小说跨媒体衍生与高清 CG 画廊大图
 - 📊 **统计**：信息 / 评分 / 总结三页，含时段分布、星期分布、词云与月度热力
 - 🤖 **AI 助手**：结合你的游玩数据生成总结与作品推荐（支持任意 OpenAI 兼容接口）
 - ➕ **添加游戏**：拖入 exe 或文件夹自动搜刮，也可关键词搜索；9 个数据源并发、同一作品多源合并
+- 🖥️ **现代定制托盘**：C++ 原生自绘无边框托盘右键交互窗口，显示最近常玩的 2 部游戏一键秒启，实时掌握游玩会话
+- 🔑 **鲲Gal 授权与云端**：内置 RFC 7636 PKCE 的 OAuth 2.0 登录流程，无缝读取与同步 NextMoe 官方资源
+- 🔄 **检查更新**：设置页一键比对 GitHub 最新发行版，支持语义化版本感知与一键跳转下载
 
 **游玩时长** · 秒级进程检测，仅前台计时或挂机计时双模式；标题栏与详情页实时显示本局时长；最小化到托盘也照常计时。
 
@@ -32,7 +35,7 @@
 
 **评分与云同步** · 本地评分与评论，可同步 Bangumi、VNDB、Hikarinagi 的收藏与评价。
 
-**界面** · 明暗双主题 + Mica 毛玻璃；NSFW 封面支持模糊 / 占位 / 显示三种模式。
+**界面与交互** · 明暗双主题 + 纸面与墨色设计语言；NSFW 封面支持模糊 / 占位 / 显示三种模式；长页面配有智能悬浮定位窗；主页切页支持物理滑动过渡。
 
 ---
 
@@ -80,6 +83,7 @@ flutter build windows --release
 
 | 项目 | 参考内容 |
 | --- | --- |
+| [The-Order](https://github.com/Ph-Rank/The-Order) | 多源全景游戏探索百科架构、跨媒体关联（动画/音乐/漫画/轻小说）、发行版本与制作人员组织模型启发 |
 | [ChronoTide](https://github.com/hardman1314/-Chrono.Tide-) | 多源元数据刮削、VNDB 标签中文化资源、启动与存档管理思路 |
 | [ReinaManager](https://github.com/huoshen80/ReinaManager) | 账号体系与多源元数据整合、存档备份策略、界面风格启发 |
 | [SearchGal](https://github.com/Moe-Sakura/SearchGal) | 资源搜索的多站点聚合思路与结果呈现 |
@@ -98,5 +102,5 @@ flutter build windows --release
 ---
 
 <div align="center">
-Made with Flutter & ♥ · KisakiGals v1.0.1
+Made with Flutter & ♥ · KisakiGals v1.1.0
 </div>

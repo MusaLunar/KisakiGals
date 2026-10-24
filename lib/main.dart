@@ -1,23 +1,35 @@
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_services.dart';
+import 'core/constants.dart';
+import 'core/utils.dart';
+import 'data/models.dart';
 import 'data/settings_store.dart';
 import 'providers.dart';
+import 'services/game_launch_service.dart';
 import 'ui/design.dart';
 import 'ui/shell/app_shell.dart';
 import 'ui/shell/tabs.dart' show Tabs;
 import 'ui/theme.dart';
 import 'ui/widgets/notifications.dart';
 
+const MethodChannel _trayPopupChannel = MethodChannel('kisaki/tray_menu');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 调优图片缓存上限（配合 CoverImage 按显示像素比降采样解码，减少滚动卡顿与内存峰值）
+  PaintingBinding.instance.imageCache.maximumSize = 260;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 160 << 20; // 160 MB
+
   await windowManager.ensureInitialized();
   await acrylic.Window.initialize();
 
@@ -49,38 +61,97 @@ final GlobalKey shotBoundaryKey = GlobalKey();
 
 bool _trayReady = false;
 
-/// 创建或更新托盘右键菜单（层级划分清晰、含语义图标、支持游戏运行状态动态联动）。
-Future<void> updateTrayMenu({String? runningGameTitle}) async {
-  if (!_trayReady) return;
-  final hasGame = runningGameTitle != null && runningGameTitle.isNotEmpty;
-  await trayManager.setContextMenu(Menu(items: [
-    MenuItem(key: 'title', label: 'KisakiGals v1.0.1', disabled: true),
-    MenuItem.separator(),
-    MenuItem(key: 'show', label: '🖥️  打开主面板'),
-    MenuItem.separator(),
-    MenuItem(key: 'nav_library', label: '📚  我的游戏库'),
-    MenuItem(key: 'nav_stats', label: '📊  游玩统计'),
-    MenuItem(key: 'nav_settings', label: '⚙️  偏好设置'),
-    if (hasGame) ...[
-      MenuItem.separator(),
-      MenuItem(
-        key: 'status',
-        label: '🎮  正在游玩: $runningGameTitle',
-        disabled: true,
-      ),
-      MenuItem(key: 'stop_tracking', label: '⏹  结束当前会话'),
-    ],
-    MenuItem.separator(),
-    MenuItem(key: 'quit', label: '❌  退出 KisakiGals'),
-  ]));
+/// 构建自绘「誌面」托盘弹出面板的数据载荷（不使用 Windows 原生 HMENU）。
+Future<Map<String, dynamic>> _buildTrayPopupPayload({
+  String? runningGameTitle,
+  bool? darkOverride,
+}) async {
+  final tracker = AppServices.I.tracker;
+  final activeId =
+      tracker.refreshAndCheckActive() ? tracker.trackedGameId : null;
+  var activeTitle = runningGameTitle?.trim() ?? '';
+  if (activeTitle.isEmpty && activeId != null) {
+    final activeGame = await AppServices.I.repo.getGame(activeId);
+    activeTitle = activeGame?.displayName ?? '';
+  }
+
+  // 查询最近游玩的 2 部作品
+  List<Game> recentGames = const [];
+  try {
+    recentGames = await AppServices.I.repo.recentPlayedGames(limit: 2);
+  } catch (_) {}
+
+  bool dark = darkOverride ?? false;
+  if (darkOverride == null) {
+    final mode =
+        await AppServices.I.settings.getString(SettingsStore.kThemeMode, 'system');
+    if (mode == 'dark') {
+      dark = true;
+    } else if (mode == 'light') {
+      dark = false;
+    } else {
+      dark = PlatformDispatcher.instance.platformBrightness == Brightness.dark;
+    }
+  }
+
+  final recentPayload = <Map<String, dynamic>>[];
+  for (final g in recentGames) {
+    final gid = g.id;
+    if (gid == null) continue;
+    final isRunning = activeId == gid;
+    var coverPath =
+        g.coverPath.isEmpty ? '' : AppServices.I.paths.resolveStored(g.coverPath);
+    if (coverPath.isNotEmpty && !File(coverPath).existsSync()) {
+      coverPath = '';
+    }
+    final subtitle = isRunning
+        ? '正在游玩中'
+        : (g.totalSeconds > 0
+            ? '累计 ${fmtDuration(g.totalSeconds)}'
+            : '点击即刻启动');
+    recentPayload.add({
+      'id': gid,
+      'title': g.displayName,
+      'subtitle': subtitle,
+      'coverPath': coverPath,
+      'running': isRunning,
+    });
+  }
+
+  return {
+    'dark': dark,
+    'version': AppInfo.version,
+    'runningTitle': activeTitle,
+    'recentGames': recentPayload,
+  };
 }
 
-/// 创建托盘图标与菜单。
+/// 同步托盘悬停提示（右键菜单由自绘「誌面」顶层弹出窗口渲染，不再调用 Windows 原生菜单）。
+Future<void> updateTrayMenu({String? runningGameTitle}) async {
+  if (!_trayReady) return;
+
+  final tracker = AppServices.I.tracker;
+  final activeId =
+      tracker.refreshAndCheckActive() ? tracker.trackedGameId : null;
+  var activeTitle = runningGameTitle?.trim() ?? '';
+  if (activeTitle.isEmpty && activeId != null) {
+    final activeGame = await AppServices.I.repo.getGame(activeId);
+    activeTitle = activeGame?.displayName ?? '';
+  }
+
+  final tip = activeTitle.isNotEmpty
+      ? 'KisakiGals · 正在游玩 $activeTitle'
+      : 'KisakiGals v${AppInfo.version}';
+  try {
+    await trayManager.setToolTip(tip);
+  } catch (_) {}
+}
+
+/// 创建托盘图标。
 Future<void> _setupTray() async {
   if (_trayReady) return;
   // 把 ico 从资源包复制到数据目录，保证 release 下路径可解析
-  final icoPath =
-      '${AppServices.I.paths.root}/tray.ico';
+  final icoPath = '${AppServices.I.paths.root}/tray.ico';
   try {
     final data = await rootBundle.load('assets/logo/kisaki.ico');
     await File(icoPath).writeAsBytes(
@@ -90,7 +161,7 @@ Future<void> _setupTray() async {
     return;
   }
   await trayManager.setIcon(icoPath);
-  await trayManager.setToolTip('KisakiGals');
+  await trayManager.setToolTip('KisakiGals v${AppInfo.version}');
   _trayReady = true;
   await updateTrayMenu();
 }
@@ -126,6 +197,14 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
     super.initState();
     windowManager.addListener(this);
     trayManager.addListener(this);
+    _trayPopupChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onTrayAction') {
+        final action = (call.arguments ?? '').toString();
+        if (action.isNotEmpty) {
+          await _handleTrayAction(action);
+        }
+      }
+    });
     Future.microtask(() async {
       final s = AppServices.I.settings;
       ref.read(nsfwModeProvider.notifier).state =
@@ -136,12 +215,15 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
           await s.getDouble('detail.bg_blur', 14);
       ref.read(libraryLayoutProvider.notifier).state =
           await s.getString(SettingsStore.kLibraryLayout, 'grid');
+      ref.read(discoverLayoutProvider.notifier).state =
+          await s.getString(SettingsStore.kDiscoverLayout, 'grid');
       await applyCloseBehavior();
     });
   }
 
   @override
   void dispose() {
+    _trayPopupChannel.setMethodCallHandler(null);
     windowManager.removeListener(this);
     trayManager.removeListener(this);
     super.dispose();
@@ -167,6 +249,9 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
   /// 3) 收尾服务（会话落库、关库触发 WAL checkpoint）
   Future<void> _shutdown() async {
     try {
+      await _trayPopupChannel.invokeMethod('hidePopup');
+    } catch (_) {}
+    try {
       final scheduler = AppServices.I.autoBackup;
       await scheduler.backupOnExitIfDue();
       scheduler.suspend();
@@ -177,8 +262,7 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
     } catch (_) {}
   }
 
-  @override
-  void onTrayIconMouseDown() async {
+  Future<void> _restoreAndFocusWindow() async {
     final isMin = await windowManager.isMinimized();
     if (isMin) {
       await windowManager.restore();
@@ -188,34 +272,65 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
   }
 
   @override
-  void onTrayIconRightMouseDown() async {
-    await trayManager.popUpContextMenu();
+  void onTrayIconMouseDown() async {
+    try {
+      await _trayPopupChannel.invokeMethod('hidePopup');
+    } catch (_) {}
+    await _restoreAndFocusWindow();
   }
 
   @override
-  void onTrayMenuItemClick(MenuItem menuItem) async {
-    final isMin = await windowManager.isMinimized();
-    if (isMin) {
-      await windowManager.restore();
+  void onTrayIconRightMouseDown() async {
+    // 弹出自绘「誌面」托盘菜单（含 2 部最近游玩游戏封面与一键启动）
+    final pref = ref.read(themeProvider);
+    final dark = switch (pref) {
+      ThemeModePref.dark => true,
+      ThemeModePref.light => false,
+      ThemeModePref.system =>
+        PlatformDispatcher.instance.platformBrightness == Brightness.dark,
+    };
+    final payload = await _buildTrayPopupPayload(darkOverride: dark);
+    try {
+      await _trayPopupChannel.invokeMethod('showPopup', payload);
+    } catch (_) {}
+  }
+
+  Future<void> _handleTrayAction(String key) async {
+    if (key.startsWith('launch_game_')) {
+      final gameId = int.tryParse(key.substring('launch_game_'.length));
+      if (gameId == null) return;
+      final game = await AppServices.I.repo.getGame(gameId);
+      if (game == null) return;
+      if (game.exePath.isEmpty || !File(game.exePath).existsSync()) {
+        await _restoreAndFocusWindow();
+        showNotice('未找到「${game.displayName}」的可执行文件，请先在游戏详情中配置路径',
+            error: true);
+        return;
+      }
+      await GameLaunchService.launchAndTrack(game, ref);
+      await updateTrayMenu(runningGameTitle: game.displayName);
+      return;
     }
-    switch (menuItem.key) {
+
+    switch (key) {
       case 'show':
-        await windowManager.show();
-        await windowManager.focus();
+        await _restoreAndFocusWindow();
       case 'nav_library':
-        await windowManager.show();
-        await windowManager.focus();
+        await _restoreAndFocusWindow();
         ref.read(tabIndexProvider.notifier).state = Tabs.library;
+      case 'nav_discover':
+        await _restoreAndFocusWindow();
+        ref.read(tabIndexProvider.notifier).state = Tabs.discover;
       case 'nav_stats':
-        await windowManager.show();
-        await windowManager.focus();
+        await _restoreAndFocusWindow();
         ref.read(tabIndexProvider.notifier).state = Tabs.stats;
       case 'nav_settings':
-        await windowManager.show();
-        await windowManager.focus();
+        await _restoreAndFocusWindow();
         ref.read(tabIndexProvider.notifier).state = Tabs.settings;
       case 'stop_tracking':
         AppServices.I.tracker.stopTracking(saveSession: true);
+        ref.read(trackingGameProvider.notifier).state = null;
+        await updateTrayMenu();
       case 'quit':
         await _shutdown();
         await trayManager.destroy();
@@ -225,7 +340,7 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
 
   @override
   Widget build(BuildContext context) {
-    // 监听运行中的游戏并动态刷新托盘菜单状态
+    // 监听运行中的游戏与库变更，动态刷新托盘状态提示
     ref.listen<int?>(trackingGameProvider, (prev, next) async {
       if (next != null) {
         final game = await AppServices.I.repo.getGame(next);
@@ -233,6 +348,9 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
       } else {
         await updateTrayMenu();
       }
+    });
+    ref.listen<int>(libraryVersionProvider, (prev, next) async {
+      await updateTrayMenu();
     });
 
     final pref = ref.watch(themeProvider);
@@ -246,12 +364,6 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
         ThemeModePref.light => ThemeMode.light,
         ThemeModePref.dark => ThemeMode.dark,
       },
-      // 兜底：MaterialApp 会把 Flutter 的「错误文字样式」（红字 + 黄下划线，
-      // 见 flutter/lib/src/material/app.dart 的 _errorTextStyle）作为根
-      // DefaultTextStyle。任何没有 Material 祖先的文字都会继承它 —— 既难看，
-      // 又会落到 monospace 字体上（这正是界面里出现黄下划线与字体不一致的原因）。
-      // 这里在 Navigator 之上补一层透明 Material + 应用自己的默认文字样式，
-      // 使全应用（含通知浮层、对话框、弹层）都有确定的字体与颜色。
       builder: (context, child) {
         final scheme = Theme.of(context).colorScheme;
         return Material(
