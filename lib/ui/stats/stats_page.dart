@@ -1,37 +1,23 @@
-/// 统计页：信息 / 评分 / 总结三个子页 + 时段切换（本周/本月/今年/总计）。
-///
-/// 重构要点：
-/// - 页面骨架走 [KPage]，子页切换用 [FadeThroughSwitcher]（不再用 TabBarView，
-///   以便和 kit 的 chip 选择器统一观感）；
-/// - 卡片全部走 [KCard]，数值走 [KStat]；图表高度固定，网格线/坐标轴颜色
-///   取 `Theme.of(context).dividerColor` 与 colorScheme，不写死颜色。
+/// Fluent 2 游玩统计页：时段切换、KPI 概览、fl_chart 图表、月度热力、词云与评分墙。
 library;
 
+import 'dart:math' as math;
+
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
 import '../../providers.dart';
-import '../design.dart';
-import '../detail/game_detail_page.dart';
-import '../kit.dart';
-import '../theme.dart';
-import '../widgets/common.dart' show CoverImage, RatingBar;
+import '../fluent/fluent_icons.dart';
+import '../fluent/fluent_motion.dart';
+import '../fluent/fluent_surfaces.dart';
+import '../library/game_actions.dart';
 import 'word_cloud.dart';
 
-/// 图表区固定高度（切换时段时不跳动）。
-const double _kChartHeight = 180;
-
-/// 子页标识与图标。
-const List<String> _kTabs = ['信息', '评分', '总结'];
-const List<IconData> _kTabIcons = [
-  Icons.insights_rounded,
-  Icons.star_rounded,
-  Icons.auto_stories_rounded,
-];
+const double _kChartHeight = 188;
 
 class StatsPage extends ConsumerStatefulWidget {
   const StatsPage({super.key});
@@ -41,284 +27,396 @@ class StatsPage extends ConsumerStatefulWidget {
 }
 
 class _StatsPageState extends ConsumerState<StatsPage> {
-  int _tab = 0;
+  final _scrollCtrl = ScrollController();
   StatsPeriod _period = StatsPeriod.month;
 
   @override
-  Widget build(BuildContext context) {
-    // 标题副文案随时段/数据实时变化（与子页共用同一个 provider 实例）
-    final subtitle = ref.watch(statsProvider(_period)).maybeWhen(
-          data: (s) =>
-              '${_period.label} · ${fmtDuration(s.totalSeconds)} · ${s.sessionCount} 次游玩',
-          orElse: () => _period.label,
-        );
+  void dispose() {
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
 
-    return KPage(
-      // 超宽屏下居中限宽，图表与卡片不被拉稀
-      maxContentWidth: 1600,
-      title: '统计',
-      subtitle: subtitle,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          KToolbar(children: _toolbar()),
-          Expanded(
-            child: FadeThroughSwitcher(
-              // 只按子页做转场：切换时段属于「同一页数据刷新」，
-              // 保留滚动位置，数值由 AnimatedCount 平滑过渡。
-              child: KeyedSubtree(
-                key: ValueKey('tab-$_tab'),
-                child: switch (_tab) {
-                  0 => _InfoTab(period: _period),
-                  1 => const _RatingsTab(),
-                  _ => _SummaryTab(period: _period),
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
+  Widget _wrapFluent(BuildContext context, Widget child) {
+    final hasTheme = FluentTheme.maybeOf(context) != null;
+    final hasLoc = Localizations.of<FluentLocalizations>(
+          context,
+          FluentLocalizations,
+        ) !=
+        null;
+    if (hasTheme && hasLoc) return child;
+    var wrapped = child;
+    if (!hasLoc) {
+      wrapped = Localizations.override(
+        context: context,
+        delegates: const [FluentLocalizations.delegate],
+        child: wrapped,
+      );
+    }
+    if (!hasTheme) {
+      wrapped = ensureFluentTheme(context, wrapped);
+    }
+    return wrapped;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _wrapFluent(
+      context,
+      Builder(builder: _buildPage),
     );
   }
 
-  /// 工具栏：左侧子页切换，右侧时段切换（都用 KChip）。
-  List<Widget> _toolbar() {
-    return [
-      for (var i = 0; i < _kTabs.length; i++) ...[
-        if (i > 0) const SizedBox(width: Gap.xs + 2),
-        KChip(
-          label: _kTabs[i],
-          icon: _kTabIcons[i],
-          selected: _tab == i,
-          onTap: () => setState(() => _tab = i),
-        ),
-      ],
-      const Spacer(),
-      for (var i = 0; i < StatsPeriod.values.length; i++) ...[
-        if (i > 0) const SizedBox(width: Gap.xs + 2),
-        KChip(
-          label: StatsPeriod.values[i].label,
-          selected: _period == StatsPeriod.values[i],
-          onTap: () => setState(() => _period = StatsPeriod.values[i]),
-        ),
-      ],
-    ];
-  }
-}
+  Widget _buildPage(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final statsAsync = ref.watch(statsProvider(_period));
+    final cloudAsync = ref.watch(tagCloudProvider(_period));
+    final ratedAsync = ref.watch(ratedGamesProvider);
 
-// ================= 信息页 =================
+    final subtitle = statsAsync.maybeWhen(
+      skipLoadingOnReload: true,
+      data: (s) =>
+          '${_period.label} · ${fmtDuration(s.totalSeconds)} · ${s.sessionCount} 次游玩',
+      orElse: () => '${_period.label}数据',
+    );
 
-class _InfoTab extends ConsumerWidget {
-  final StatsPeriod period;
-  const _InfoTab({required this.period});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final stats = ref.watch(statsProvider(period));
-    return stats.when(
-      loading: () => const KLoading(),
-      error: (e, _) => KEmpty(
-        icon: Icons.error_outline_rounded,
-        title: '统计加载失败',
-        subtitle: '$e',
-        actionLabel: '刷新',
-        onAction: () => ref.invalidate(statsProvider(period)),
-      ),
-      data: (s) => SingleChildScrollView(
-        padding: const EdgeInsets.only(bottom: Gap.xl),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ScaffoldPage(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+      header: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 10,
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            // 两张柱状图（等结构 = 等高，无需 IntrinsicHeight）
-            Row(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  flex: 3,
-                  child: _ChartCard(
-                    title: '游玩时段分布',
-                    subtitle: '按小时累计',
-                    child: _hourlyChart(context, s.byHour),
-                  ),
-                ),
-                const SizedBox(width: Gap.lg),
-                Expanded(
-                  flex: 2,
-                  child: _ChartCard(
-                    title: '星期分布',
-                    subtitle: '按星期累计',
-                    child: _weekdayChart(context, s.byWeekday),
+                Text('游玩统计', style: theme.typography.titleLarge),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: theme.typography.caption?.copyWith(
+                    color: theme.inactiveColor,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: Gap.lg),
-            _HeatmapCard(period: period, daily: s.daily, stats: s),
-            const SizedBox(height: Gap.lg),
-            _TopGamesCard(games: s.topGames),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < StatsPeriod.values.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 6),
+                  ToggleButton(
+                    checked: _period == StatsPeriod.values[i],
+                    onChanged: (_) =>
+                        setState(() => _period = StatsPeriod.values[i]),
+                    child: Text(StatsPeriod.values[i].label),
+                  ),
+                ],
+                const SizedBox(width: 10),
+                Button(
+                  onPressed: () {
+                    ref.invalidate(statsProvider(_period));
+                    ref.invalidate(tagCloudProvider(_period));
+                    ref.invalidate(ratedGamesProvider);
+                  },
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.arrow_clockwise_16_regular, size: 15),
+                      SizedBox(width: 6),
+                      Text('刷新'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  /// 时段分布：24 小时柱状，网格线取主题分隔色。
-  Widget _hourlyChart(BuildContext context, List<int> byHour) {
-    final scheme = Theme.of(context).colorScheme;
-    final divider = Theme.of(context).dividerColor;
-    final maxVal =
-        byHour.isEmpty ? 0 : byHour.reduce((a, b) => a > b ? a : b);
-    final maxY = maxVal <= 0 ? 10.0 : maxVal * 1.2;
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        minY: 0,
-        maxY: maxY,
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: maxY / 3,
-          getDrawingHorizontalLine: (_) =>
-              FlLine(color: divider, strokeWidth: 1),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 20,
-              interval: 3,
-              getTitlesWidget: (v, _) {
-                final h = v.toInt();
-                return Text(
-                  h % 3 == 0 ? '$h' : '',
-                  style: Type.micro.copyWith(color: scheme.onSurfaceVariant),
-                );
-              },
-            ),
+      content: statsAsync.when(
+        skipLoadingOnReload: true,
+        loading: () => const Center(child: ProgressRing()),
+        error: (e, _) => FluentEmptyState(
+          icon: FluentIcons.error_circle_24_regular,
+          title: '统计加载失败',
+          message: '$e',
+          action: FilledButton(
+            onPressed: () => ref.invalidate(statsProvider(_period)),
+            child: const Text('重试'),
           ),
         ),
-        borderData: FlBorderData(show: false),
-        barGroups: [
-          for (var h = 0; h < 24; h++)
-            BarChartGroupData(x: h, barRods: [
-              BarChartRodData(
-                toY: (h < byHour.length ? byHour[h] : 0).toDouble(),
-                width: 8,
-                borderRadius: BorderRadius.circular(3),
-                color: scheme.primary.withValues(alpha: 0.78),
-              ),
-            ]),
-        ],
-        barTouchData: BarTouchData(
-          touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => scheme.surfaceContainerHigh,
-            tooltipPadding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
-              '${group.x}:00 · ${fmtDuration(rod.toY.toInt())}',
-              Type.micro.copyWith(color: scheme.onSurface),
-            ),
-          ),
+        data: (stats) => _buildContent(
+          context,
+          stats,
+          cloudAsync,
+          ratedAsync,
         ),
       ),
     );
   }
 
-  /// 星期分布：周一起（与仓储层口径一致）。
-  Widget _weekdayChart(BuildContext context, List<int> byWeekday) {
-    final scheme = Theme.of(context).colorScheme;
-    final divider = Theme.of(context).dividerColor;
-    const days = ['一', '二', '三', '四', '五', '六', '日'];
-    final maxVal =
-        byWeekday.isEmpty ? 0 : byWeekday.reduce((a, b) => a > b ? a : b);
-    final maxY = maxVal <= 0 ? 10.0 : maxVal * 1.2;
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        minY: 0,
-        maxY: maxY,
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: maxY / 3,
-          getDrawingHorizontalLine: (_) =>
-              FlLine(color: divider, strokeWidth: 1),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 20,
-              getTitlesWidget: (v, _) => Text(
-                days[v.toInt() % 7],
-                style: Type.micro.copyWith(color: scheme.onSurfaceVariant),
-              ),
-            ),
+  Widget _buildContent(
+    BuildContext context,
+    AggStats stats,
+    AsyncValue<List<TagItem>> cloudAsync,
+    AsyncValue<List<Game>> ratedAsync,
+  ) {
+    final disableAnim = fluentAnimationsDisabled(context);
+    final tags = cloudAsync.valueOrNull ?? const <TagItem>[];
+
+    return SingleChildScrollView(
+      controller: _scrollCtrl,
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _KpiGrid(period: _period, stats: stats)
+              .fluentEntrance(index: 0, disable: disableAnim),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final hourlyCard = _ChartCard(
+                title: '游玩时段分布',
+                subtitle: '按小时累计',
+                child: _HourlyBarChart(byHour: stats.byHour),
+              );
+              final weekdayCard = _ChartCard(
+                title: '星期分布',
+                subtitle: '按星期一至日累计',
+                child: _WeekdayBarChart(byWeekday: stats.byWeekday),
+              );
+              if (constraints.maxWidth >= 780) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 3, child: hourlyCard),
+                    const SizedBox(width: 14),
+                    Expanded(flex: 2, child: weekdayCard),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  hourlyCard,
+                  const SizedBox(height: 14),
+                  weekdayCard,
+                ],
+              );
+            },
+          ).fluentEntrance(index: 1, disable: disableAnim),
+          const SizedBox(height: 16),
+          _ChartCard(
+            title: '每日游玩趋势',
+            subtitle: '近期活跃天数走势',
+            child: _DailyTrendChart(daily: stats.daily),
+          ).fluentEntrance(index: 2, disable: disableAnim),
+          const SizedBox(height: 16),
+          _HeatmapCard(period: _period, daily: stats.daily, stats: stats)
+              .fluentEntrance(index: 3, disable: disableAnim),
+          const SizedBox(height: 16),
+          _TagCloudSection(
+            period: _period,
+            cloudAsync: cloudAsync,
+            onTagTap: (t) => jumpToLibraryFiltered(ref, tag: t.name),
+          ).fluentEntrance(index: 4, disable: disableAnim),
+          const SizedBox(height: 16),
+          _PeriodSummaryCard(
+            period: _period,
+            stats: stats,
+            tags: tags,
+          ).fluentEntrance(index: 5, disable: disableAnim),
+          const SizedBox(height: 16),
+          _TopGamesCard(
+            games: stats.topGames,
+            onOpenGame: (id) => openGameDetail(context, id, ref: ref),
           ),
-        ),
-        borderData: FlBorderData(show: false),
-        barGroups: [
-          for (var d = 0; d < 7; d++)
-            BarChartGroupData(x: d, barRods: [
-              BarChartRodData(
-                toY: (d < byWeekday.length ? byWeekday[d] : 0).toDouble(),
-                width: 24,
-                borderRadius: BorderRadius.circular(5),
-                color: scheme.secondary.withValues(alpha: 0.82),
-              ),
-            ]),
+          const SizedBox(height: 16),
+          _RatedGamesSection(
+            ratedAsync: ratedAsync,
+            onOpenGame: (g) => openGameDetail(
+              context,
+              g.id!,
+              initial: g,
+              ref: ref,
+            ),
+            onRetry: () => ref.invalidate(ratedGamesProvider),
+          ),
         ],
-        barTouchData: BarTouchData(
-          touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => scheme.surfaceContainerHigh,
-            tooltipPadding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
-              '周${days[group.x.toInt() % 7]} · ${fmtDuration(rod.toY.toInt())}',
-              Type.micro.copyWith(color: scheme.onSurface),
-            ),
-          ),
-        ),
       ),
     );
   }
 }
 
-/// 图表卡：标题 + 说明 + 固定高度图表区。
+class _KpiGrid extends StatelessWidget {
+  final StatsPeriod period;
+  final AggStats stats;
+
+  const _KpiGrid({required this.period, required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final cards = [
+      _StatsKpiCard(
+        icon: FluentIcons.clock_20_regular,
+        label: '总游玩时长',
+        value: fmtDuration(stats.totalSeconds),
+        hint: '${period.label}累计',
+      ),
+      _StatsKpiCard(
+        icon: FluentIcons.games_24_regular,
+        label: '游玩次数',
+        value: '${stats.sessionCount} 次',
+        hint: '平均每次 ${_avgPerSession(stats)}',
+      ),
+      _StatsKpiCard(
+        icon: FluentIcons.calendar_20_regular,
+        label: '活跃天数',
+        value: '${stats.activeDays} 天',
+        hint:
+            '日均 ${stats.activeDays == 0 ? '—' : fmtDuration(stats.avgPerActiveDay)}',
+      ),
+      _StatsKpiCard(
+        icon: FluentIcons.history_20_regular,
+        label: '日均时长',
+        value: stats.activeDays == 0
+            ? '—'
+            : fmtDuration(stats.avgPerActiveDay),
+        hint: '按活跃天数折算',
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 720) {
+          return Row(
+            children: [
+              for (var i = 0; i < cards.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(child: cards[i]),
+              ],
+            ],
+          );
+        }
+        return Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: cards[0]),
+                const SizedBox(width: 12),
+                Expanded(child: cards[1]),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: cards[2]),
+                const SizedBox(width: 12),
+                Expanded(child: cards[3]),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _StatsKpiCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String hint;
+
+  const _StatsKpiCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.hint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17, color: accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.typography.caption?.copyWith(
+                    color: theme.inactiveColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.typography.subtitle?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            hint,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.typography.caption?.copyWith(
+              color: theme.inactiveColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ChartCard extends StatelessWidget {
   final String title;
   final String? subtitle;
   final Widget child;
 
-  const _ChartCard({required this.title, this.subtitle, required this.child});
+  const _ChartCard({
+    required this.title,
+    this.subtitle,
+    required this.child,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return KCard(
-      padding: const EdgeInsets.all(Gap.lg),
+    final theme = FluentTheme.of(context);
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Type.section),
-          if (subtitle != null) ...[
-            const SizedBox(height: 3),
-            Text(subtitle!,
-                style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
+          Text(title, style: theme.typography.subtitle),
+          if (subtitle != null && subtitle!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle!,
+              style: theme.typography.caption?.copyWith(
+                color: theme.inactiveColor,
+              ),
+            ),
           ],
-          const SizedBox(height: Gap.md),
+          const SizedBox(height: 12),
           SizedBox(height: _kChartHeight, child: child),
         ],
       ),
@@ -326,9 +424,301 @@ class _ChartCard extends StatelessWidget {
   }
 }
 
-// ================= 月度热力 =================
+class _HourlyBarChart extends StatelessWidget {
+  final List<int> byHour;
 
-/// 月度热力：按时段内每天的游玩时长着色（最多回看 26 周）。
+  const _HourlyBarChart({required this.byHour});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final gridColor = theme.resources.cardStrokeColorDefault;
+    final captionStyle = (theme.typography.caption ?? const TextStyle())
+        .copyWith(color: theme.inactiveColor);
+    final tooltipTextStyle = (theme.typography.caption ?? const TextStyle())
+        .copyWith(
+      color: theme.typography.bodyStrong?.color ?? theme.inactiveColor,
+      fontWeight: FontWeight.w600,
+    );
+
+    final maxVal =
+        byHour.isEmpty ? 0 : byHour.reduce((a, b) => a > b ? a : b);
+    final maxY = maxVal <= 0 ? 60.0 : maxVal * 1.2;
+    final interval = math.max(1.0, maxY / 3);
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        minY: 0,
+        maxY: maxY,
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: interval,
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: gridColor, strokeWidth: 0.8),
+        ),
+        titlesData: FlTitlesData(
+          leftTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 22,
+              interval: 3,
+              getTitlesWidget: (v, _) {
+                final h = v.toInt();
+                return Text(h % 3 == 0 ? '$h' : '', style: captionStyle);
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        barGroups: [
+          for (var h = 0; h < 24; h++)
+            BarChartGroupData(
+              x: h,
+              barRods: [
+                BarChartRodData(
+                  toY: (h < byHour.length ? byHour[h] : 0).toDouble(),
+                  width: 8,
+                  borderRadius: BorderRadius.circular(3),
+                  color: accent.withValues(alpha: 0.82),
+                ),
+              ],
+            ),
+        ],
+        barTouchData: BarTouchData(
+          touchTooltipData: BarTouchTooltipData(
+            tooltipRoundedRadius: 6,
+            tooltipBorder: BorderSide(color: gridColor),
+            getTooltipColor: (_) => theme.cardColor,
+            tooltipPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
+              '${group.x}:00 · ${fmtDuration(rod.toY.round())}',
+              tooltipTextStyle,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WeekdayBarChart extends StatelessWidget {
+  final List<int> byWeekday;
+
+  const _WeekdayBarChart({required this.byWeekday});
+
+  static const _days = ['一', '二', '三', '四', '五', '六', '日'];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final barColor =
+        isDark ? theme.accentColor.light : theme.accentColor.dark;
+    final gridColor = theme.resources.cardStrokeColorDefault;
+    final captionStyle = (theme.typography.caption ?? const TextStyle())
+        .copyWith(color: theme.inactiveColor);
+    final tooltipTextStyle = (theme.typography.caption ?? const TextStyle())
+        .copyWith(
+      color: theme.typography.bodyStrong?.color ?? theme.inactiveColor,
+      fontWeight: FontWeight.w600,
+    );
+
+    final maxVal =
+        byWeekday.isEmpty ? 0 : byWeekday.reduce((a, b) => a > b ? a : b);
+    final maxY = maxVal <= 0 ? 60.0 : maxVal * 1.2;
+    final interval = math.max(1.0, maxY / 3);
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        minY: 0,
+        maxY: maxY,
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: interval,
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: gridColor, strokeWidth: 0.8),
+        ),
+        titlesData: FlTitlesData(
+          leftTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 22,
+              getTitlesWidget: (v, _) =>
+                  Text(_days[v.toInt() % 7], style: captionStyle),
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        barGroups: [
+          for (var d = 0; d < 7; d++)
+            BarChartGroupData(
+              x: d,
+              barRods: [
+                BarChartRodData(
+                  toY: (d < byWeekday.length ? byWeekday[d] : 0).toDouble(),
+                  width: 22,
+                  borderRadius: BorderRadius.circular(5),
+                  color: barColor.withValues(alpha: 0.85),
+                ),
+              ],
+            ),
+        ],
+        barTouchData: BarTouchData(
+          touchTooltipData: BarTouchTooltipData(
+            tooltipRoundedRadius: 6,
+            tooltipBorder: BorderSide(color: gridColor),
+            getTooltipColor: (_) => theme.cardColor,
+            tooltipPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
+              '周${_days[group.x.toInt() % 7]} · ${fmtDuration(rod.toY.round())}',
+              tooltipTextStyle,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyTrendChart extends StatelessWidget {
+  final List<DailyPoint> daily;
+
+  const _DailyTrendChart({required this.daily});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final gridColor = theme.resources.cardStrokeColorDefault;
+    final captionStyle = (theme.typography.caption ?? const TextStyle())
+        .copyWith(color: theme.inactiveColor);
+    final tooltipTextStyle = (theme.typography.caption ?? const TextStyle())
+        .copyWith(
+      color: theme.typography.bodyStrong?.color ?? theme.inactiveColor,
+      fontWeight: FontWeight.w600,
+    );
+
+    final ordered = [...daily]..sort((a, b) => a.date.compareTo(b.date));
+    final recent = ordered.length > 30
+        ? ordered.sublist(ordered.length - 30)
+        : ordered;
+
+    if (recent.isEmpty) {
+      return Center(
+        child: Text(
+          '当前时段暂无趋势数据',
+          style: captionStyle,
+        ),
+      );
+    }
+
+    final spots = [
+      for (var i = 0; i < recent.length; i++)
+        FlSpot(i.toDouble(), recent[i].seconds / 60.0),
+    ];
+    final maxMinutes = recent
+        .map((p) => p.seconds / 60.0)
+        .fold<double>(0.0, (a, b) => a > b ? a : b);
+    final maxY = maxMinutes <= 0 ? 60.0 : maxMinutes * 1.25;
+    final maxX = recent.length <= 1 ? 1.0 : (recent.length - 1).toDouble();
+    final yInterval = math.max(1.0, maxY / 3);
+    final xStep = math.max(1, (recent.length / 6).ceil());
+
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: maxX,
+        minY: 0,
+        maxY: maxY,
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: yInterval,
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: gridColor, strokeWidth: 0.8),
+        ),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          leftTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 22,
+              interval: 1,
+              getTitlesWidget: (v, _) {
+                final idx = v.toInt();
+                if (idx < 0 || idx >= recent.length || idx % xStep != 0) {
+                  return const SizedBox.shrink();
+                }
+                final label = recent[idx].date.length >= 10
+                    ? recent[idx].date.substring(5)
+                    : recent[idx].date;
+                return Text(label, style: captionStyle);
+              },
+            ),
+          ),
+        ),
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            tooltipRoundedRadius: 6,
+            tooltipBorder: BorderSide(color: gridColor),
+            getTooltipColor: (_) => theme.cardColor,
+            getTooltipItems: (touched) {
+              return touched.map((spot) {
+                final idx = spot.x.round().clamp(0, recent.length - 1);
+                final pt = recent[idx];
+                return LineTooltipItem(
+                  '${pt.date}\n${fmtDuration(pt.seconds)}',
+                  tooltipTextStyle,
+                );
+              }).toList();
+            },
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: recent.length > 2,
+            preventCurveOverShooting: true,
+            color: accent,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
+            dotData: FlDotData(show: recent.length <= 12),
+            belowBarData: BarAreaData(
+              show: true,
+              color: accent.withValues(alpha: 0.14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HeatmapCard extends StatelessWidget {
   final StatsPeriod period;
   final List<DailyPoint> daily;
@@ -340,42 +730,46 @@ class _HeatmapCard extends StatelessWidget {
     required this.stats,
   });
 
-  /// 回看上限（周数），避免「总计」时段渲染上千个格子。
   static const int _maxWeeks = 26;
-
-  /// 单元格尺寸与间距。
   static const double _cell = 13;
   static const double _gap = 3;
-
   static const List<String> _weekdays = ['一', '二', '三', '四', '五', '六', '日'];
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = FluentTheme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final emptyCellColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.06);
+
     final today = DateTime.now();
+    final todayDay = DateTime(today.year, today.month, today.day);
     final todayMonday =
-        DateTime(today.year, today.month, today.day)
-            .subtract(Duration(days: today.weekday - 1));
+        todayDay.subtract(Duration(days: today.weekday - 1));
     final byDate = <String, int>{for (final d in daily) d.date: d.seconds};
 
-    // 起点：时段起点对齐到周一，最多回看 _maxWeeks 周（列数按起点反推，
-    // 保证最后一列一定是「本周」，今天不会被挤出图外）
     var first = _periodStart(period, today);
     first = first.subtract(Duration(days: first.weekday - 1));
-    final earliest = todayMonday.subtract(const Duration(days: (_maxWeeks - 1) * 7));
+    final earliest =
+        todayMonday.subtract(const Duration(days: (_maxWeeks - 1) * 7));
     if (first.isBefore(earliest)) first = earliest;
     final weeks = todayMonday.difference(first).inDays ~/ 7 + 1;
 
-    final maxSeconds =
-        byDate.values.isEmpty ? 0 : byDate.values.reduce((a, b) => a > b ? a : b);
+    final maxSeconds = byDate.values.isEmpty
+        ? 0
+        : byDate.values.reduce((a, b) => a > b ? a : b);
 
-    // 最活跃的一天
-    String bestDayText = '—';
+    var bestDayText = '—';
     if (byDate.isNotEmpty) {
-      final best = byDate.entries.reduce((a, b) => a.value >= b.value ? a : b);
-      bestDayText = '${best.key.substring(5)} · ${fmtDuration(best.value)}';
+      final best =
+          byDate.entries.reduce((a, b) => a.value >= b.value ? a : b);
+      final shortDate =
+          best.key.length >= 6 ? best.key.substring(5) : best.key;
+      bestDayText = '$shortDate · ${fmtDuration(best.value)}';
     }
-    // 到今天为止的连续记录天数
+
     var streak = 0;
     for (var i = 0; i < 400; i++) {
       final d = DateTime(today.year, today.month, today.day - i);
@@ -386,91 +780,94 @@ class _HeatmapCard extends StatelessWidget {
       }
     }
 
-    return KCard(
-      padding: const EdgeInsets.all(Gap.lg),
+    Color levelColor(int seconds) {
+      if (seconds <= 0 || maxSeconds <= 0) return emptyCellColor;
+      final level = (seconds / maxSeconds * 4).ceil().clamp(1, 4);
+      final alpha = const [0.30, 0.50, 0.72, 0.95][level - 1];
+      return accent.withValues(alpha: alpha);
+    }
+
+    final grid = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          KSectionTitle(
-            '月度热力',
-            padding: EdgeInsets.zero,
-            trailing: KBadge(
-              text: '${fmtDate(first)} ~ ${fmtDate(today)}',
-              color: scheme.secondary,
-            ),
-          ),
-          const SizedBox(height: Gap.md),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 星期标签列
-                      Column(
-                        children: [
-                          for (var w = 0; w < 7; w++)
-                            Padding(
-                              padding: EdgeInsets.only(
-                                  bottom: w == 6 ? 0 : _gap),
-                              child: SizedBox(
-                                height: _cell,
-                                child: Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    _weekdays[w],
-                                    style: Type.micro.copyWith(
-                                        height: 1.0,
-                                        color: scheme.onSurfaceVariant),
-                                  ),
-                                ),
-                              ),
+                  for (var w = 0; w < 7; w++)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: w == 6 ? 0 : _gap),
+                      child: SizedBox(
+                        height: _cell,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            _weekdays[w],
+                            style: theme.typography.caption?.copyWith(
+                              fontSize: 11,
+                              height: 1.0,
+                              color: theme.inactiveColor,
                             ),
-                        ],
-                      ),
-                      const SizedBox(width: Gap.sm),
-                      for (var wk = 0; wk < weeks; wk++) ...[
-                        if (wk > 0) const SizedBox(width: _gap),
-                        Column(
-                          children: [
-                            for (var w = 0; w < 7; w++)
-                              Padding(
-                                padding: EdgeInsets.only(
-                                    bottom: w == 6 ? 0 : _gap),
-                                child: _cellBox(
-                                  context: context,
-                                  date: DateTime(first.year, first.month,
-                                      first.day + wk * 7 + w),
-                                  today: today,
-                                  byDate: byDate,
-                                  maxSeconds: maxSeconds,
-                                ),
-                              ),
-                          ],
+                          ),
                         ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: Gap.md),
-                  _legend(context),
+                      ),
+                    ),
                 ],
               ),
-              const SizedBox(width: Gap.xxl),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(width: 8),
+              for (var wk = 0; wk < weeks; wk++) ...[
+                if (wk > 0) const SizedBox(width: _gap),
+                Column(
                   children: [
-                    _fact(context, '最活跃的一天', bestDayText),
-                    const SizedBox(height: Gap.md),
-                    _fact(context, '单日峰值', fmtDuration(maxSeconds)),
-                    const SizedBox(height: Gap.md),
-                    _fact(context, '连续记录', streak == 0 ? '—' : '$streak 天'),
-                    const SizedBox(height: Gap.md),
-                    _fact(context, '本时段活跃', '${stats.activeDays} 天'),
+                    for (var w = 0; w < 7; w++)
+                      Padding(
+                        padding: EdgeInsets.only(bottom: w == 6 ? 0 : _gap),
+                        child: _buildCell(
+                          date: DateTime(
+                              first.year, first.month, first.day + wk * 7 + w),
+                          todayDay: todayDay,
+                          byDate: byDate,
+                          colorFor: levelColor,
+                        ),
+                      ),
                   ],
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '少',
+                style: theme.typography.caption?.copyWith(
+                  color: theme.inactiveColor,
+                ),
+              ),
+              const SizedBox(width: 6),
+              for (var i = 0; i <= 4; i++) ...[
+                if (i > 0) const SizedBox(width: _gap),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: ColoredBox(
+                    color: i == 0
+                        ? emptyCellColor
+                        : accent.withValues(
+                            alpha: const [0.30, 0.50, 0.72, 0.95][i - 1],
+                          ),
+                    child: const SizedBox(width: _cell, height: _cell),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 6),
+              Text(
+                '多',
+                style: theme.typography.caption?.copyWith(
+                  color: theme.inactiveColor,
                 ),
               ),
             ],
@@ -478,128 +875,240 @@ class _HeatmapCard extends StatelessWidget {
         ],
       ),
     );
+
+    final facts = Wrap(
+      spacing: 24,
+      runSpacing: 12,
+      children: [
+        _FactItem(label: '最活跃的一天', value: bestDayText),
+        _FactItem(label: '单日峰值', value: fmtDuration(maxSeconds)),
+        _FactItem(label: '连续记录', value: streak == 0 ? '—' : '$streak 天'),
+        _FactItem(label: '本时段活跃', value: '${stats.activeDays} 天'),
+      ],
+    );
+
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FluentSectionHeader(
+            icon: FluentIcons.calendar_week_numbers_20_regular,
+            title: '月度热力',
+            trailing: FluentBadge(
+              text: '${fmtDate(first)} ~ ${fmtDate(today)}',
+            ),
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth >= 720) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Flexible(flex: 3, child: grid),
+                    const SizedBox(width: 24),
+                    Expanded(flex: 2, child: facts),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  grid,
+                  const SizedBox(height: 14),
+                  facts,
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
-  /// 单个热力格（今天之后的位置留空占位）。
-  Widget _cellBox({
-    required BuildContext context,
+  Widget _buildCell({
     required DateTime date,
-    required DateTime today,
+    required DateTime todayDay,
     required Map<String, int> byDate,
-    required int maxSeconds,
+    required Color Function(int seconds) colorFor,
   }) {
-    final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    if (date.isAfter(DateTime(today.year, today.month, today.day))) {
+    if (date.isAfter(todayDay)) {
       return const SizedBox(width: _cell, height: _cell);
     }
     final seconds = byDate[fmtDate(date)] ?? 0;
-    final color = _levelColor(seconds, maxSeconds, scheme, dark);
     return Tooltip(
-      message: '${fmtDate(date)} · ${seconds <= 0 ? '未游玩' : fmtDuration(seconds)}',
+      message:
+          '${fmtDate(date)} · ${seconds <= 0 ? '未游玩' : fmtDuration(seconds)}',
       child: ClipRRect(
         borderRadius: BorderRadius.circular(3),
         child: ColoredBox(
-          color: color,
+          color: colorFor(seconds),
           child: const SizedBox(width: _cell, height: _cell),
         ),
       ),
     );
   }
+}
 
-  /// 四档热度色：无记录 = 底色，其余按占比取主色 alpha。
-  Color _levelColor(
-      int seconds, int maxSeconds, ColorScheme scheme, bool dark) {
-    if (seconds <= 0 || maxSeconds <= 0) return scheme.surfaceContainerHighest;
-    final level = (seconds / maxSeconds * 4).ceil().clamp(1, 4);
-    final alpha = const [0.30, 0.50, 0.70, 0.95][level - 1];
-    return scheme.primary.withValues(alpha: alpha);
-  }
+class _FactItem extends StatelessWidget {
+  final String label;
+  final String value;
 
-  Widget _legend(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('少',
-            style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
-        const SizedBox(width: Gap.xs + 2),
-        for (var i = 0; i <= 4; i++) ...[
-          if (i > 0) const SizedBox(width: _gap),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: ColoredBox(
-              color: _levelColor(i * 600, 2400, scheme, dark),
-              child: const SizedBox(width: _cell, height: _cell),
-            ),
-          ),
-        ],
-        const SizedBox(width: Gap.xs + 2),
-        Text('多',
-            style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
-      ],
-    );
-  }
+  const _FactItem({required this.label, required this.value});
 
-  Widget _fact(BuildContext context, String label, String value) {
-    final scheme = Theme.of(context).colorScheme;
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: Type.micro.copyWith(color: scheme.onSurfaceVariant)),
-        const SizedBox(height: 3),
-        AnimatedCount(text: value, style: Type.numeric.copyWith(fontSize: 15)),
+        Text(
+          label,
+          style: theme.typography.caption?.copyWith(color: theme.inactiveColor),
+        ),
+        const SizedBox(height: 2),
+        Text(value, style: theme.typography.bodyStrong),
       ],
     );
   }
 }
 
-// ================= Top 游戏 =================
+class _TagCloudSection extends StatelessWidget {
+  final StatsPeriod period;
+  final AsyncValue<List<TagItem>> cloudAsync;
+  final ValueChanged<TagItem> onTagTap;
 
-/// 游戏时长 Top 10：名次 + 进度条 + 时长，点击进详情。
-class _TopGamesCard extends StatelessWidget {
-  final List<TopGame> games;
-  const _TopGamesCard({required this.games});
+  const _TagCloudSection({
+    required this.period,
+    required this.cloudAsync,
+    required this.onTagTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return KCard(
-      padding: const EdgeInsets.all(Gap.lg),
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          KSectionTitle(
-            '游戏时长 Top 10',
-            padding: EdgeInsets.zero,
-            trailing: KBadge(
-              text: '${games.length} 部',
-              icon: Icons.sports_esports_rounded,
-              color: scheme.secondary,
-            ),
+          FluentSectionHeader(
+            icon: FluentIcons.tag_16_regular,
+            title: '标签词云',
+            subtitle: '点击任意标签快速筛选游戏库',
+            trailing: FluentBadge(text: period.label),
           ),
-          const SizedBox(height: Gap.md),
+          const SizedBox(height: 14),
+          cloudAsync.when(
+            skipLoadingOnReload: true,
+            loading: () => const SizedBox(
+              height: 120,
+              child: Center(child: ProgressRing()),
+            ),
+            error: (e, _) => FluentEmptyState(
+              icon: FluentIcons.cloud_off_24_regular,
+              title: '词云加载失败',
+              message: '$e',
+            ),
+            data: (tags) => tags.isEmpty
+                ? const FluentEmptyState(
+                    icon: FluentIcons.tag_16_regular,
+                    title: '还没有足够的数据',
+                    message: '先去玩一会儿作品，再来生成标签词云吧',
+                  )
+                : Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: FluentTagWordCloud(
+                      tags: tags,
+                      onTagTap: onTagTap,
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PeriodSummaryCard extends StatelessWidget {
+  final StatsPeriod period;
+  final AggStats stats;
+  final List<TagItem> tags;
+
+  const _PeriodSummaryCard({
+    required this.period,
+    required this.stats,
+    required this.tags,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FluentSectionHeader(
+            icon: FluentIcons.sparkle_20_regular,
+            title: '${period.label}总结',
+            trailing: FluentBadge(text: period.label),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _buildSummary(period, stats, tags),
+            style: theme.typography.body?.copyWith(height: 1.75),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TopGamesCard extends StatelessWidget {
+  final List<TopGame> games;
+  final ValueChanged<int> onOpenGame;
+
+  const _TopGamesCard({
+    required this.games,
+    required this.onOpenGame,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FluentSectionHeader(
+            icon: FluentIcons.timeline_20_regular,
+            title: '游戏时长 Top 10',
+            trailing: FluentBadge(text: '${games.length} 部'),
+          ),
+          const SizedBox(height: 12),
           if (games.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: Gap.xl),
-              child: KEmpty(
-                icon: Icons.bar_chart_rounded,
-                title: '暂无数据',
-                subtitle: '这个时段还没有游玩记录',
-              ),
+            const FluentEmptyState(
+              icon: FluentIcons.games_24_regular,
+              title: '暂无游玩记录',
+              message: '这个时段还没有游玩记录',
             )
           else
-            ...[
-              for (var i = 0; i < games.length; i++)
-                _TopGameRow(
-                  rank: i + 1,
-                  game: games[i],
-                  maxSeconds: games.first.seconds,
-                ),
-              const SizedBox(height: Gap.xs),
-            ],
+            Column(
+              children: [
+                for (var i = 0; i < games.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 8),
+                  _TopGameRow(
+                    rank: i + 1,
+                    game: games[i],
+                    maxSeconds: games.first.seconds,
+                    onTap: games[i].gameId > 0
+                        ? () => onOpenGame(games[i].gameId)
+                        : null,
+                  ),
+                ],
+              ],
+            ),
         ],
       ),
     );
@@ -610,374 +1119,218 @@ class _TopGameRow extends StatelessWidget {
   final int rank;
   final TopGame game;
   final int maxSeconds;
+  final VoidCallback? onTap;
 
   const _TopGameRow({
     required this.rank,
     required this.game,
     required this.maxSeconds,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final rankColor = switch (rank) {
-      1 => KisakiColors.star,
-      2 => scheme.secondary,
-      3 => scheme.primary,
-      _ => scheme.onSurfaceVariant,
-    };
-    final openable = game.gameId > 0;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: Gap.xs),
-      child: InteractiveSurface(
-        onTap: openable
-            ? () => Navigator.of(context).push(FadeThroughRoute.builder(
-                builder: (_) => GameDetailPage(gameId: game.gameId)))
-            : null,
-        borderRadius: BorderRadius.circular(Radii.md),
-        color: Colors.transparent,
-        outline: scheme.primary,
-        borderOnIdle: false,
-        elevated: false,
-        lift: 0,
-        padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 7),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 12,
-              backgroundColor: rank <= 3
-                  ? rankColor.withValues(alpha: 0.18)
+    final theme = FluentTheme.of(context);
+    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final ratio = maxSeconds <= 0
+        ? 0.0
+        : (game.seconds / maxSeconds * 100).clamp(0.0, 100.0);
+
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: rank <= 3
+                  ? accent.withValues(alpha: 0.16)
                   : Colors.transparent,
-              child: Text(
-                '$rank',
-                style: Type.micro
-                    .copyWith(color: rankColor, fontWeight: FontWeight.w800),
+            ),
+            child: Text(
+              '$rank',
+              style: theme.typography.caption?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: rank <= 3 ? accent : theme.inactiveColor,
               ),
             ),
-            const SizedBox(width: Gap.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    game.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        Type.body.copyWith(fontWeight: FontWeight.w600, height: 1.3),
-                  ),
-                  const SizedBox(height: Gap.xs + 1),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(Radii.xs),
-                    child: LinearProgressIndicator(
-                      value: maxSeconds == 0 ? 0 : game.seconds / maxSeconds,
-                      minHeight: 5,
-                      backgroundColor:
-                          scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-                      color: scheme.primary,
-                    ),
-                  ),
-                ],
-              ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  game.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.typography.bodyStrong,
+                ),
+                const SizedBox(height: 6),
+                ProgressBar(value: ratio),
+              ],
             ),
-            const SizedBox(width: Gap.md),
-            AnimatedCount(
-              text: fmtDuration(game.seconds),
-              style: Type.label.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            fmtDuration(game.seconds),
+            style: theme.typography.caption?.copyWith(
+              color: theme.inactiveColor,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ================= 评分页 =================
+class _RatedGamesSection extends StatelessWidget {
+  final AsyncValue<List<Game>> ratedAsync;
+  final ValueChanged<Game> onOpenGame;
+  final VoidCallback onRetry;
 
-class _RatingsTab extends ConsumerWidget {
-  const _RatingsTab();
+  const _RatedGamesSection({
+    required this.ratedAsync,
+    required this.onOpenGame,
+    required this.onRetry,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    final rated0 = ref.watch(ratedGamesProvider);
-    return rated0.when(
-      loading: () => const KLoading(),
-      error: (e, _) => KEmpty(
-        icon: Icons.error_outline_rounded,
-        title: '评分加载失败',
-        subtitle: '$e',
-        actionLabel: '刷新',
-        onAction: () => ref.invalidate(ratedGamesProvider),
+  Widget build(BuildContext context) {
+    return ratedAsync.when(
+      skipLoadingOnReload: true,
+      loading: () => const FluentSurfaceCard(
+        padding: EdgeInsets.all(24),
+        child: Center(child: ProgressRing()),
+      ),
+      error: (e, _) => FluentSurfaceCard(
+        padding: const EdgeInsets.all(16),
+        child: FluentEmptyState(
+          icon: FluentIcons.error_circle_24_regular,
+          title: '评分墙加载失败',
+          message: '$e',
+          action: FilledButton(
+            onPressed: onRetry,
+            child: const Text('重试'),
+          ),
+        ),
       ),
       data: (list) {
-        final rated = list.toList()
+        final rated = [...list]
           ..sort((a, b) => b.userRating.compareTo(a.userRating));
-        if (rated.isEmpty) {
-          return KEmpty(
-            icon: Icons.star_border_rounded,
-            title: '还没有评分',
-            subtitle: '到游戏详情页为喜欢的作品打分吧',
-            actionLabel: '刷新',
-            onAction: () => ref.invalidate(ratedGamesProvider),
-          );
-        }
-        final avg = rated.map((g) => g.userRating).reduce((a, b) => a + b) /
-            rated.length;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            KSectionTitle(
-              '评分墙',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  KBadge(
-                    text: '${rated.length} 部',
-                    icon: Icons.star_rounded,
-                    color: scheme.primary,
-                  ),
-                  const SizedBox(width: Gap.sm),
-                  KBadge(
-                    text: '均分 ${avg.toStringAsFixed(1)}',
-                    color: scheme.secondary,
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: GridView(
-                padding: const EdgeInsets.only(bottom: Gap.xl),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 380,
-                  mainAxisSpacing: Gap.md,
-                  crossAxisSpacing: Gap.md,
-                  // 固定行高（而不是宽高比）：窗口变窄时行高不缩水，
-                  // 52×72 封面 + 内边距始终装得下，不会撑破卡片
-                  mainAxisExtent: 98,
+        final avg = rated.isEmpty
+            ? 0.0
+            : rated.map((g) => g.userRating).reduce((a, b) => a + b) /
+                rated.length;
+
+        return FluentSurfaceCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FluentSectionHeader(
+                icon: FluentIcons.star_20_regular,
+                title: '评分墙',
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FluentBadge(text: '${rated.length} 部'),
+                    if (rated.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      FluentBadge(text: '均分 ${avg.toStringAsFixed(1)}'),
+                    ],
+                  ],
                 ),
-                children: [
-                  for (final g in rated) _RatingTile(game: g),
-                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              if (rated.isEmpty)
+                const FluentEmptyState(
+                  icon: FluentIcons.star_16_regular,
+                  title: '还没有评分作品',
+                  message: '前往游戏详情页为喜欢的作品打分吧',
+                )
+              else
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 380,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    mainAxisExtent: 122,
+                  ),
+                  itemCount: rated.length,
+                  itemBuilder: (context, index) => _RatedGameTile(
+                    game: rated[index],
+                    onTap: rated[index].id != null
+                        ? () => onOpenGame(rated[index])
+                        : null,
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
   }
 }
 
-/// 评分卡：封面 + 名称 + 短评/星条 + 分数，点击进详情。
-class _RatingTile extends StatelessWidget {
+class _RatedGameTile extends StatelessWidget {
   final Game game;
-  const _RatingTile({required this.game});
+  final VoidCallback? onTap;
+
+  const _RatedGameTile({required this.game, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final id = game.id;
-    return KCard(
-      padding: const EdgeInsets.all(Gap.sm + 2),
-      onTap: id == null
-          ? null
-          : () => Navigator.of(context).push(FadeThroughRoute.builder(
-                builder: (_) => GameDetailPage(gameId: id, initial: game),
-              )),
+    final theme = FluentTheme.of(context);
+    return FluentSurfaceCard(
+      padding: const EdgeInsets.all(10),
+      onTap: onTap,
       child: Row(
         children: [
-          CoverImage(
-            path: game.coverPath,
+          FluentCoverImage(
+            pathOrUrl: game.coverPath,
             nsfw: game.nsfw,
-            width: 52,
-            height: 72,
-            borderRadius: BorderRadius.circular(Radii.sm - 1),
+            width: 56,
+            height: 82,
+            radius: 5,
+            allowRevealOnHover: false,
           ),
-          const SizedBox(width: Gap.md),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   game.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Type.body.copyWith(fontWeight: FontWeight.w700),
+                  style: theme.typography.bodyStrong,
                 ),
-                const SizedBox(height: Gap.xs),
-                if (game.userReview.isNotEmpty)
+                const SizedBox(height: 4),
+                FluentR18ScoreRow(
+                  nsfw: game.nsfw,
+                  scoreText: game.userRating.toStringAsFixed(1),
+                  voteText: '${game.userRating ~/ 2}/5 星',
+                ),
+                if (game.userReview.isNotEmpty) ...[
+                  const SizedBox(height: 3),
                   Text(
                     game.userReview,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Type.caption
-                        .copyWith(color: scheme.onSurfaceVariant),
-                  )
-                else
-                  RatingBar(value: game.userRating, size: 15),
-              ],
-            ),
-          ),
-          const SizedBox(width: Gap.sm),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              AnimatedCount(
-                text: game.userRating.toStringAsFixed(1),
-                style: Type.display.copyWith(fontSize: 22, color: scheme.primary),
-              ),
-              Text(
-                '满分 10 · ${game.userRating ~/ 2}/5 星',
-                style: Type.micro.copyWith(color: scheme.onSurfaceVariant),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ================= 总结页 =================
-
-class _SummaryTab extends ConsumerWidget {
-  final StatsPeriod period;
-  const _SummaryTab({required this.period});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    final cloud = ref.watch(tagCloudProvider(period));
-    final stats = ref.watch(statsProvider(period));
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: Gap.xl),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 四个关键数值（数值走 KStat → 内部 AnimatedCount）
-          stats.when(
-            loading: () => const SizedBox(height: 88, child: KLoading()),
-            error: (e, _) => KEmpty(
-              icon: Icons.error_outline_rounded,
-              title: '统计加载失败',
-              subtitle: '$e',
-              actionLabel: '刷新',
-              onAction: () => ref.invalidate(statsProvider(period)),
-            ),
-            data: (s) => Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: KStat(
-                    icon: Icons.schedule_rounded,
-                    label: '总游玩时长',
-                    value: fmtDuration(s.totalSeconds),
-                    hint: '${period.label}累计',
-                    accent: scheme.primary,
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                Expanded(
-                  child: KStat(
-                    icon: Icons.sports_esports_rounded,
-                    label: '游玩次数',
-                    value: '${s.sessionCount} 次',
-                    hint: '平均每次 ${_avgPerSession(s)}',
-                    accent: scheme.secondary,
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                Expanded(
-                  child: KStat(
-                    icon: Icons.event_available_rounded,
-                    label: '活跃天数',
-                    value: '${s.activeDays} 天',
-                    hint: '日均 ${s.activeDays == 0 ? '—' : fmtDuration(s.avgPerActiveDay)}',
-                    accent: scheme.tertiary,
-                  ),
-                ),
-                const SizedBox(width: Gap.md),
-                Expanded(
-                  child: KStat(
-                    icon: Icons.today_rounded,
-                    label: '日均时长',
-                    value:
-                        s.activeDays == 0 ? '—' : fmtDuration(s.avgPerActiveDay),
-                    hint: '按活跃天数折算',
-                    accent: scheme.primary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: Gap.lg),
-          // 标签词云
-          KCard(
-            padding: const EdgeInsets.all(Gap.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                KSectionTitle(
-                  '标签词云',
-                  padding: EdgeInsets.zero,
-                  trailing: KBadge(text: period.label, color: scheme.secondary),
-                ),
-                const SizedBox(height: Gap.md),
-                cloud.when(
-                  loading: () =>
-                      const SizedBox(height: 200, child: KLoading()),
-                  error: (e, _) => SizedBox(
-                    height: 160,
-                    child: KEmpty(
-                      icon: Icons.cloud_off_rounded,
-                      title: '词云加载失败',
-                      subtitle: '$e',
+                    style: theme.typography.caption?.copyWith(
+                      color: theme.inactiveColor,
                     ),
                   ),
-                  data: (tags) => tags.isEmpty
-                      ? const SizedBox(
-                          height: 160,
-                          child: KEmpty(
-                            icon: Icons.cloud_off_rounded,
-                            title: '还没有足够的数据',
-                            subtitle: '先去玩一会儿游戏，再来生成词云吧',
-                          ),
-                        )
-                      : WordCloud(tags: tags),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: Gap.lg),
-          // 文字总结
-          KCard(
-            padding: const EdgeInsets.all(Gap.lg),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                KSectionTitle(
-                  '${period.label}总结',
-                  padding: EdgeInsets.zero,
-                  trailing:
-                      KBadge(text: period.label, icon: Icons.auto_stories_rounded),
-                ),
-                const SizedBox(height: Gap.md),
-                stats.when(
-                  loading: () => Text('…', style: Type.body),
-                  error: (e, _) => Text('$e', style: Type.body),
-                  data: (s) => AnimatedCount(
-                    // 词云标签直接复用 provider 结果，避免重复查询与闪烁
-                    text: _buildSummary(
-                      period,
-                      s,
-                      cloud.valueOrNull ?? const <TagItem>[],
-                    ),
-                    style: Type.body.copyWith(height: 1.8),
-                  ),
-                ),
+                ],
               ],
             ),
           ),
@@ -987,12 +1340,10 @@ class _SummaryTab extends ConsumerWidget {
   }
 }
 
-/// 平均每次时长（无会话时给「—」）。
 String _avgPerSession(AggStats s) => s.sessionCount == 0
     ? '—'
     : fmtDuration(s.totalSeconds ~/ s.sessionCount);
 
-/// 时段起点（与仓储层 stats() 的口径一致：本周从周一起算）。
 DateTime _periodStart(StatsPeriod period, DateTime now) => switch (period) {
       StatsPeriod.week => now.subtract(Duration(days: now.weekday - 1)),
       StatsPeriod.month => DateTime(now.year, now.month, 1),
@@ -1000,7 +1351,6 @@ DateTime _periodStart(StatsPeriod period, DateTime now) => switch (period) {
       StatsPeriod.all => DateTime(2000),
     };
 
-/// 总结文案（措辞与旧版逐字一致，仅把词云查询换成 provider 已取到的标签）。
 String _buildSummary(StatsPeriod period, AggStats s, List<TagItem> tags) {
   if (s.totalSeconds == 0) {
     return '这个${period.label}还没有游玩记录，打开一部作品开始新的故事吧。';
@@ -1010,7 +1360,8 @@ String _buildSummary(StatsPeriod period, AggStats s, List<TagItem> tags) {
   final durText = fmtDuration(s.totalSeconds);
   final avg = fmtDuration(
       s.avgPerActiveDay ~/ (s.sessionCount == 0 ? 1 : s.sessionCount));
-  final tagText = topTags.isEmpty ? '' : '，最吸引你的关键词是「${topTags.join('」「')}」';
+  final tagText =
+      topTags.isEmpty ? '' : '，最吸引你的关键词是「${topTags.join('」「')}」';
   final gameText = topGame.isEmpty ? '' : '，投入最多的作品是《$topGame》';
   return '这个${period.label}你游玩了 $durText，分布在 ${s.activeDays} 天、共 ${s.sessionCount} 次，'
       '平均每次 $avg'
