@@ -172,9 +172,8 @@ class AppleSpringSimulation extends Simulation {
 
 /// 流体力学边界阻尼与动量预测
 class FluidPhysics {
-  /// UIScrollView 标准减速率 (normal = 0.998, fast = 0.990)
+  /// UIScrollView 标准减速率 (normal = 0.998)
   static const double decelerationNormal = 0.998;
-  static const double decelerationFast = 0.990;
 
   /// Apple 对数橡皮筋边界阻尼公式：
   /// f(x) = (x * c * d) / (d + c * x), c = 0.55
@@ -243,118 +242,107 @@ class Gap {
   static const cardPaddingDense = EdgeInsets.all(12);
 
   static const pageH = 28.0;
-  static const pageV = 16.0;
   static const section = 26.0;
-  static const titleToContent = 12.0;
-  static const sectionGap = 32.0;
-
-  static const insetsHXs = EdgeInsets.symmetric(horizontal: xs);
-  static const insetsHSm = EdgeInsets.symmetric(horizontal: sm);
-  static const insetsHMd = EdgeInsets.symmetric(horizontal: md);
-  static const insetsHLg = EdgeInsets.symmetric(horizontal: lg);
-  static const insetsHXl = EdgeInsets.symmetric(horizontal: xl);
-  static const insetsVXs = EdgeInsets.symmetric(vertical: xs);
-  static const insetsVSm = EdgeInsets.symmetric(vertical: sm);
-  static const insetsVMd = EdgeInsets.symmetric(vertical: md);
-  static const insetsVLg = EdgeInsets.symmetric(vertical: lg);
-  static const insetsAllXs = EdgeInsets.all(xs);
-  static const insetsAllSm = EdgeInsets.all(sm);
-  static const insetsAllMd = EdgeInsets.all(md);
-  static const insetsAllLg = EdgeInsets.all(lg);
-  static const insetsAllXl = EdgeInsets.all(xl);
 }
 
-/// 连续曲率圆角阶梯（杂志图版与精装卡片收紧为利落切角 6px-12px）
+/// 连续曲率圆角阶梯 (Microsoft Fluent 2 几何规范：控件 6px / 卡片 8px / 弹窗 12px)
 class Radii {
-  static const xs = 4.0;
-  static const sm = 6.0;
-  static const md = 8.0;
-  static const lg = 12.0;
-  static const xl = 16.0;
-  static const xxl = 20.0;
+  static const xs = 6.0;
+  static const sm = 10.0;
+  static const md = 14.0;
+  static const lg = 16.0;
+  static const xl = 24.0;
+  static const xxl = 28.0;
   static const full = 999.0;
-  static const thumb = 6.0;
+  static const thumb = 10.0;
 
   static BorderRadius get chip => BorderRadius.circular(sm);
-  static BorderRadius get button => BorderRadius.circular(md);
+  static BorderRadius get button => BorderRadius.circular(full);
   static BorderRadius get card => BorderRadius.circular(lg);
   static BorderRadius get sheet => BorderRadius.circular(xl);
-  static BorderRadius get pill => BorderRadius.circular(full);
 }
 
-/// 纸张海拔与裁切线 (Declare Elevation Once)
+/// Material Design 3 Tonal 海拔、柔化阴影与表面描边
 class Elev {
-  /// 静置图版轻投影
-  static List<BoxShadow> card(bool dark, Color outline) => [
+  static List<BoxShadow> card(bool dark, [Color? outline]) => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? 0.28 : 0.035),
-          offset: const Offset(0, 2),
+          color: (dark ? Colors.black : const Color(0xFF2A1B23))
+              .withValues(alpha: dark ? 0.22 : 0.05),
+          offset: const Offset(0, 3),
           blurRadius: 10,
           spreadRadius: 0,
         ),
       ];
 
-  /// 悬浮态：纸面抬升与主题色环境微光
-  static List<BoxShadow> cardHover(bool dark, Color outline) => [
+  static List<BoxShadow> cardHover(bool dark, [Color? outline]) => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? 0.44 : 0.08),
+          color: (dark ? Colors.black : const Color(0xFF2A1B23))
+              .withValues(alpha: dark ? 0.30 : 0.09),
           offset: const Offset(0, 8),
-          blurRadius: 22,
-          spreadRadius: -2,
-        ),
-        BoxShadow(
-          color: outline.withValues(alpha: dark ? 0.26 : 0.14),
-          offset: const Offset(0, 2),
-          blurRadius: 12,
+          blurRadius: 20,
           spreadRadius: 0,
         ),
+        if (outline != null)
+          BoxShadow(
+            color: outline.withValues(alpha: dark ? 0.18 : 0.14),
+            offset: const Offset(0, 2),
+            blurRadius: 8,
+            spreadRadius: 0,
+          ),
       ];
 
   /// 按钮悬浮微光
   static List<BoxShadow> buttonHover(bool dark, Color outline) => [
         BoxShadow(
-          color: outline.withValues(alpha: dark ? 0.36 : 0.22),
-          offset: const Offset(0, 4),
-          blurRadius: 12,
-          spreadRadius: -1,
+          color: outline.withValues(alpha: dark ? 0.30 : 0.22),
+          offset: const Offset(0, 3),
+          blurRadius: 10,
+          spreadRadius: 0,
         ),
       ];
 
   /// 焦点光晕（键盘导航与输入聚焦）
   static List<BoxShadow> focusGlow(bool dark, Color outline) => [
         BoxShadow(
-          color: outline.withValues(alpha: dark ? 0.45 : 0.32),
+          color: outline.withValues(alpha: dark ? 0.42 : 0.30),
           blurRadius: 8,
-          spreadRadius: 1.0,
+          spreadRadius: 0.5,
         ),
       ];
 
-  /// 浮层（菜单/对话框/抽屉）
+  /// M3 Menu / Dialog 柔和浮层投影
   static List<BoxShadow> overlay(bool dark) => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? 0.62 : 0.14),
-          blurRadius: 36,
-          offset: const Offset(0, 14),
-          spreadRadius: -4,
+          color: (dark ? Colors.black : const Color(0xFF2A1B23))
+              .withValues(alpha: dark ? 0.48 : 0.14),
+          blurRadius: 26,
+          offset: const Offset(0, 10),
+          spreadRadius: 0,
         ),
         BoxShadow(
-          color: Colors.black.withValues(alpha: dark ? 0.28 : 0.05),
-          blurRadius: 10,
-          offset: const Offset(0, 3),
+          color: Colors.black.withValues(alpha: dark ? 0.24 : 0.05),
+          blurRadius: 6,
+          offset: const Offset(0, 2),
           spreadRadius: 0,
         ),
       ];
 
-  /// 1px 杂志裁切细线 (Registration Hairline)
   static Color border(bool dark, {bool highContrast = false}) {
     if (highContrast) {
       return dark
-          ? Colors.white.withValues(alpha: 0.28)
-          : Colors.black.withValues(alpha: 0.26);
+          ? Colors.white.withValues(alpha: 0.30)
+          : const Color(0xFF2A1B23).withValues(alpha: 0.26);
     }
-    return dark
-        ? Colors.white.withValues(alpha: 0.09)
-        : const Color(0xFF16151A).withValues(alpha: 0.09);
+    return dark ? const Color(0x1AFFFFFF) : const Color(0x142A1B23);
+  }
+
+  static Color controlBorder(bool dark, {bool highContrast = false}) {
+    if (highContrast) {
+      return dark
+          ? Colors.white.withValues(alpha: 0.36)
+          : const Color(0xFF2A1B23).withValues(alpha: 0.30);
+    }
+    return dark ? const Color(0x1EFFFFFF) : const Color(0x182A1B23);
   }
 
   /// 激活/高亮描边
@@ -362,49 +350,44 @@ class Elev {
       outline.withValues(alpha: dark ? 0.72 : 0.58);
 }
 
-/// 动效参数规范
+/// 动效参数规范 (Material Design 3 / Fluid Motion)
 class Motion {
-  static const press = Duration(milliseconds: 85);
-  static const fast = Duration(milliseconds: 150);
-  static const normal = Duration(milliseconds: 240);
-  static const page = Duration(milliseconds: 300);
-  static const out = Duration(milliseconds: 180);
-  static const slow = Duration(milliseconds: 360);
+  static const fast = Duration(milliseconds: 140);
+  static const normal = Duration(milliseconds: 220);
+  static const page = Duration(milliseconds: 280);
+  static const out = Duration(milliseconds: 160);
   static const pulse = Duration(milliseconds: 1600);
 
-  static const enter = Curves.easeOutCubic;
+  static const enter = Cubic(0.1, 0.9, 0.2, 1.0);
   static const exit = Curves.easeInCubic;
   static const standard = Curves.easeInOutCubic;
   static const emphasized = Curves.easeOutQuint;
   static const spring = Curves.easeOutBack;
 
-  static const hoverLift = -2.5;
-  static const hoverScale = 1.015;
-  static const coverHoverScale = 1.035;
-  static const pressScale = 0.972;
-  static const dialogScaleFrom = 0.95;
-  static const sheetSlideFrom = Offset(0, 0.06);
+  static const hoverLift = -1.5;
+  static const hoverScale = 1.01;
+  static const coverHoverScale = 1.03;
+  static const pressScale = 0.982;
+  static const dialogScaleFrom = 0.96;
+  static const sheetSlideFrom = Offset(0, 0.05);
 
-  static const barrier = Color(0x72000000);
+  static const barrier = Color(0x66000000);
 
   /// 是否开启了系统「减弱动态效果」(Reduce Motion)
   static bool reduced(BuildContext context) =>
       MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 }
 
-// ============================ 3. 光学校准排版 (Optical Typography) ============================
+// ============================ 3. Fluent 2 字体阶梯 (Type Ramp) ============================
 
-/// 誌面 (Shimen) 光学校准排版阶梯：
-/// - 展示级大字号 (Display 26px) 紧行高 (1.18) 与负字距 (-0.65)
-/// - 标题 (Title 18.5px) 紧字距 (-0.37)
-/// - 正文 (Body 13.5px) 舒适阅读行高 (1.55) 与零字距
-/// - 微标签与编号 (Micro 10.5px / Mono 12px) 正字距与全量 Tabular 等宽数字
+/// Microsoft Fluent 2 (Windows 11 Segoe UI Variable / NotoSansSC) 排版阶梯
 class Type {
   static const fontFamily = 'NotoSansSC';
   static const fontFallback = <String>[
+    'Segoe UI Variable',
+    'Segoe UI',
     'Microsoft YaHei UI',
     'Microsoft YaHei',
-    'Segoe UI',
     'Arial',
   ];
 
@@ -414,29 +397,29 @@ class Type {
     fontFamily: fontFamily,
     fontFamilyFallback: fontFallback,
     fontSize: 26,
-    fontWeight: FontWeight.w800,
-    letterSpacing: -0.65,
-    height: 1.18,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.3,
+    height: 1.25,
     fontFeatures: nums,
   );
 
   static const title = TextStyle(
     fontFamily: fontFamily,
     fontFamilyFallback: fontFallback,
-    fontSize: 18.5,
-    fontWeight: FontWeight.w700,
-    letterSpacing: -0.37,
-    height: 1.26,
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.2,
+    height: 1.30,
     fontFeatures: nums,
   );
 
   static const section = TextStyle(
     fontFamily: fontFamily,
     fontFamilyFallback: fontFallback,
-    fontSize: 14,
-    fontWeight: FontWeight.w700,
-    letterSpacing: -0.14,
-    height: 1.32,
+    fontSize: 14.5,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.1,
+    height: 1.35,
     fontFeatures: nums,
   );
 
@@ -446,72 +429,63 @@ class Type {
     fontSize: 13.5,
     fontWeight: FontWeight.w400,
     letterSpacing: 0.0,
-    height: 1.55,
+    height: 1.48,
   );
 
   static const label = TextStyle(
     fontFamily: fontFamily,
     fontFamilyFallback: fontFallback,
-    fontSize: 12.5,
-    fontWeight: FontWeight.w600,
-    letterSpacing: -0.05,
-    height: 1.38,
-    fontFeatures: nums,
-  );
-
-  static const formLabel = TextStyle(
-    fontFamily: fontFamily,
-    fontFamilyFallback: fontFallback,
     fontSize: 13,
     fontWeight: FontWeight.w600,
-    letterSpacing: -0.05,
-    height: 1.42,
+    letterSpacing: 0.0,
+    height: 1.30,
+    fontFeatures: nums,
   );
 
   static const caption = TextStyle(
     fontFamily: fontFamily,
     fontFamilyFallback: fontFallback,
-    fontSize: 11.5,
-    fontWeight: FontWeight.w500,
-    letterSpacing: 0.05,
-    height: 1.42,
+    fontSize: 12,
+    fontWeight: FontWeight.w400,
+    letterSpacing: 0.0,
+    height: 1.35,
     fontFeatures: nums,
   );
 
   static const micro = TextStyle(
     fontFamily: fontFamily,
     fontFamilyFallback: fontFallback,
-    fontSize: 10.5,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0.16,
-    height: 1.36,
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0.1,
+    height: 1.25,
     fontFeatures: nums,
   );
 
   static const numeric = TextStyle(
     fontFamily: fontFamily,
     fontFamilyFallback: fontFallback,
-    fontSize: 16,
-    fontWeight: FontWeight.w700,
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
     letterSpacing: -0.20,
     height: 1.22,
     fontFeatures: nums,
   );
 
   static const mono = TextStyle(
-    fontFamily: fontFamily,
-    fontFamilyFallback: fontFallback,
-    fontSize: 11.5,
-    fontWeight: FontWeight.w600,
-    letterSpacing: 0.25,
+    fontFamily: 'Cascadia Mono',
+    fontFamilyFallback: ['Consolas', fontFamily, ...fontFallback],
+    fontSize: 12,
+    fontWeight: FontWeight.w500,
+    letterSpacing: 0.0,
     height: 1.35,
     fontFeatures: nums,
   );
 }
 
-// ============================ 4. 物理触觉与半透明材质原语 ============================
+// ============================ 4. 物理触觉与 Fluent 2 Acrylic 材质原语 ============================
 
-/// AppleGlassSurface：支持无障碍高对比度降级的光学半透明压印表面
+/// AppleGlassSurface：Fluent 2 Acrylic (`AcrylicInAppFillColorDefaultBrush`) 半透明表面
 class AppleGlassSurface extends StatelessWidget {
   final Widget child;
   final double blur;
@@ -525,8 +499,8 @@ class AppleGlassSurface extends StatelessWidget {
   const AppleGlassSurface({
     super.key,
     required this.child,
-    this.blur = 18.0,
-    this.borderRadius = Radii.lg,
+    this.blur = 24.0,
+    this.borderRadius = Radii.md,
     this.tintColor,
     this.borderWidth = 1.0,
     this.borderColor,
@@ -542,8 +516,8 @@ class AppleGlassSurface extends StatelessWidget {
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
     final defaultTint = highContrast
-        ? (dark ? const Color(0xEE161820) : const Color(0xF5FAF7F2))
-        : (dark ? const Color(0xCC161820) : const Color(0xD8FAF7F2));
+        ? (dark ? const Color(0xF2282828) : const Color(0xF5F9F9F9))
+        : (dark ? const Color(0xCC282828) : const Color(0xD8F9F9F9));
     final defaultBorder = Elev.border(dark, highContrast: highContrast);
 
     final radius = BorderRadius.circular(borderRadius);
@@ -625,27 +599,29 @@ class _FluidPressableState extends State<FluidPressable>
     with SingleTickerProviderStateMixin {
   static const double _hysteresisSlop = 10.0;
 
-  late final AnimationController _controller;
+  AnimationController? _controller;
   double _currentScale = 1.0;
   bool _isDown = false;
   bool _isInside = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController.unbounded(vsync: this, value: 1.0);
-    _controller.addListener(() {
+  AnimationController _ensureController() {
+    final existing = _controller;
+    if (existing != null) return existing;
+    final ctrl = AnimationController.unbounded(vsync: this, value: 1.0);
+    ctrl.addListener(() {
       if (mounted) {
         setState(() {
-          _currentScale = _controller.value;
+          _currentScale = ctrl.value;
         });
       }
     });
+    _controller = ctrl;
+    return ctrl;
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -665,14 +641,17 @@ class _FluidPressableState extends State<FluidPressable>
     final disableAnimations =
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     if (disableAnimations) {
-      _controller.stop();
-      _controller.value = target;
-      setState(() => _currentScale = target);
+      _controller?.stop();
+      _controller?.value = target;
+      if (_currentScale != target) {
+        setState(() => _currentScale = target);
+      }
       return;
     }
 
+    final ctrl = _ensureController();
     // 继承当前弹簧运动中的瞬时速度，杜绝中途打断时的速度突变
-    final currentVelocity = _controller.isAnimating ? _controller.velocity : 0.0;
+    final currentVelocity = ctrl.isAnimating ? ctrl.velocity : 0.0;
     final simulation = criticallyDamped
         ? AppleSpringSimulation.criticallyDamped(
             start: _currentScale,
@@ -687,7 +666,7 @@ class _FluidPressableState extends State<FluidPressable>
             dampingRatio: 0.80,
             angularFrequency: 32.0,
           );
-    _controller.animateWith(simulation);
+    ctrl.animateWith(simulation);
   }
 
   void _onPointerDown(PointerDownEvent e) {
@@ -695,16 +674,17 @@ class _FluidPressableState extends State<FluidPressable>
     _isDown = true;
     _isInside = true;
 
-    final wasAnimating = _controller.isAnimating;
-    final inheritedVelocity = wasAnimating ? _controller.velocity : 0.0;
-    _controller.stop();
+    final ctrl = _ensureController();
+    final wasAnimating = ctrl.isAnimating;
+    final inheritedVelocity = wasAnimating ? ctrl.velocity : 0.0;
+    ctrl.stop();
 
     if (wasAnimating && inheritedVelocity.abs() > 0.01) {
       // 若正在回弹途中再次按下，通过弹簧携带当前动量平滑压下
       _animateToScale(widget.scaleFactor, criticallyDamped: true);
     } else {
       // 静置态 t = 0 瞬发微缩放响应
-      _controller.value = widget.scaleFactor;
+      ctrl.value = widget.scaleFactor;
       setState(() {
         _currentScale = widget.scaleFactor;
       });
@@ -743,6 +723,16 @@ class _FluidPressableState extends State<FluidPressable>
 
   @override
   Widget build(BuildContext context) {
+    final isIdleScale = (_currentScale - 1.0).abs() < 0.0005;
+    final body = isIdleScale
+        ? widget.child
+        : RepaintBoundary(
+            child: Transform.scale(
+              scale: _currentScale,
+              alignment: Alignment.center,
+              child: widget.child,
+            ),
+          );
     return MouseRegion(
       cursor: _interactive ? SystemMouseCursors.click : MouseCursor.defer,
       child: Listener(
@@ -758,13 +748,7 @@ class _FluidPressableState extends State<FluidPressable>
           onSecondaryTapUp: widget.onSecondaryTapAt == null
               ? null
               : (d) => widget.onSecondaryTapAt!(d.globalPosition),
-          child: RepaintBoundary(
-            child: Transform.scale(
-              scale: _currentScale,
-              alignment: Alignment.center,
-              child: widget.child,
-            ),
-          ),
+          child: body,
         ),
       ),
     );
@@ -867,81 +851,6 @@ class _InteractiveSurfaceState extends State<InteractiveSurface> {
   }
 }
 
-/// 兼容按压缩放包装器
-class PressableScale extends StatelessWidget {
-  final Widget child;
-  final VoidCallback? onTap;
-  final double pressedScale;
-
-  const PressableScale({
-    super.key,
-    required this.child,
-    this.onTap,
-    this.pressedScale = Motion.pressScale,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return FluidPressable(
-      onTap: onTap,
-      scaleFactor: pressedScale,
-      child: child,
-    );
-  }
-}
-
-/// 焦点光晕容器
-class FocusGlow extends StatefulWidget {
-  final Widget child;
-  final BorderRadius borderRadius;
-  final Color? focusColor;
-  final double borderWidth;
-  final bool autofocus;
-
-  const FocusGlow({
-    super.key,
-    required this.child,
-    this.borderRadius = const BorderRadius.all(Radius.circular(Radii.md)),
-    this.focusColor,
-    this.borderWidth = 1.5,
-    this.autofocus = false,
-  });
-
-  @override
-  State<FocusGlow> createState() => _FocusGlowState();
-}
-
-class _FocusGlowState extends State<FocusGlow> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    final activeColor = widget.focusColor ?? scheme.primary;
-
-    return Focus(
-      autofocus: widget.autofocus,
-      onFocusChange: (has) {
-        if (_focused != has) setState(() => _focused = has);
-      },
-      child: AnimatedContainer(
-        duration: Motion.fast,
-        curve: Motion.enter,
-        decoration: BoxDecoration(
-          borderRadius: widget.borderRadius,
-          border: Border.all(
-            color: _focused ? activeColor : Colors.transparent,
-            width: widget.borderWidth,
-          ),
-          boxShadow: _focused ? Elev.focusGlow(dark, activeColor) : null,
-        ),
-        child: widget.child,
-      ),
-    );
-  }
-}
-
 /// 呼吸脉冲动效（在系统开启减弱动态效果时自动静止）
 class PulsingGlow extends StatefulWidget {
   final Widget child;
@@ -1008,17 +917,6 @@ class _PulsingGlowState extends State<PulsingGlow>
   }
 }
 
-/// 静默透传容器（兼容旧签名）
-class EngineeringGrid extends StatelessWidget {
-  final Widget child;
-  final bool enabled;
-
-  const EngineeringGrid({super.key, required this.child, this.enabled = true});
-
-  @override
-  Widget build(BuildContext context) => child;
-}
-
 // ============================ 5. 路由与转场动效 ============================
 
 /// 页面转场：微上浮 + 淡入（支持减弱动态效果降级）
@@ -1060,7 +958,7 @@ class StaggeredFadeIn extends StatefulWidget {
     super.key,
     required this.child,
     this.index = 0,
-    this.maxStagger = 12,
+    this.maxStagger = 8,
   });
 
   @override
@@ -1069,13 +967,21 @@ class StaggeredFadeIn extends StatefulWidget {
 
 class _StaggeredFadeInState extends State<StaggeredFadeIn> {
   bool _shown = false;
+  bool _completed = false;
 
   @override
   void initState() {
     super.initState();
+    // 超出首屏阈值或无延迟项直接渲染，避免快速滚动列表时出现逐张闪烁延迟
+    if (widget.index >= widget.maxStagger || widget.maxStagger <= 0) {
+      _shown = true;
+      _completed = true;
+      return;
+    }
     final delay = Duration(
-        milliseconds: widget.index.clamp(0, widget.maxStagger) * 18);
-    Future.delayed(delay, () {
+      milliseconds: widget.index.clamp(0, widget.maxStagger) * 14,
+    );
+    Future<void>.delayed(delay, () {
       if (mounted) setState(() => _shown = true);
     });
   }
@@ -1084,16 +990,21 @@ class _StaggeredFadeInState extends State<StaggeredFadeIn> {
   Widget build(BuildContext context) {
     final disableAnimations =
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (disableAnimations) {
+    if (_completed || disableAnimations) {
       return widget.child;
     }
     return AnimatedOpacity(
       opacity: _shown ? 1.0 : 0.0,
-      duration: Motion.slow,
+      duration: Motion.normal,
       curve: Motion.enter,
+      onEnd: () {
+        if (mounted && _shown && !_completed) {
+          setState(() => _completed = true);
+        }
+      },
       child: AnimatedSlide(
-        offset: _shown ? Offset.zero : const Offset(0, 0.028),
-        duration: Motion.slow,
+        offset: _shown ? Offset.zero : const Offset(0, 0.022),
+        duration: Motion.normal,
         curve: Motion.enter,
         child: widget.child,
       ),

@@ -316,3 +316,47 @@ class ActivityItem {
     this.detail = '',
   });
 }
+
+/// 游玩路径节点（游戏截图时刻 + 文字笔记）。
+class PlayPathNode {
+  int? id;
+  final int gameId;
+  String imagePath;
+  String note;
+  DateTime createdAt;
+  DateTime updatedAt;
+
+  PlayPathNode({
+    this.id,
+    required this.gameId,
+    this.imagePath = '',
+    this.note = '',
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  })  : createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? DateTime.now();
+
+  /// 返回本机可读的绝对图片路径；纯文字笔记返回空字符串。
+  String get resolvedImagePath =>
+      imagePath.isEmpty ? '' : MediaPaths.instance.resolveStored(imagePath);
+
+  Map<String, Object?> toRow() => {
+        if (id != null) 'id': id,
+        'game_id': gameId,
+        'image_path': MediaPaths.instance.toStored(imagePath),
+        'note': note,
+        'created_at': createdAt.toIso8601String(),
+        'updated_at': updatedAt.toIso8601String(),
+      };
+
+  factory PlayPathNode.fromRow(Map<String, Object?> r) => PlayPathNode(
+        id: r['id'] as int?,
+        gameId: (r['game_id'] ?? 0) as int,
+        imagePath: (r['image_path'] ?? '') as String,
+        note: (r['note'] ?? '') as String,
+        createdAt: DateTime.tryParse((r['created_at'] ?? '') as String) ??
+            DateTime.now(),
+        updatedAt: DateTime.tryParse((r['updated_at'] ?? '') as String) ??
+            DateTime.now(),
+      );
+}

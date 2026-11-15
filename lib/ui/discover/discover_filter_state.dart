@@ -46,9 +46,6 @@ enum DiscoverSource {
   final String hint;
 
   const DiscoverSource(this.id, this.label, this.hint);
-
-  static DiscoverSource fromId(String id) => DiscoverSource.values
-      .firstWhere((s) => s.id == id, orElse: () => DiscoverSource.vndb);
 }
 
 /// 探索页可选的 VNDB 标签（预设常用标签）。

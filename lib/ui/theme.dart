@@ -1,13 +1,12 @@
-/// KisakiGals 主题规范：誌面 (Shimen) 铜版纸象牙白 × 凹版暗墨 × 印刷四色 (CMYK Four-Ink System).
+/// KisakiGals 主题规范：Material Design 3 (M3 Expressive Tonal System).
 ///
-/// 色彩职能分配（一色一义，严格遵循 WCAG AA ≥ 4.5:1 对比度）：
-/// - 纸张与底版 (Paper & Ground)：
-///   - 浅色铜版纸：暖象牙白 (#FAF7F2) 底页、纯白 (#FFFFFF) 图版、米灰 (#F2ECE4) 书脊与容器
-///   - 深色凹版墨：深石墨 (#0F1015) 底槽、暗页 (#13151C) 主版、暗炭 (#161820) 图版
-/// - 专色洋红 (Process Magenta — M)：#E4005A (Light) / #FF2E7E (Dark)，专用于主启动按钮、选中态与书脊激活标尺
-/// - 专色青蓝 (Process Cyan — C)：#0088B8 (Light) / #29B6E8 (Dark)，专用于游玩时长、实时计时与时间序列图表
-/// - 专色铭黄 (Process Yellow-Gold — Y)：#D49400 (Light) / #FFC42E (Dark)，专用于评分星级与荣誉徽标
-/// - 定位黑墨 (Registration K)：#16151A (Light) / #F4F1EA (Dark)，用于正文排版与 1px 裁切细线
+/// 核心三原色与表面层级（围绕 `#DA839C` 柔瑰粉、`#D0C0F5` 熏衣紫、`#EDABA0` 暖桃珊瑚构建）：
+/// - **Primary (`m3Rose`)**: `#DA839C`（主按钮、激活态胶囊、焦点轮廓与主品牌标识）
+/// - **Secondary (`m3Lavender`)**: `#D0C0F5`（实时游玩、统计趋势与次级 tonal 容器）
+/// - **Tertiary (`m3Peach`)**: `#EDABA0`（暖调高光、徽章点缀与渐变融合）
+/// - **Navigation / Shell (`spineSurface`)**: Light `#F6F1F5` / Dark `#151215`
+/// - **Page Surface (`pageSurface`)**: Light `#FFFBFD` / Dark `#1B171B`
+/// - **Card Surface (`elevatedSurface`)**: Light `#FFFFFF` / Dark `#241F24`
 library;
 
 import 'package:flutter/material.dart';
@@ -15,88 +14,98 @@ import 'package:flutter/material.dart';
 import 'design.dart';
 
 class KisakiColors {
-  // 专色洋红 (Process Magenta — M)：主交互、启动按钮与书脊激活色
-  static const magenta = Color(0xFFE4005A);
-  static const magentaDark = Color(0xFFFF2E7E);
-  static const magentaSoft = Color(0xFFFF669E);
-  static const magentaContainerLight = Color(0xFFFFE0EC);
-  static const magentaContainerDark = Color(0xFF4D0824);
-  static const onMagentaContainerLight = Color(0xFF3D0017);
-  static const onMagentaContainerDark = Color(0xFFFFD9E6);
+  // Material Design 3 三原色主色板
+  static const m3Rose = Color(0xFFDA839C);
+  static const m3Lavender = Color(0xFFD0C0F5);
+  static const m3Peach = Color(0xFFEDABA0);
 
-  // 向后兼容别名 (Rose / Pink / Signal -> Process Magenta)
-  static const primaryRose = magenta;
-  static const primaryRoseDark = magentaDark;
-  static const primaryRoseSoft = magentaSoft;
-  static const primaryRoseContainerLight = magentaContainerLight;
-  static const primaryRoseContainerDark = magentaContainerDark;
-  static const onPrimaryRoseContainerLight = onMagentaContainerLight;
-  static const onPrimaryRoseContainerDark = onMagentaContainerDark;
+  static const m3RoseDeep = Color(0xFF9C3E5C);
+  static const m3LavenderDeep = Color(0xFF6B53B8);
+  static const m3PeachDeep = Color(0xFF9E5142);
 
-  static const signal = magenta;
-  static const signalSoft = magentaSoft;
-  static const signalContainer = magentaContainerLight;
-  static const onSignalContainer = onMagentaContainerLight;
+  // Primary Brand Accent (M3 Rose Ramp)
+  static const magenta = m3Rose;
+  static const magentaDark = m3Rose;
+  static const magentaContainerLight = Color(0xFFFCE8EE);
+  static const magentaContainerDark = Color(0xFF4A2532);
+  static const onMagentaContainerLight = Color(0xFF3E0F20);
+  static const onMagentaContainerDark = Color(0xFFFFD9E3);
 
-  static const pink = magenta;
-  static const pinkSoft = magentaSoft;
+  static const pink = m3Rose;
+  static const pinkSoft = m3Peach;
   static const pinkContainer = magentaContainerLight;
   static const onPinkContainer = onMagentaContainerLight;
 
-  // 专色青蓝 (Process Cyan — C)：游玩时长、实时计时与时间趋势图表
-  static const cyan = Color(0xFF0088B8);
-  static const cyanSoft = Color(0xFF29B6E8);
-  static const cyanContainer = Color(0xFFE0F4FA);
-  static const cyanContainerDark = Color(0xFF0A3242);
-  static const onCyanContainer = Color(0xFF002B3D);
-  static const onCyanContainerDark = Color(0xFFC7EEFF);
+  // Secondary Accent (M3 Lavender Ramp)
+  static const cyan = m3LavenderDeep;
+  static const cyanContainer = Color(0xFFEDE6FD);
+  static const cyanContainerDark = Color(0xFF382E58);
+  static const onCyanContainer = Color(0xFF28194E);
+  static const onCyanContainerDark = Color(0xFFEBE3FD);
 
-  // 向后兼容别名 (Lavender -> Process Cyan 时间数据专色)
-  static const lavender = cyan;
-  static const lavenderSoft = cyanSoft;
-  static const lavenderContainer = cyanContainer;
+  // Tertiary Accent (M3 Peach Ramp)
+  static const peachContainer = Color(0xFFFDECE9);
+  static const peachContainerDark = Color(0xFF522D28);
+  static const onPeachContainer = Color(0xFF461B15);
+  static const onPeachContainerDark = Color(0xFFFFE5E0);
+
+  static const lavender = m3Lavender;
+  static const lavenderSoft = m3Lavender;
   static const onLavenderContainer = onCyanContainer;
 
-  // 专色铭黄 (Process Yellow-Gold — Y) 与状态反馈色
-  static const yellowInk = Color(0xFFD49400);
-  static const star = Color(0xFFFFC42E);
-  static const success = Color(0xFF0D9488);
-  static const warning = Color(0xFFD97706);
-  static const danger = Color(0xFFE11D48);
-  static const info = cyan;
+  // Caution / Rating & Semantic Status Ramps
+  static const star = Color(0xFFE99F67);
 
-  /// 根据明暗模式返回具备高对比度的评分铭黄色
-  static Color ratingInk(bool dark) => dark ? star : yellowInk;
+  static const success = Color(0xFF2A7B56);
+  static const successDark = Color(0xFF7AD6A8);
+  static const warning = Color(0xFFA85B37);
+  static const danger = Color(0xFFC93B4B);
+  static const info = m3LavenderDeep;
 
-  /// 根据明暗模式返回时间/时长专色青蓝
-  static Color temporalInk(bool dark) => dark ? cyanSoft : cyan;
+  /// 根据明暗模式返回具备高对比度的玫粉文本强调色
+  static Color roseInk(bool dark) => dark ? m3Rose : m3RoseDeep;
 
-  // 浅色底：铜版纸象牙白阶 (Coated Warm Ivory Stock)
-  static const cream = Color(0xFFFAF7F2);
-  static const creamCard = Color(0xFFFFFFFF);
-  static const paperContainer = Color(0xFFF2ECE4);
-  static const ink = Color(0xFF16151A);
-  static const inkSoft = Color(0xFF5E5B66);
+  /// 根据明暗模式返回具备高对比度的评分/暖桃强调色
+  static Color ratingInk(bool dark) => dark ? m3Peach : m3PeachDeep;
 
-  // 深色底：凹版暗墨阶 (Gravure Dark Stock)
-  static const nightBg = Color(0xFF0F1015);
-  static const nightCard = Color(0xFF161820);
-  static const nightContainer = Color(0xFF1D202A);
-  static const nightInk = Color(0xFFF4F1EA);
-  static const nightInkSoft = Color(0xFF9E9BA6);
+  /// 根据明暗模式返回熏衣紫强调色
+  static Color temporalInk(bool dark) => dark ? m3Lavender : m3LavenderDeep;
 
-  /// 书脊导览槽底色 (Fore-Edge Spine Rail Ground)
-  static Color spineSurface(bool dark) =>
-      dark ? const Color(0xFF0B0C10) : const Color(0xFFF0EAE1);
+  /// 根据明暗模式返回语义成功色
+  static Color successInk(bool dark) => dark ? successDark : success;
 
-  /// 主版面纸页底色 (Active Spread Sheet Ground)
-  static Color pageSurface(bool dark) =>
-      dark ? const Color(0xFF13151C) : const Color(0xFFFAF7F2);
+  // 浅色材质层级 (M3 Light Tonal Surfaces)
+  static const paperSunken = Color(0xFFF6F1F5); // Navigation Shell / surfaceContainerLow
+  static const paper = Color(0xFFFFFBFD); // Main Surface
+  static const paperElevated = Color(0xFFFFFFFF); // Card Surface
+  static const cream = paper;
+  static const creamCard = paperElevated;
+  static const paperContainer = Color(0xFFF0E9EE); // surfaceContainerHigh
+  static const ink = Color(0xFF1F1A1D); // onSurface
+  static const inkMedium = Color(0xFF554A50); // onSurfaceVariant
+  static const inkSoft = Color(0xFF7B6F76);
 
-  /// 1px 印刷定位裁切线
-  static Color outline(bool dark) => dark
-      ? Colors.white.withValues(alpha: 0.09)
-      : const Color(0xFF16151A).withValues(alpha: 0.09);
+  // 深色材质层级 (M3 Dark Tonal Surfaces)
+  static const nightBg = Color(0xFF151215); // Navigation Shell
+  static const nightCard = Color(0xFF241F24); // surfaceContainer
+  static const nightContainer = Color(0xFF2E282E); // surfaceContainerHigh
+  static const nightElevated = Color(0xFF362F36); // surfaceContainerHighest
+  static const nightInk = Color(0xFFF5EDF2); // onSurface
+  static const nightInkMedium = Color(0xFFCBBFC6); // onSurfaceVariant
+  static const nightInkSoft = Color(0xFF988B93);
+
+  /// 外壳底色（标题栏与左侧 NavigationDrawer 导航槽）
+  static Color spineSurface(bool dark) => dark ? nightBg : paperSunken;
+
+  /// 主版面底色（大圆角内容区）
+  static Color pageSurface(bool dark) => dark ? const Color(0xFF1B171B) : paper;
+
+  /// M3 卡片表面底色
+  static Color elevatedSurface(bool dark) => dark ? nightCard : paperElevated;
+
+  /// M3 Tonal 1px 描边
+  static Color outline(bool dark) =>
+      dark ? const Color(0x1AFFFFFF) : const Color(0x142A1B23);
 }
 
 ThemeData buildLightTheme() => _theme(Brightness.light);
@@ -104,9 +113,12 @@ ThemeData buildDarkTheme() => _theme(Brightness.dark);
 
 ThemeData _theme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
-  final primary = dark ? KisakiColors.magentaDark : KisakiColors.magenta;
-  final onPrimary = dark ? const Color(0xFF1F000C) : Colors.white;
-  final secondary = dark ? KisakiColors.cyanSoft : KisakiColors.cyan;
+  const primary = KisakiColors.m3Rose;
+  const onPrimary = Color(0xFF3A0E1E);
+  const secondary = KisakiColors.m3Lavender;
+  const onSecondary = Color(0xFF27184B);
+  const tertiary = KisakiColors.m3Peach;
+  const onTertiary = Color(0xFF421A14);
 
   final scheme = ColorScheme(
     brightness: brightness,
@@ -119,38 +131,48 @@ ThemeData _theme(Brightness brightness) {
         ? KisakiColors.onMagentaContainerDark
         : KisakiColors.onMagentaContainerLight,
     secondary: secondary,
-    onSecondary: dark ? const Color(0xFF001F2B) : Colors.white,
+    onSecondary: onSecondary,
     secondaryContainer:
         dark ? KisakiColors.cyanContainerDark : KisakiColors.cyanContainer,
     onSecondaryContainer:
         dark ? KisakiColors.onCyanContainerDark : KisakiColors.onCyanContainer,
-    surface: dark ? KisakiColors.nightBg : KisakiColors.cream,
+    tertiary: tertiary,
+    onTertiary: onTertiary,
+    tertiaryContainer:
+        dark ? KisakiColors.peachContainerDark : KisakiColors.peachContainer,
+    onTertiaryContainer:
+        dark ? KisakiColors.onPeachContainerDark : KisakiColors.onPeachContainer,
+    surface: KisakiColors.pageSurface(dark),
     onSurface: dark ? KisakiColors.nightInk : KisakiColors.ink,
-    onSurfaceVariant: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft,
+    onSurfaceVariant:
+        dark ? KisakiColors.nightInkMedium : KisakiColors.inkMedium,
     surfaceContainerLowest:
-        dark ? const Color(0xFF0B0C10) : KisakiColors.creamCard,
-    surfaceContainerLow: dark ? KisakiColors.nightCard : Colors.white,
+        dark ? KisakiColors.nightBg : const Color(0xFFFFFFFF),
+    surfaceContainerLow:
+        dark ? const Color(0xFF1D191D) : KisakiColors.paperSunken,
     surfaceContainer:
-        dark ? KisakiColors.nightContainer : KisakiColors.paperContainer,
+        dark ? KisakiColors.nightCard : const Color(0xFFFDF8FB),
     surfaceContainerHigh:
-        dark ? const Color(0xFF242834) : const Color(0xFFE8E0D5),
+        dark ? KisakiColors.nightContainer : KisakiColors.paperContainer,
     surfaceContainerHighest:
-        dark ? const Color(0xFF2E3342) : const Color(0xFFDDD3C5),
+        dark ? KisakiColors.nightElevated : const Color(0xFFE7DDE4),
     outline: KisakiColors.outline(dark),
     outlineVariant:
-        KisakiColors.outline(dark).withValues(alpha: dark ? 0.16 : 0.20),
+        dark ? const Color(0x22FFFFFF) : const Color(0x1C2A1B23),
     error: KisakiColors.danger,
     onError: Colors.white,
   );
 
-  final cardColor = dark ? KisakiColors.nightCard : Colors.white;
+  final cardColor = dark ? KisakiColors.nightCard : KisakiColors.paperElevated;
   final outline = KisakiColors.outline(dark);
+  final ctrlBorder = Elev.controlBorder(dark);
+  final textAccent = KisakiColors.roseInk(dark);
 
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
     brightness: brightness,
-    scaffoldBackgroundColor: dark ? KisakiColors.nightBg : KisakiColors.cream,
+    scaffoldBackgroundColor: KisakiColors.spineSurface(dark),
     fontFamily: Type.fontFamily,
     fontFamilyFallback: Type.fontFallback,
     textTheme: _textTheme(scheme.onSurface, scheme.onSurfaceVariant),
@@ -158,9 +180,8 @@ ThemeData _theme(Brightness brightness) {
     visualDensity: VisualDensity.standard,
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Radii.md)),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+        shape: const StadiumBorder(),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
         elevation: 0,
         textStyle: Type.label,
         backgroundColor: primary,
@@ -169,33 +190,26 @@ ThemeData _theme(Brightness brightness) {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Radii.md)),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-        side: BorderSide(
-          color: dark
-              ? Colors.white.withValues(alpha: 0.20)
-              : const Color(0xFF16151A).withValues(alpha: 0.16),
-          width: 1,
-        ),
+        shape: const StadiumBorder(),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+        backgroundColor: dark ? KisakiColors.nightContainer : Colors.white,
+        side: BorderSide(color: ctrlBorder, width: 1),
         foregroundColor: scheme.onSurface,
         textStyle: Type.label,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Radii.md)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        shape: const StadiumBorder(),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         textStyle: Type.label,
-        foregroundColor: primary,
+        foregroundColor: textAccent,
       ),
     ),
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
         minimumSize: const Size(36, 36),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(Radii.md)),
+        shape: const StadiumBorder(),
       ),
     ),
     cardTheme: CardThemeData(
@@ -211,43 +225,45 @@ ThemeData _theme(Brightness brightness) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor:
-          dark ? KisakiColors.nightContainer : KisakiColors.paperContainer,
+      fillColor: dark ? KisakiColors.nightContainer : const Color(0xFFFAF5F8),
+      hoverColor:
+          dark ? KisakiColors.nightElevated : const Color(0xFFF5EEF3),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radii.md),
-        borderSide: BorderSide(color: outline, width: 1),
+        borderSide: BorderSide(color: ctrlBorder, width: 1),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radii.md),
-        borderSide: BorderSide(color: outline, width: 1),
+        borderSide: BorderSide(color: ctrlBorder, width: 1),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(Radii.md),
-        borderSide: BorderSide(color: primary, width: 1.5),
+        borderSide: const BorderSide(color: primary, width: 1.8),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
     ),
     chipTheme: ChipThemeData(
-      shape: RoundedRectangleBorder(borderRadius: Radii.chip),
-      side: BorderSide(color: outline, width: 1),
+      shape: const StadiumBorder(),
+      side: BorderSide(color: ctrlBorder, width: 1),
       showCheckmark: false,
       labelStyle: Type.caption,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: cardColor,
       shape: RoundedRectangleBorder(
-        borderRadius: Radii.sheet,
+        borderRadius: BorderRadius.circular(Radii.xxl),
         side: BorderSide(color: outline, width: 1),
       ),
       surfaceTintColor: Colors.transparent,
-      elevation: 0,
+      elevation: 10,
     ),
     popupMenuTheme: PopupMenuThemeData(
-      color: cardColor,
-      elevation: 0,
+      color: dark ? KisakiColors.nightElevated : KisakiColors.paperElevated,
+      elevation: 8,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(Radii.md),
+        borderRadius: BorderRadius.circular(Radii.lg),
         side: BorderSide(color: outline, width: 1),
       ),
       textStyle: Type.body,
@@ -255,17 +271,21 @@ ThemeData _theme(Brightness brightness) {
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Radii.md)),
-      elevation: 0,
+          borderRadius: BorderRadius.circular(Radii.lg)),
+      elevation: 4,
     ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
-        color: dark ? const Color(0xFF242834) : const Color(0xFF1E1D24),
+        color: dark ? KisakiColors.nightElevated : KisakiColors.paperElevated,
         borderRadius: BorderRadius.circular(Radii.sm),
+        border: Border.all(color: outline, width: 1),
         boxShadow: Elev.overlay(dark),
       ),
-      textStyle: const TextStyle(fontSize: 11.5, color: Colors.white),
-      waitDuration: const Duration(milliseconds: 380),
+      textStyle: TextStyle(
+        fontSize: 12,
+        color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+      ),
+      waitDuration: const Duration(milliseconds: 420),
     ),
     dividerTheme: DividerThemeData(
       color: outline,
@@ -275,14 +295,17 @@ ThemeData _theme(Brightness brightness) {
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((s) =>
           s.contains(WidgetState.selected)
-              ? Colors.white
-              : (dark ? Colors.white70 : Colors.white)),
+              ? onPrimary
+              : (dark ? const Color(0xFFCBBFC6) : const Color(0xFF6B5F66))),
       trackColor: WidgetStateProperty.resolveWith((s) =>
           s.contains(WidgetState.selected)
               ? primary
-              : (dark ? Colors.white24 : const Color(0xFFD5CEC4))),
-      trackOutlineColor:
-          WidgetStateProperty.resolveWith((_) => Colors.transparent),
+              : (dark ? const Color(0xFF2B242B) : const Color(0xFFF0E9EE))),
+      trackOutlineColor: WidgetStateProperty.resolveWith((s) =>
+          s.contains(WidgetState.selected)
+              ? Colors.transparent
+              : (dark ? const Color(0xFF7B6F76) : const Color(0xFF9C8F96))),
+      trackOutlineWidth: WidgetStateProperty.all(1.3),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       linearMinHeight: 5,
@@ -291,12 +314,12 @@ ThemeData _theme(Brightness brightness) {
       color: primary,
     ),
     scrollbarTheme: ScrollbarThemeData(
-      thickness: WidgetStateProperty.all(6),
+      thickness: WidgetStateProperty.all(5),
       radius: const Radius.circular(999),
       thumbColor: WidgetStateProperty.all(
         dark
-            ? Colors.white.withValues(alpha: 0.20)
-            : const Color(0xFF16151A).withValues(alpha: 0.16),
+            ? secondary.withValues(alpha: 0.24)
+            : primary.withValues(alpha: 0.28),
       ),
     ),
     listTileTheme: ListTileThemeData(
@@ -307,14 +330,14 @@ ThemeData _theme(Brightness brightness) {
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: Colors.transparent,
       indicatorColor: Colors.transparent,
-      selectedIconTheme: IconThemeData(color: primary),
+      selectedIconTheme: const IconThemeData(color: primary),
       unselectedIconTheme: IconThemeData(
-          color: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
+          color: dark ? KisakiColors.nightInkMedium : KisakiColors.inkMedium),
     ),
     tabBarTheme: TabBarThemeData(
-      labelColor: primary,
+      labelColor: textAccent,
       unselectedLabelColor:
-          dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft,
+          dark ? KisakiColors.nightInkMedium : KisakiColors.inkMedium,
       indicatorSize: TabBarIndicatorSize.label,
       dividerColor: Colors.transparent,
       labelStyle: Type.label,

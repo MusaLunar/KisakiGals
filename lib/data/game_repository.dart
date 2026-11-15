@@ -1,9 +1,12 @@
 /// 游戏仓储：games/game_sources/game_tags/game_sessions/daily_stats 的访问与聚合。
 library;
 
+import 'dart:io';
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../core/constants.dart';
+import '../core/media_paths.dart';
 import '../core/utils.dart';
 import '../services/device.dart';
 import 'models.dart';
@@ -440,5 +443,76 @@ class GameRepository implements GameRepositoryLike {
   Future<int> gameCount() async {
     final r = await db.rawQuery('SELECT COUNT(*) AS c FROM games');
     return (r.first['c'] ?? 0) as int;
+  }
+
+  // ---------- 游玩路径 (Play Path) ----------
+
+  /// 查询某部游戏的游玩路径节点（按创建时间倒序，最新时刻在最前）。
+  Future<List<PlayPathNode>> playPathOf(int gameId) async {
+    final rows = await db.query(
+      'play_path_nodes',
+      where: 'game_id = ?',
+      whereArgs: [gameId],
+      orderBy: 'created_at DESC, id DESC',
+    );
+    return rows.map(PlayPathNode.fromRow).toList();
+  }
+
+  /// 插入一条游玩路径节点（截图/文字笔记）。
+  Future<PlayPathNode> addPlayPathNode({
+    required int gameId,
+    String imagePath = '',
+    String note = '',
+    DateTime? createdAt,
+  }) async {
+    final now = createdAt ?? DateTime.now();
+    final node = PlayPathNode(
+      gameId: gameId,
+      imagePath: MediaPaths.instance.toStored(imagePath),
+      note: note,
+      createdAt: now,
+      updatedAt: now,
+    );
+    final id = await db.insert('play_path_nodes', node.toRow());
+    node.id = id;
+    return node;
+  }
+
+  /// 更新节点笔记或关联图片。
+  Future<void> updatePlayPathNode(PlayPathNode node) async {
+    node.updatedAt = DateTime.now();
+    await db.update(
+      'play_path_nodes',
+      node.toRow(),
+      where: 'id = ?',
+      whereArgs: [node.id],
+    );
+  }
+
+  /// 删除节点，并按需清理本地保存的截图文件。
+  Future<void> deletePlayPathNode(int id, {bool deleteFile = true}) async {
+    String? storedPath;
+    if (deleteFile) {
+      final rows = await db.query(
+        'play_path_nodes',
+        columns: ['image_path'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        storedPath = rows.first['image_path'] as String?;
+      }
+    }
+    await db.delete('play_path_nodes', where: 'id = ?', whereArgs: [id]);
+    if (deleteFile && storedPath != null && storedPath.isNotEmpty) {
+      try {
+        final resolved = MediaPaths.instance.resolveStored(storedPath);
+        if (resolved.isNotEmpty) {
+          final f = File(resolved);
+          if (f.existsSync()) f.deleteSync();
+        }
+      } catch (_) {}
+    }
   }
 }

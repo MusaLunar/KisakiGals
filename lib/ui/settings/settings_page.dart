@@ -61,8 +61,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
     return KPage(
       maxContentWidth: 1440,
       title: '设置',
@@ -70,44 +68,26 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 分区导航
+          // Windows 11 设置左侧 NavigationViewItem 列表
           SizedBox(
-            width: 156,
+            width: 168,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (var i = 0; i < _sections.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: Gap.xs),
-                    child: ListTile(
-                      dense: true,
-                      selected: _section == i,
-                      selectedColor: scheme.primary,
-                      textColor: scheme.onSurface,
-                      iconColor: scheme.onSurfaceVariant,
-                      selectedTileColor: scheme.primary
-                          .withValues(alpha: dark ? 0.20 : 0.11),
-                      shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(Radii.md)),
-                      leading: Icon(_sections[i].$1, size: 19),
-                      title: Text(
-                        _sections[i].$2,
-                        style: Type.label.copyWith(
-                            fontWeight: _section == i
-                                ? FontWeight.w700
-                                : FontWeight.w500),
-                      ),
-                      onTap: () {
-                        setState(() => _section = i);
-                        ref.read(settingsSectionProvider.notifier).state = i;
-                      },
-                    ),
+                  _SettingsNavItem(
+                    icon: _sections[i].$1,
+                    label: _sections[i].$2,
+                    selected: _section == i,
+                    onTap: () {
+                      setState(() => _section = i);
+                      ref.read(settingsSectionProvider.notifier).state = i;
+                    },
                   ),
               ],
             ),
           ),
-          const VerticalDivider(width: Gap.xl),
+          const SizedBox(width: Gap.xl),
           // 内容
           Expanded(
             child: FadeThroughSwitcher(
@@ -137,6 +117,104 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 // ---------- 通用控件 ----------
 
 /// 设置分组：分区标题 + 卡片（组内行间距 8、组间间距 20）。
+class _SettingsNavItem extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SettingsNavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  State<_SettingsNavItem> createState() => _SettingsNavItemState();
+}
+
+class _SettingsNavItemState extends State<_SettingsNavItem> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final hoverBg = dark
+        ? KisakiColors.m3Lavender.withValues(alpha: 0.08)
+        : KisakiColors.m3Rose.withValues(alpha: 0.08);
+    final accentInk = KisakiColors.roseInk(dark);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.enter,
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: widget.selected
+                  ? null
+                  : (_hover ? hoverBg : Colors.transparent),
+              gradient: widget.selected
+                  ? LinearGradient(
+                      colors: [
+                        KisakiColors.m3Rose
+                            .withValues(alpha: dark ? 0.24 : 0.32),
+                        KisakiColors.m3Lavender
+                            .withValues(alpha: dark ? 0.20 : 0.30),
+                      ],
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(Radii.full),
+              border: widget.selected
+                  ? Border.all(
+                      color: KisakiColors.m3Rose
+                          .withValues(alpha: dark ? 0.36 : 0.42),
+                      width: 1,
+                    )
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  widget.icon,
+                  size: 17,
+                  color: widget.selected
+                      ? accentInk
+                      : scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.label.copyWith(
+                      fontWeight:
+                          widget.selected ? FontWeight.w600 : FontWeight.w400,
+                      color: widget.selected
+                          ? scheme.onSurface
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class SettingsGroup extends StatelessWidget {
   final String title;
   final List<Widget> children;
@@ -144,6 +222,7 @@ class SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -154,7 +233,15 @@ class SettingsGroup extends StatelessWidget {
           child: Column(
             children: [
               for (var i = 0; i < children.length; i++) ...[
-                if (i > 0) const SizedBox(height: Gap.sm),
+                if (i > 0)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: Elev.border(dark),
+                    ),
+                  ),
                 children[i],
               ],
             ],
@@ -243,6 +330,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
   bool _focusOnGameExit = true;
   String _close = 'exit';
   String _tracking = 'foreground';
+  String _screenshotHotkey = 'F12';
   String _nsfw = 'blur';
   double _nsfwBlur = 12;
   double _bgBlur = 14;
@@ -273,6 +361,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
         await s.getBool(SettingsStore.kFocusOnGameExit, def: true);
     final close = await s.getString(SettingsStore.kCloseBehavior, 'exit');
     final tracking = await s.getString(SettingsStore.kTrackingMode, 'foreground');
+    final hotkey = await s.getString(SettingsStore.kScreenshotHotkey, 'F12');
     final nsfw = await s.getString(SettingsStore.kNsfwMode, 'blur');
     final nsfwBlur = await s.getDouble('nsfw.blur', 12);
     final bgBlur = await s.getDouble('detail.bg_blur', 14);
@@ -286,6 +375,7 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
       _focusOnGameExit = focusOnExit;
       _close = close;
       _tracking = tracking;
+      _screenshotHotkey = hotkey;
       _nsfw = nsfw;
       _nsfwBlur = nsfwBlur;
       _bgBlur = bgBlur;
@@ -437,6 +527,33 @@ class _SystemSectionState extends ConsumerState<_SystemSection> {
                 await AppServices.I.settings
                     .setString(SettingsStore.kTrackingMode, v.first);
                 setState(() => _tracking = v.first);
+              },
+            ),
+          ),
+          SettingRow(
+            title: '游玩路径截图热键',
+            subtitle: '游戏运行时按下所选快捷键可截取游戏窗口画面并保存至「游玩路径」',
+            trailing: SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'F12', label: Text('F12')),
+                ButtonSegment(value: 'F11', label: Text('F11')),
+                ButtonSegment(value: 'F9', label: Text('F9')),
+                ButtonSegment(value: 'PrintScreen', label: Text('PrtSc')),
+                ButtonSegment(value: 'disabled', label: Text('关闭')),
+              ],
+              selected: {
+                const ['F12', 'F11', 'F9', 'PrintScreen', 'disabled']
+                        .contains(_screenshotHotkey)
+                    ? _screenshotHotkey
+                    : 'F12',
+              },
+              onSelectionChanged: (v) async {
+                final key = v.first;
+                await AppServices.I.settings
+                    .setString(SettingsStore.kScreenshotHotkey, key);
+                AppServices.I.tracker.reloadCaptureHotkey(key);
+                setState(() => _screenshotHotkey = key);
               },
             ),
           ),

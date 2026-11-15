@@ -8,6 +8,7 @@
 library;
 
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -663,110 +664,186 @@ class _LeadFeatureCardState extends ConsumerState<_LeadFeatureCard> {
     final cyanInk = KisakiColors.temporalInk(dark);
     final ratingColor = KisakiColors.ratingInk(dark);
 
+    final cardBg = dark ? KisakiColors.nightCard : Colors.white;
+    final hasCover = game.coverPath.isNotEmpty;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: KCard(
         onTap: widget.onOpen,
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.zero,
         borderColor: running
             ? cyanInk.withValues(alpha: 0.55)
-            : scheme.primary.withValues(alpha: dark ? 0.32 : 0.22),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // 2:3 杂志封面图版（悬停时内部微缩放 1.035x）
-            SizedBox(
-              width: 96,
-              height: 144,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(Radii.sm),
-                child: AnimatedScale(
-                  scale: _hover ? Motion.coverHoverScale : 1.0,
-                  duration: Motion.normal,
-                  curve: Motion.enter,
-                  child: CoverImage(
-                    path: game.coverPath,
-                    nsfw: game.nsfw,
-                    borderRadius: BorderRadius.circular(Radii.sm),
+            : (_hover ? scheme.primary.withValues(alpha: 0.35) : null),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(Radii.lg - 1),
+          child: Stack(
+            children: [
+              // M3 三色调光晕氛围底（#DA839C / #D0C0F5 / #EDABA0）
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          KisakiColors.m3Rose
+                              .withValues(alpha: dark ? 0.14 : 0.16),
+                          KisakiColors.m3Lavender
+                              .withValues(alpha: dark ? 0.12 : 0.14),
+                          KisakiColors.m3Peach
+                              .withValues(alpha: dark ? 0.10 : 0.12),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    children: [
-                      KBadge(
-                        text: running ? '正在运行' : game.playStatus.label,
-                        color: running ? cyanInk : scheme.primary,
-                        icon: running
-                            ? Icons.bolt_rounded
-                            : Icons.bookmark_rounded,
-                      ),
-                      if (game.userRating > 0) ...[
-                        const SizedBox(width: 6),
-                        KBadge(
-                          text: game.userRating.toStringAsFixed(1),
-                          color: ratingColor,
-                          icon: Icons.star_rounded,
+              if (hasCover)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: RepaintBoundary(
+                      child: Opacity(
+                        opacity: dark ? 0.22 : 0.14,
+                        child: ImageFiltered(
+                          imageFilter: ImageFilter.blur(
+                            sigmaX: 28,
+                            sigmaY: 28,
+                            tileMode: TileMode.clamp,
+                          ),
+                          child: CoverImage(
+                            path: game.coverPath,
+                            nsfw: false,
+                            borderRadius: BorderRadius.zero,
+                          ),
                         ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    game.displayName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Type.title.copyWith(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                      color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    [
-                      if (game.developer.isNotEmpty) game.developer,
-                      if (game.totalSeconds > 0)
-                        '累计 ${fmtDuration(game.totalSeconds)}',
-                      if (game.lastPlayedAt != null)
-                        '上次 ${fmtRelativeShort(game.lastPlayedAt!)}',
-                    ].join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Type.caption.copyWith(
-                      color: scheme.onSurfaceVariant,
+                ),
+              if (hasCover)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            cardBg.withValues(alpha: dark ? 0.55 : 0.62),
+                            cardBg.withValues(alpha: dark ? 0.90 : 0.94),
+                            cardBg,
+                          ],
+                          stops: const [0.0, 0.55, 1.0],
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      KPill(
-                        label: running ? '正在游玩' : '立即启动',
-                        icon: running
-                            ? Icons.sports_esports_rounded
-                            : Icons.play_arrow_rounded,
-                        color: running ? cyanInk : scheme.primary,
-                        onTap: running ? widget.onOpen : widget.onContinue,
+                ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // 2:3 封面图版（悬停时内部微缩放）
+                    SizedBox(
+                      width: 96,
+                      height: 144,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(Radii.md),
+                        child: AnimatedScale(
+                          scale: _hover ? Motion.coverHoverScale : 1.0,
+                          duration: Motion.normal,
+                          curve: Motion.enter,
+                          child: CoverImage(
+                            path: game.coverPath,
+                            nsfw: game.nsfw,
+                            borderRadius: BorderRadius.circular(Radii.md),
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      KPill(
-                        label: '作品详情',
-                        filled: false,
-                        onTap: widget.onOpen,
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            children: [
+                              KBadge(
+                                text: running ? '正在运行' : game.playStatus.label,
+                                color: running ? cyanInk : scheme.primary,
+                                icon: running
+                                    ? Icons.bolt_rounded
+                                    : Icons.bookmark_rounded,
+                              ),
+                              if (game.userRating > 0) ...[
+                                const SizedBox(width: 6),
+                                KBadge(
+                                  text: game.userRating.toStringAsFixed(1),
+                                  color: ratingColor,
+                                  icon: Icons.star_rounded,
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            game.displayName,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Type.title.copyWith(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            [
+                              if (game.developer.isNotEmpty) game.developer,
+                              if (game.totalSeconds > 0)
+                                '累计 ${fmtDuration(game.totalSeconds)}',
+                              if (game.lastPlayedAt != null)
+                                '上次 ${fmtRelativeShort(game.lastPlayedAt!)}',
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Type.caption.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              KPill(
+                                label: running ? '正在游玩' : '立即启动',
+                                icon: running
+                                    ? Icons.sports_esports_rounded
+                                    : Icons.play_arrow_rounded,
+                                color: running ? cyanInk : scheme.primary,
+                                onTap:
+                                    running ? widget.onOpen : widget.onContinue,
+                              ),
+                              const SizedBox(width: 8),
+                              KPill(
+                                label: '作品详情',
+                                filled: false,
+                                onTap: widget.onOpen,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

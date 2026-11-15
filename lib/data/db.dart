@@ -4,7 +4,7 @@ library;
 
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-const int kSchemaVersion = 4;
+const int kSchemaVersion = 5;
 
 /// 打开应用数据库。[dbPath] 为完整文件路径（不做二次拼接）。
 Future<Database> openAppDb(String dbPath, {Database? inMemoryForTest}) async {
@@ -52,6 +52,21 @@ Future<Database> openAppDb(String dbPath, {Database? inMemoryForTest}) async {
           await db.execute(
               "ALTER TABLE games ADD COLUMN save_path TEXT NOT NULL DEFAULT ''");
         }
+        // v5：游玩路径节点（游戏过程截图 + 文本笔记）
+        if (oldV < 5) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS play_path_nodes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+              image_path TEXT NOT NULL DEFAULT '',
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL DEFAULT ''
+            )
+          ''');
+          await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_play_path_game ON play_path_nodes(game_id, created_at DESC)');
+        }
       },
       onOpen: (db) async {
         for (final idx in kPerformanceIndexes) {
@@ -71,6 +86,7 @@ const List<String> kPerformanceIndexes = [
   'CREATE INDEX IF NOT EXISTS idx_games_fav ON games(is_favorite)',
   'CREATE INDEX IF NOT EXISTS idx_sources_game ON game_sources(game_id)',
   'CREATE INDEX IF NOT EXISTS idx_sources_lookup ON game_sources(source, source_id)',
+  'CREATE INDEX IF NOT EXISTS idx_play_path_game ON play_path_nodes(game_id, created_at DESC)',
 ];
 
 const List<String> kCreateTables = [
@@ -158,4 +174,14 @@ const List<String> kCreateTables = [
     extra TEXT NOT NULL DEFAULT '',
     verified_at TEXT NOT NULL DEFAULT ''
   )''',
+  '''
+  CREATE TABLE play_path_nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    image_path TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+  )''',
+  'CREATE INDEX idx_play_path_game ON play_path_nodes(game_id, created_at DESC)',
 ];

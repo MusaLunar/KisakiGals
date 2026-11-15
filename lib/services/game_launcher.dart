@@ -11,7 +11,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:url_launcher/url_launcher.dart';
 
 class LaunchResult {
   final bool ok;
@@ -135,40 +134,6 @@ class GameLauncher {
   static Future<void> openDirectory(String dir) async {
     if (dir.isEmpty) return;
     await Process.run('explorer.exe', [dir.replaceAll('/', r'\')]);
-  }
-
-  static Future<void> openUrl(String url) async {
-    final trimmed = url.trim();
-    if (trimmed.isEmpty) return;
-    final uri = Uri.tryParse(trimmed);
-    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  static Future<void> deleteToRecycleBin(String path) async {
-    final trimmed = path.trim();
-    if (trimmed.isEmpty) return;
-    final normPath = trimmed.replaceAll('/', r'\');
-    final process = await Process.start('powershell', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      r'''
-Add-Type -AssemblyName Microsoft.VisualBasic
-$target = [Console]::In.ReadLine()
-if ([string]::IsNullOrWhiteSpace($target)) { exit 0 }
-if ([System.IO.Directory]::Exists($target)) {
-  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($target, 'OnlyErrorDialogs', 'SendToRecycleBin')
-} elseif ([System.IO.File]::Exists($target)) {
-  [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($target, 'OnlyErrorDialogs', 'SendToRecycleBin')
-}
-''',
-    ]);
-    process.stdin.writeln(normPath);
-    await process.stdin.flush();
-    await process.stdin.close();
-    await process.exitCode;
   }
 
   /// 从游戏目录自动识别可执行文件（参考 ChronoTide GameLauncherDetector）：

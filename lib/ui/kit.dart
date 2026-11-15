@@ -1,10 +1,4 @@
-/// KisakiGals UI 组件库 (Kit) — 誌面 (Shimen) 视觉小说杂志特辑版面系统.
-///
-/// 核心准则：
-/// - 铜版纸象牙白 / 凹版暗墨底版 + CMYK 专色职能分工；
-/// - 杜绝 eyebrow/kicker 眉标杂音，采用杂志栏头定位标尺与 1px 裁切细线；
-/// - 全量接入 FluidPressable (t=0 瞬发 + 10px 迟滞边界 + 速度继承弹簧)；
-/// - 时间、评分与统计数字强制使用 Tabular 等宽字形对齐。
+/// KisakiGals UI 组件库 (Kit) — Microsoft Fluent 2 (Windows 11 / WinUI 3) 桌面控件规范.
 library;
 
 import 'package:flutter/material.dart';
@@ -12,12 +6,12 @@ import 'package:flutter/services.dart';
 
 import 'design.dart';
 import 'theme.dart';
-import 'widgets/common.dart' show CoverImage, cachedFileExists;
+import 'widgets/common.dart' show CoverImage;
 export 'widgets/common.dart' show invalidateFileExistsCache;
 
-// ============================ 1. 杂志版心骨架 ============================
+// ============================ 1. Fluent 2 页面骨架 ============================
 
-/// 页面骨架：杂志刊头式顶栏 + 1px 裁切细线 + 宽幅版心
+/// 页面骨架：WinUI 3 PageHeader + 宽幅内容画布
 class KPage extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -49,34 +43,35 @@ class KPage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(28, 18, 28, 14),
+          padding: const EdgeInsets.fromLTRB(28, 20, 28, 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // 专色洋红书眉定位标尺
-              Container(
-                width: 3.5,
-                height: subtitle != null || subtitleWidget != null ? 36 : 24,
-                margin: const EdgeInsets.only(right: 12),
-                decoration: BoxDecoration(
-                  color: scheme.primary,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
               if (leadingIcon != null) ...[
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 38,
+                  height: 38,
                   margin: const EdgeInsets.only(right: 12),
                   decoration: BoxDecoration(
-                    color: scheme.primary.withValues(alpha: dark ? 0.18 : 0.10),
-                    borderRadius: BorderRadius.circular(Radii.sm),
+                    gradient: LinearGradient(
+                      colors: [
+                        KisakiColors.m3Rose
+                            .withValues(alpha: dark ? 0.24 : 0.28),
+                        KisakiColors.m3Lavender
+                            .withValues(alpha: dark ? 0.20 : 0.28),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(Radii.md),
                     border: Border.all(
-                      color: scheme.primary.withValues(alpha: 0.28),
+                      color: KisakiColors.m3Rose.withValues(alpha: 0.34),
                       width: 1,
                     ),
                   ),
-                  child: Icon(leadingIcon, size: 18, color: scheme.primary),
+                  child: Icon(
+                    leadingIcon,
+                    size: 19,
+                    color: KisakiColors.roseInk(dark),
+                  ),
                 ),
               ],
               Expanded(
@@ -90,7 +85,7 @@ class KPage extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: Type.display.copyWith(
                         color: scheme.onSurface,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     if (subtitleWidget != null) ...[
@@ -118,14 +113,6 @@ class KPage extends StatelessWidget {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Divider(
-            color: Elev.border(dark),
-            height: 1,
-            thickness: 1,
-          ),
-        ),
         Expanded(
           child: Center(
             child: ConstrainedBox(
@@ -136,7 +123,7 @@ class KPage extends StatelessWidget {
                   ? KScrollArea(child: child)
                   : Padding(
                       padding: const EdgeInsets.fromLTRB(
-                          Gap.pageH, 14, Gap.pageH, 0),
+                          Gap.pageH, 8, Gap.pageH, 0),
                       child: child,
                     ),
             ),
@@ -243,7 +230,7 @@ class KSectionSlot extends StatelessWidget {
       height: 36, child: Center(child: child ?? const SizedBox.shrink()));
 }
 
-/// 杂志分栏标题：带 2.5px 专色标尺与延展细线
+/// Fluent 2 分区标题：简洁 BodyStrong 排印 + 可选左指示条
 class KSectionTitle extends StatelessWidget {
   final String text;
   final Widget? trailing;
@@ -255,7 +242,7 @@ class KSectionTitle extends StatelessWidget {
     this.text, {
     super.key,
     this.trailing,
-    this.padding = const EdgeInsets.only(bottom: 12),
+    this.padding = const EdgeInsets.only(bottom: 10),
     this.reserveSlot = false,
     this.accentColor,
   });
@@ -263,35 +250,31 @@ class KSectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final tickColor = accentColor ?? scheme.primary;
 
     return Padding(
       padding: padding,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 3,
-            height: 14,
-            margin: const EdgeInsets.only(right: 8),
-            decoration: BoxDecoration(
-              color: tickColor,
-              borderRadius: BorderRadius.circular(1.5),
+          if (accentColor != null)
+            Container(
+              width: 3,
+              height: 14,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: accentColor,
+                borderRadius: BorderRadius.circular(99),
+              ),
             ),
-          ),
-          Text(
-            text,
-            style: Type.section.copyWith(
-              color: scheme.onSurface,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 12),
           Expanded(
-            child: Container(
-              height: 1,
-              color: Elev.border(dark),
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Type.section.copyWith(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           if (trailing != null) ...[
@@ -305,9 +288,9 @@ class KSectionTitle extends StatelessWidget {
   }
 }
 
-// ============================ 2. 纸张图版与统计格 ============================
+// ============================ 2. Fluent 2 卡片与数据卡 ============================
 
-/// 全应用核心图版卡片原语（严格遵循单一海拔原则：1px 裁切细线或浮层阴影）
+/// 全应用核心 Fluent 2 卡片原语 (`CardBackgroundFillColorDefault` + 1px Surface Stroke)
 class KCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
@@ -342,7 +325,7 @@ class KCard extends StatelessWidget {
     final highContrast = MediaQuery.maybeHighContrastOf(context) ?? false;
     final scheme = Theme.of(context).colorScheme;
     final pad = dense ? Gap.cardPaddingDense : padding;
-    final fill = color ?? (dark ? KisakiColors.nightCard : Colors.white);
+    final fill = color ?? KisakiColors.elevatedSurface(dark);
 
     if (glass) {
       final surface = AppleGlassSurface(
@@ -400,7 +383,7 @@ class KCard extends StatelessWidget {
   }
 }
 
-/// 杂志数据格 (Bento Stat Cell)：支持 CMYK 专色标尺与 Tabular 大数字
+/// Fluent 2 KPI 数据格
 class KStat extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -431,29 +414,25 @@ class KStat extends StatelessWidget {
       glass: glass,
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(Radii.md),
-              color: color.withValues(alpha: dark ? 0.16 : 0.10),
-              border: Border.all(
-                color: color.withValues(alpha: dark ? 0.32 : 0.22),
-                width: 1,
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(Radii.sm),
+                  color: color.withValues(alpha: dark ? 0.16 : 0.10),
+                ),
+                child: Icon(icon, size: 15, color: color),
               ),
-            ),
-            child: Icon(icon, size: 20, color: color),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -462,37 +441,38 @@ class KStat extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 2),
-                AnimatedCount(
-                  text: value,
-                  style: Type.numeric.copyWith(
-                    fontSize: 17,
-                    color: dark ? KisakiColors.nightInk : KisakiColors.ink,
-                  ),
-                ),
-                if (hint != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    hint!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Type.micro.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          AnimatedCount(
+            text: value,
+            style: Type.numeric.copyWith(
+              fontSize: 21,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
             ),
           ),
+          if (hint != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              hint!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Type.micro.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-// ============================ 3. 操作控件 ============================
+// ============================ 3. Fluent 2 操作控件 ============================
 
-/// 响应式工具栏
+/// 响应式 CommandBar 工具栏
 class KToolbar extends StatelessWidget {
   final List<Widget> children;
   const KToolbar({super.key, required this.children});
@@ -500,7 +480,7 @@ class KToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: Gap.md),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 780;
@@ -522,7 +502,7 @@ class KToolbar extends StatelessWidget {
   }
 }
 
-/// 图标动作按钮：1px 细线框 + 瞬发按压反馈
+/// WinUI 3 `AppBarButton` 图标动作按钮：悬停透明浮起，无冗余边框
 class KIconAction extends StatefulWidget {
   final IconData icon;
   final String tooltip;
@@ -582,43 +562,39 @@ class _KIconActionState extends State<KIconAction> {
               child: AnimatedContainer(
                 duration: Motion.fast,
                 curve: Motion.enter,
-                width: 36,
-                height: 36,
-                margin: const EdgeInsets.only(left: 6),
+                width: 34,
+                height: 34,
+                margin: const EdgeInsets.only(left: 4),
                 decoration: BoxDecoration(
                   color: widget.active
-                      ? scheme.primary.withValues(alpha: dark ? 0.22 : 0.12)
-                      : (_focused
-                          ? scheme.primary.withValues(alpha: dark ? 0.16 : 0.08)
-                          : (_hover
-                              ? (dark
-                                  ? Colors.white.withValues(alpha: 0.07)
-                                  : const Color(0xFF16151A)
-                                      .withValues(alpha: 0.05))
-                              : Colors.transparent)),
-                  borderRadius: BorderRadius.circular(Radii.md),
+                      ? scheme.primary.withValues(alpha: dark ? 0.20 : 0.12)
+                      : (_hover
+                          ? (dark
+                              ? Colors.white.withValues(alpha: 0.07)
+                              : Colors.black.withValues(alpha: 0.045))
+                          : Colors.transparent),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                   border: Border.all(
-                    color: widget.active || _focused
-                        ? scheme.primary.withValues(alpha: 0.55)
-                        : (_hover ? Elev.border(dark) : Colors.transparent),
-                    width: 1,
+                    color: _focused
+                        ? scheme.primary.withValues(alpha: 0.75)
+                        : (widget.active
+                            ? scheme.primary.withValues(alpha: 0.35)
+                            : Colors.transparent),
+                    width: _focused ? 1.5 : 1,
                   ),
-                  boxShadow: widget.active || _focused
-                      ? Elev.focusGlow(dark, scheme.primary)
-                      : null,
                 ),
                 child: AnimatedSwitcher(
                   duration: Motion.fast,
-                  switchInCurve: Motion.spring,
+                  switchInCurve: Motion.enter,
                   switchOutCurve: Motion.exit,
                   transitionBuilder: (child, anim) => ScaleTransition(
-                    scale: Tween<double>(begin: 0.72, end: 1.0).animate(anim),
+                    scale: Tween<double>(begin: 0.78, end: 1.0).animate(anim),
                     child: FadeTransition(opacity: anim, child: child),
                   ),
                   child: Icon(
                     widget.icon,
                     key: ValueKey<int>(Object.hash(widget.icon, widget.active)),
-                    size: 18,
+                    size: 17,
                     color: !widget.enabled
                         ? scheme.onSurfaceVariant.withValues(alpha: 0.38)
                         : (widget.active
@@ -635,7 +611,7 @@ class _KIconActionState extends State<KIconAction> {
   }
 }
 
-/// 索引筛选标签
+/// WinUI 3 筛选标签 / 切换胶囊
 class KChip extends StatefulWidget {
   final String label;
   final bool selected;
@@ -664,6 +640,10 @@ class _KChipState extends State<KChip> {
     final scheme = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
     final color = widget.color ?? scheme.primary;
+    final ink = _readableAccent(color, dark);
+    final ctrlFill = dark ? KisakiColors.nightContainer : Colors.white;
+    final ctrlHover =
+        dark ? KisakiColors.nightElevated : const Color(0xFFF8F2F6);
 
     return MouseRegion(
       cursor:
@@ -680,19 +660,16 @@ class _KChipState extends State<KChip> {
           child: AnimatedContainer(
             duration: Motion.fast,
             curve: Motion.enter,
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5.5),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: widget.selected
-                  ? color.withValues(alpha: dark ? 0.22 : 0.12)
-                  : (_hover
-                      ? (dark ? Colors.white : const Color(0xFF16151A))
-                          .withValues(alpha: 0.05)
-                      : Colors.transparent),
-              borderRadius: BorderRadius.circular(Radii.sm),
+                  ? color.withValues(alpha: dark ? 0.26 : 0.24)
+                  : (_hover ? ctrlHover : ctrlFill),
+              borderRadius: BorderRadius.circular(Radii.full),
               border: Border.all(
                 color: widget.selected
-                    ? color.withValues(alpha: 0.65)
-                    : Elev.border(dark),
+                    ? color.withValues(alpha: 0.60)
+                    : Elev.controlBorder(dark),
                 width: 1,
               ),
             ),
@@ -702,17 +679,17 @@ class _KChipState extends State<KChip> {
                 if (widget.icon != null) ...[
                   Icon(
                     widget.icon,
-                    size: 13,
-                    color: widget.selected ? color : scheme.onSurfaceVariant,
+                    size: 13.5,
+                    color: widget.selected ? ink : scheme.onSurfaceVariant,
                   ),
                   const SizedBox(width: 5),
                 ],
                 Text(
                   widget.label,
                   style: Type.caption.copyWith(
-                    color: widget.selected ? color : scheme.onSurfaceVariant,
+                    color: widget.selected ? ink : scheme.onSurface,
                     fontWeight:
-                        widget.selected ? FontWeight.w700 : FontWeight.w500,
+                        widget.selected ? FontWeight.w600 : FontWeight.w500,
                   ),
                 ),
               ],
@@ -724,7 +701,15 @@ class _KChipState extends State<KChip> {
   }
 }
 
-/// 核心动作按钮：支持实心专色洋红与 1px 裁切线框态
+Color _readableAccent(Color base, bool dark) {
+  if (dark) return base;
+  if (ThemeData.estimateBrightnessForColor(base) == Brightness.dark) {
+    return base;
+  }
+  return Color.lerp(base, const Color(0xFF2B0E1D), 0.44)!;
+}
+
+/// Material Design 3 Filled Stadium Pill (`filled: true`) & Outlined Tonal Pill (`filled: false`)
 class KPill extends StatefulWidget {
   final String label;
   final IconData? icon;
@@ -747,6 +732,7 @@ class KPill extends StatefulWidget {
 
 class _KPillState extends State<KPill> {
   bool _hover = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -760,52 +746,100 @@ class _KPillState extends State<KPill> {
         : Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(widget.icon, size: 16),
+              Icon(widget.icon, size: 15),
               const SizedBox(width: 7),
               Text(widget.label, style: Type.label),
             ],
           );
 
-    final bgColor = widget.filled
-        ? primary
-        : (_hover
-            ? primary.withValues(alpha: dark ? 0.16 : 0.08)
-            : Colors.transparent);
-    final fgColor = widget.filled
-        ? scheme.onPrimary
-        : (widget.color ?? scheme.onSurface);
-    final borderColor = widget.filled
-        ? Colors.transparent
-        : (_hover
-            ? primary.withValues(alpha: dark ? 0.55 : 0.42)
-            : Elev.border(dark));
+    Color bgColor;
+    Color fgColor;
+    Color borderColor;
+    List<BoxShadow>? shadows;
+
+    if (widget.filled) {
+      final hoverTarget = widget.color == null
+          ? Color.lerp(primary, KisakiColors.m3Peach, 0.28)!
+          : Color.lerp(primary, Colors.white, 0.10)!;
+      bgColor = _pressed
+          ? Color.lerp(primary, const Color(0xFF2B0E1D), 0.16)!
+          : (_hover && enabled ? hoverTarget : primary);
+      if (!enabled) {
+        bgColor = primary.withValues(alpha: 0.45);
+      }
+      fgColor = ThemeData.estimateBrightnessForColor(primary) == Brightness.dark
+          ? Colors.white
+          : const Color(0xFF3A0E1E);
+      borderColor = primary.withValues(alpha: dark ? 0.28 : 0.18);
+      shadows = (_hover && enabled)
+          ? Elev.buttonHover(dark, primary)
+          : [
+              BoxShadow(
+                color: primary.withValues(alpha: dark ? 0.22 : 0.16),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ];
+    } else {
+      final restFill = dark ? KisakiColors.nightContainer : Colors.white;
+      final hoverFill =
+          dark ? KisakiColors.nightElevated : const Color(0xFFF8EFF4);
+      final pressFill =
+          dark ? const Color(0xFF262026) : const Color(0xFFF0E5EC);
+      bgColor = _pressed ? pressFill : (_hover && enabled ? hoverFill : restFill);
+      final accentFg =
+          widget.color != null ? _readableAccent(widget.color!, dark) : null;
+      fgColor = accentFg ??
+          (enabled
+              ? scheme.onSurface
+              : scheme.onSurface.withValues(alpha: 0.45));
+      borderColor = _hover && enabled
+          ? (widget.color ?? primary).withValues(alpha: 0.55)
+          : Elev.controlBorder(dark);
+      shadows = [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: dark ? 0.18 : 0.04),
+          blurRadius: 2,
+          offset: const Offset(0, 1),
+        ),
+      ];
+    }
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: enabled ? (_) => setState(() => _hover = true) : null,
-      onExit: enabled ? (_) => setState(() => _hover = false) : null,
-      child: FluidPressable(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: Motion.fast,
-          curve: Motion.enter,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9.5),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(Radii.md),
-            border: Border.all(color: borderColor, width: 1),
-            boxShadow: (widget.filled && _hover && enabled)
-                ? Elev.buttonHover(dark, primary)
-                : null,
-          ),
-          child: DefaultTextStyle(
-            style: Type.label.copyWith(
-              color: fgColor,
-              fontWeight: FontWeight.w700,
+      onExit: enabled
+          ? (_) => setState(() {
+                _hover = false;
+                _pressed = false;
+              })
+          : null,
+      child: Listener(
+        onPointerDown: enabled ? (_) => setState(() => _pressed = true) : null,
+        onPointerUp: enabled ? (_) => setState(() => _pressed = false) : null,
+        onPointerCancel:
+            enabled ? (_) => setState(() => _pressed = false) : null,
+        child: FluidPressable(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.enter,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(Radii.full),
+              border: Border.all(color: borderColor, width: 1),
+              boxShadow: shadows,
             ),
-            child: IconTheme(
-              data: IconThemeData(color: fgColor, size: 16),
-              child: child,
+            child: DefaultTextStyle(
+              style: Type.label.copyWith(
+                color: fgColor,
+                fontWeight: FontWeight.w600,
+              ),
+              child: IconTheme(
+                data: IconThemeData(color: fgColor, size: 15),
+                child: child,
+              ),
             ),
           ),
         ),
@@ -965,7 +999,7 @@ class KSkeletonLines extends StatelessWidget {
   }
 }
 
-/// 印刷专色小徽章
+/// Material Design 3 Tonal 徽章胶囊
 class KBadge extends StatelessWidget {
   final String text;
   final Color? color;
@@ -975,14 +1009,16 @@ class KBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final c = color ?? Theme.of(context).colorScheme.primary;
+    final ink = _readableAccent(c, dark);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(Radii.xs),
+        color: c.withValues(alpha: dark ? 0.18 : 0.20),
+        borderRadius: BorderRadius.circular(Radii.full),
         border: Border.all(
-          color: c.withValues(alpha: 0.28),
+          color: c.withValues(alpha: dark ? 0.30 : 0.34),
           width: 1,
         ),
       ),
@@ -990,14 +1026,14 @@ class KBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 11, color: c),
-            const SizedBox(width: 3.5),
+            Icon(icon, size: 11.5, color: ink),
+            const SizedBox(width: 4),
           ],
           Text(
             text,
             style: Type.micro.copyWith(
-              color: c,
-              fontWeight: FontWeight.w700,
+              color: ink,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -1193,8 +1229,6 @@ class KMediaRow extends StatelessWidget {
     );
   }
 }
-
-bool coverExists(String path) => cachedFileExists(path);
 
 // ============================ 4. 封面图版角标小部件 ============================
 

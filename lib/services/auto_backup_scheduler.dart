@@ -35,8 +35,10 @@ class AutoBackupScheduler {
   /// 启动调度（应用启动时调用一次，幂等）。
   Future<void> start() async {
     final s = AppServices.I.settings;
-    _lastSuccess = _parse(await s.getString(SettingsStore.kBackupLastSuccess, ''));
-    _lastAttempt = _parse(await s.getString(SettingsStore.kBackupLastAttempt, ''));
+    _lastSuccess =
+        parseBackupTimestamp(await s.getString(SettingsStore.kBackupLastSuccess, ''));
+    _lastAttempt =
+        parseBackupTimestamp(await s.getString(SettingsStore.kBackupLastAttempt, ''));
     _suspended = false;
     await _scheduleNext();
   }
@@ -131,15 +133,8 @@ class AutoBackupScheduler {
     _queue = next.catchError((_) {});
     return next;
   }
-
-  static DateTime? _parse(String raw) => parseBackupTimestamp(raw);
 }
 
 /// 最近一次自动备份结果（UI/通知用）
 String lastAutoBackupPath = '';
 String lastAutoBackupError = '';
-
-/// 测试探针：把调度器的纯函数部分暴露出来（不依赖 AppServices）。
-class AutoBackupSchedulerProbe {
-  static DateTime? parse(String raw) => AutoBackupScheduler._parse(raw);
-}

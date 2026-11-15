@@ -997,19 +997,22 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1280),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final tab in ExplorePageTab.values)
-                  _WorkspaceTabPill(
-                    tab: tab,
-                    count: _tabCount(detail, tab),
-                    selected: _activeTab == tab,
-                    onTap: () => setState(() => _activeTab = tab),
-                  ),
-              ],
+            padding: const EdgeInsets.fromLTRB(28, 6, 28, 0),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final tab in ExplorePageTab.values) ...[
+                    _WorkspaceTabPill(
+                      tab: tab,
+                      count: _tabCount(detail, tab),
+                      selected: _activeTab == tab,
+                      onTap: () => setState(() => _activeTab = tab),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1722,7 +1725,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
 
 // ============================ 子组件定义 ============================
 
-class _WorkspaceTabPill extends StatelessWidget {
+class _WorkspaceTabPill extends StatefulWidget {
   final ExplorePageTab tab;
   final int count;
   final bool selected;
@@ -1736,61 +1739,109 @@ class _WorkspaceTabPill extends StatelessWidget {
   });
 
   @override
+  State<_WorkspaceTabPill> createState() => _WorkspaceTabPillState();
+}
+
+class _WorkspaceTabPillState extends State<_WorkspaceTabPill> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
+    final tab = widget.tab;
+    final count = widget.count;
+    final selected = widget.selected;
 
-    return FluidPressable(
-      onTap: onTap,
-      scaleFactor: 0.96,
-      child: AnimatedContainer(
-        duration: Motion.fast,
-        curve: Motion.enter,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? scheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(Radii.sm),
-          border: Border.all(
-            color: selected ? scheme.primary : Elev.border(dark),
-          ),
-          boxShadow: selected ? _boxShadow(1, dark) : const [],
-        ),
-        child: Row(
+    final hoverFill = dark
+        ? KisakiColors.m3Lavender.withValues(alpha: 0.08)
+        : KisakiColors.m3Rose.withValues(alpha: 0.08);
+    final accentInk = KisakiColors.roseInk(dark);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              tab.icon,
-              size: 15,
-              color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              tab.label,
-              style: Type.caption.copyWith(
-                fontWeight: FontWeight.w800,
-                color: selected ? scheme.onPrimary : scheme.onSurface,
+            AnimatedContainer(
+              duration: Motion.fast,
+              curve: Motion.enter,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: selected ? null : (_hover ? hoverFill : Colors.transparent),
+                gradient: selected
+                    ? LinearGradient(
+                        colors: [
+                          KisakiColors.m3Rose
+                              .withValues(alpha: dark ? 0.22 : 0.26),
+                          KisakiColors.m3Lavender
+                              .withValues(alpha: dark ? 0.18 : 0.26),
+                        ],
+                      )
+                    : null,
+                borderRadius: BorderRadius.circular(Radii.full),
               ),
-            ),
-            if (tab != ExplorePageTab.overview && count > 0) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                decoration: BoxDecoration(
-                  color: selected
-                      ? scheme.onPrimary.withValues(alpha: 0.22)
-                      : _surfaceLevel(2, dark),
-                  borderRadius: BorderRadius.circular(Radii.xs),
-                ),
-                child: Text(
-                  tab == ExplorePageTab.download ? '5源' : '$count',
-                  style: Type.mono.copyWith(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: selected ? scheme.onPrimary : scheme.onSurfaceVariant,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    tab.icon,
+                    size: 15,
+                    color: selected
+                        ? accentInk
+                        : (_hover ? scheme.onSurface : scheme.onSurfaceVariant),
                   ),
-                ),
+                  const SizedBox(width: 6),
+                  Text(
+                    tab.label,
+                    style: Type.caption.copyWith(
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color:
+                          selected ? scheme.onSurface : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (tab != ExplorePageTab.overview && count > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: selected
+                            ? scheme.primary.withValues(alpha: dark ? 0.24 : 0.26)
+                            : _surfaceLevel(2, dark),
+                        borderRadius: BorderRadius.circular(Radii.full),
+                      ),
+                      child: Text(
+                        tab == ExplorePageTab.download ? '5源' : '$count',
+                        style: Type.mono.copyWith(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: selected ? accentInk : scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
-            ],
+            ),
+            const SizedBox(height: 3),
+            // M3 胶囊激活指示器
+            AnimatedContainer(
+              duration: Motion.normal,
+              curve: Motion.enter,
+              height: 3,
+              width: selected ? 24 : 0,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [KisakiColors.m3Rose, KisakiColors.m3Lavender],
+                ),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
           ],
         ),
       ),

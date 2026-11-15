@@ -203,9 +203,7 @@ class _RecCard extends ConsumerWidget {
     void add() => ref.read(aiStateProvider.notifier).addRecommendation(rec);
     return KCard(
       flat: true,
-      color: dark
-          ? KisakiColors.nightBg.withValues(alpha: 0.5)
-          : const Color(0xFFFDF6F1),
+      color: dark ? KisakiColors.nightContainer : KisakiColors.paperContainer,
       padding: const EdgeInsets.all(10),
       onTap: st == RecAddState.working ? null : add,
       child: Row(

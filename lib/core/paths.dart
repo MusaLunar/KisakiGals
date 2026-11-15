@@ -17,6 +17,7 @@ class AppPaths {
   String backups; // 备份
   String logs; // 日志
   String plugins; // 插件清单
+  String playPath; // 游玩路径截图
 
   AppPaths._(this.root)
       : dbFile = p.join(root, 'kisakigals.db'),
@@ -24,7 +25,8 @@ class AppPaths {
         cache = p.join(root, 'cache'),
         backups = p.join(root, 'backups'),
         logs = p.join(root, 'logs'),
-        plugins = p.join(root, 'plugins');
+        plugins = p.join(root, 'plugins'),
+        playPath = p.join(root, 'play_path');
 
   static AppPaths? _instance;
 
@@ -40,7 +42,8 @@ class AppPaths {
       paths.cache,
       paths.backups,
       paths.logs,
-      paths.plugins
+      paths.plugins,
+      paths.playPath,
     ]) {
       Directory(d).createSync(recursive: true);
     }

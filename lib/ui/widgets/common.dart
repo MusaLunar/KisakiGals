@@ -7,9 +7,7 @@ import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
 
-import '../../core/constants.dart';
 import '../../core/paths.dart';
 import '../../providers.dart';
 import '../design.dart';
@@ -20,27 +18,6 @@ const double kCoverAspect = 2 / 3;
 
 /// 按 2:3 由宽度算高度（宽 220 → 高 330）。
 double coverHeight(double width) => width / kCoverAspect;
-
-/// 可拖动窗口区域。
-class WindowDragBar extends StatelessWidget {
-  final Widget? child;
-  final double height;
-  const WindowDragBar({super.key, this.child, this.height = 26});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanStart: (_) => windowManager.startDragging(),
-      onDoubleTap: () async {
-        await windowManager.isMaximized()
-            ? windowManager.unmaximize()
-            : windowManager.maximize();
-      },
-      child: SizedBox(height: height, width: double.infinity, child: child),
-    );
-  }
-}
 
 /// 本地图片存在性缓存：避免每帧/每张卡片都做同步 stat。
 final Map<String, bool> _fileExistsCache = {};
@@ -187,49 +164,6 @@ class CoverImage extends ConsumerWidget {
       );
 }
 
-/// 毛玻璃面板。
-class GlassPanel extends StatelessWidget {
-  final Widget child;
-  final BorderRadius borderRadius;
-  final EdgeInsets padding;
-  final Color? tint;
-
-  const GlassPanel({
-    super.key,
-    required this.child,
-    this.borderRadius = const BorderRadius.all(Radius.circular(Radii.xl)),
-    this.padding = const EdgeInsets.all(20),
-    this.tint,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final base = tint ??
-        (dark
-            ? const Color(0xCC161820)
-            : const Color(0xE0FAF7F2));
-    return ClipRRect(
-      borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: base,
-            borderRadius: borderRadius,
-            border: Border.all(
-              color: Elev.border(dark),
-              width: 1,
-            ),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
 /// 评分条（可交互，采用专色铭黄 Y）。
 class RatingBar extends StatelessWidget {
   final double value; // 0-10
@@ -361,35 +295,4 @@ class PlatformRatingChip extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 游戏状态徽标。
-class PlayStatusChip extends StatelessWidget {
-  final PlayStatus status;
-  final bool selected;
-  final VoidCallback? onTap;
-  const PlayStatusChip(this.status,
-      {super.key, this.selected = false, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return FilterChip(
-      label: Text(status.label),
-      selected: selected,
-      onSelected: onTap == null ? null : (_) => onTap!(),
-      avatar: Icon(_icon,
-          size: 16, color: selected ? scheme.onPrimary : scheme.primary),
-      backgroundColor: Colors.transparent,
-      showCheckmark: false,
-    );
-  }
-
-  IconData get _icon => switch (status) {
-        PlayStatus.wish => Icons.star_border_rounded,
-        PlayStatus.playing => Icons.play_circle_outline_rounded,
-        PlayStatus.played => Icons.check_circle_outline_rounded,
-        PlayStatus.onHold => Icons.pause_circle_outline_rounded,
-        PlayStatus.dropped => Icons.highlight_off_rounded,
-      };
 }

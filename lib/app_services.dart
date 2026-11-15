@@ -140,8 +140,6 @@ class AppServices {
     await _flattenLegacyDbDir(s.paths.dbFile);
     s.db = await openAppDb(s.paths.dbFile);
     s.settings = SettingsStore(s.db);
-    s.accounts = AccountStore(s.db);
-    s.tracker = PlaytimeTracker();
 
     // 用户自定义数据目录（影响 covers/cache/backups 位置）
     final customDir = await s.settings.getString(SettingsStore.kDataDir, '');
@@ -167,10 +165,10 @@ class AppServices {
         }
         s.paths = await AppPaths.init(customRoot: customDir);
         s.db = await openAppDb(s.paths.dbFile);
+        s.settings = SettingsStore(s.db);
       }
     }
     s.repo = GameRepository(s.db);
-    s.settings = SettingsStore(s.db);
     s.accounts = AccountStore(s.db);
     s.tracker = PlaytimeTracker();
 

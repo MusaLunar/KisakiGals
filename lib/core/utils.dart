@@ -132,12 +132,6 @@ String jsonEncodeMap(Map<String, dynamic> m) => jsonEncode(m);
 Map<String, dynamic> jsonDecodeMap(String? s) =>
     s == null || s.isEmpty ? <String, dynamic>{} : Map<String, dynamic>.from(jsonDecode(s) as Map);
 
-List<Map<String, dynamic>> jsonDecodeList(String? s) => s == null || s.isEmpty
-    ? <Map<String, dynamic>>[]
-    : (jsonDecode(s) as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
-
 /// 相对时间（统一口径，供主页动态/统计等复用）：
 /// <1 分钟「刚刚」→ <60 分钟「x 分钟前」→ <24 小时「x 小时前」→
 /// <7 天「x 天前」→ 更早用 YYYY-MM-DD。

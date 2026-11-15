@@ -14,14 +14,17 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
+import '../../data/settings_store.dart';
 import '../../providers.dart';
 import '../../scraping/apply.dart';
 import '../../services/game_launch_service.dart';
@@ -53,7 +56,13 @@ const String _kEmptyValue = '—';
 class GameDetailPage extends ConsumerStatefulWidget {
   final int gameId;
   final Game? initial;
-  const GameDetailPage({super.key, required this.gameId, this.initial});
+  final bool scrollToPlayPath;
+  const GameDetailPage({
+    super.key,
+    required this.gameId,
+    this.initial,
+    this.scrollToPlayPath = false,
+  });
 
   @override
   ConsumerState<GameDetailPage> createState() => _GameDetailPageState();
@@ -61,6 +70,30 @@ class GameDetailPage extends ConsumerStatefulWidget {
 
 class _GameDetailPageState extends ConsumerState<GameDetailPage> {
   final ScrollController _scroll = ScrollController();
+  final GlobalKey _playPathKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.scrollToPlayPath) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future<void>.delayed(const Duration(milliseconds: 220), () {
+          if (mounted) _scrollToPlayPath();
+        });
+      });
+    }
+  }
+
+  void _scrollToPlayPath() {
+    final ctx = _playPathKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: Motion.normal,
+      curve: Motion.enter,
+      alignment: 0.08,
+    );
+  }
 
   @override
   void dispose() {
@@ -118,16 +151,21 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
         children: [
           ColoredBox(color: pageBg),
           if (hasBgImage)
-            ImageFiltered(
-              imageFilter: ImageFilter.blur(
-                sigmaX: bgBlur,
-                sigmaY: bgBlur,
-                tileMode: TileMode.clamp,
-              ),
-              child: Image.file(
-                File(bgPath),
-                fit: BoxFit.cover,
-                alignment: Alignment.topCenter,
+            RepaintBoundary(
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                  sigmaX: bgBlur,
+                  sigmaY: bgBlur,
+                  tileMode: TileMode.clamp,
+                ),
+                child: Image.file(
+                  File(bgPath),
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                  cacheWidth: 480,
+                  filterQuality: FilterQuality.low,
+                  gaplessPlayback: true,
+                ),
               ),
             ),
           if (hasBgImage)
@@ -275,7 +313,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
         const SizedBox(height: 18),
         Divider(height: 1, thickness: 1, color: borderColor),
         const SizedBox(height: 22),
-        _buildSynopsisAndTrend(game: game),
+        _buildSynopsisAndTrend(game: game, tracking: tracking),
         const SizedBox(height: 24),
         Divider(height: 1, thickness: 1, color: borderColor),
         const SizedBox(height: 20),
@@ -454,7 +492,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
         const SizedBox(height: 18),
         Divider(height: 1, thickness: 1, color: borderColor),
         const SizedBox(height: 24),
-        _buildSynopsisAndTrend(game: game),
+        _buildSynopsisAndTrend(game: game, tracking: tracking),
       ],
     );
   }
@@ -550,6 +588,12 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
               onTap: () => _openExplorePage(game, sources),
             ),
             KPill(
+              label: '游玩路径',
+              icon: Icons.route_rounded,
+              filled: false,
+              onTap: _scrollToPlayPath,
+            ),
+            KPill(
               label: '打开目录',
               icon: Icons.folder_open_rounded,
               filled: false,
@@ -612,7 +656,10 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
     );
   }
 
-  Widget _buildSynopsisAndTrend({required Game game}) {
+  Widget _buildSynopsisAndTrend({
+    required Game game,
+    required bool tracking,
+  }) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     final cyanInk = KisakiColors.temporalInk(dark);
@@ -678,6 +725,11 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
           accentColor: cyanInk,
         ),
         _DailyTrendChart(gameId: widget.gameId),
+        const SizedBox(height: 30),
+        KeyedSubtree(
+          key: _playPathKey,
+          child: _PlayPathSection(game: game, tracking: tracking),
+        ),
       ],
     );
   }
@@ -778,6 +830,10 @@ class _BackToLibraryButtonState extends State<_BackToLibraryButton> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
 
+    final hoverFill = dark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.black.withValues(alpha: 0.04);
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
@@ -787,16 +843,16 @@ class _BackToLibraryButtonState extends State<_BackToLibraryButton> {
         child: AnimatedContainer(
           duration: Motion.fast,
           curve: Motion.enter,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: _hover
-                ? scheme.primary.withValues(alpha: dark ? 0.16 : 0.08)
-                : Colors.transparent,
+                ? hoverFill
+                : (dark
+                    ? Colors.white.withValues(alpha: 0.03)
+                    : Colors.white.withValues(alpha: 0.72)),
             borderRadius: BorderRadius.circular(Radii.sm),
             border: Border.all(
-              color: _hover
-                  ? scheme.primary.withValues(alpha: 0.45)
-                  : Elev.border(dark),
+              color: Elev.controlBorder(dark),
               width: 1,
             ),
           ),
@@ -806,13 +862,13 @@ class _BackToLibraryButtonState extends State<_BackToLibraryButton> {
               Icon(
                 Icons.arrow_back_rounded,
                 size: 14,
-                color: _hover ? scheme.primary : scheme.onSurfaceVariant,
+                color: _hover ? scheme.onSurface : scheme.onSurfaceVariant,
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               Text(
                 '返回书库',
                 style: Type.caption.copyWith(
-                  color: _hover ? scheme.primary : scheme.onSurfaceVariant,
+                  color: _hover ? scheme.onSurface : scheme.onSurfaceVariant,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -1336,6 +1392,703 @@ class _InteractiveCoverPlateState extends State<_InteractiveCoverPlate> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ============================ 游玩路径（截图时间线 & 笔记） ============================
+
+class _PlayPathSection extends ConsumerStatefulWidget {
+  final Game game;
+  final bool tracking;
+
+  const _PlayPathSection({required this.game, required this.tracking});
+
+  @override
+  ConsumerState<_PlayPathSection> createState() => _PlayPathSectionState();
+}
+
+class _PlayPathSectionState extends ConsumerState<_PlayPathSection> {
+  String _hotkey = 'F12';
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHotkey();
+  }
+
+  Future<void> _loadHotkey() async {
+    try {
+      final key = await AppServices.I.settings.getString(
+        SettingsStore.kScreenshotHotkey,
+        'F12',
+      );
+      if (mounted) {
+        setState(() => _hotkey = key);
+      }
+    } catch (_) {}
+  }
+
+  String _hotkeyLabel() {
+    return switch (_hotkey) {
+      'disabled' => '已关闭快捷键（可点右侧按钮手动截取或写笔记）',
+      'PrintScreen' => 'PrtSc',
+      _ => _hotkey,
+    };
+  }
+
+  Future<void> _captureNow() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await AppServices.I.tracker.captureCurrentGameWindow(
+        expectedGameId: widget.game.id,
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _addTextNote() async {
+    final result = await _showNoteDialog(context);
+    if (result == null) return;
+    await AppServices.I.repo.addPlayPathNode(
+      gameId: widget.game.id!,
+      imagePath: result.imagePath,
+      note: result.note,
+    );
+    if (!mounted) return;
+    ref.read(playPathVersionProvider.notifier).state++;
+    showNotice('已添加游玩路径笔记');
+  }
+
+  Future<void> _importImageNote() async {
+    final pickedPath = await _pickAndCopyImage(widget.game.id!);
+    if (pickedPath == null || !mounted) return;
+    final result = await _showNoteDialog(
+      context,
+      initialImagePath: pickedPath,
+      allowEmptyNoteWithImage: true,
+    );
+    if (result == null) {
+      // 用户取消创建，清理刚刚拷贝进去的临时图
+      try {
+        final f = File(pickedPath);
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {}
+      return;
+    }
+    await AppServices.I.repo.addPlayPathNode(
+      gameId: widget.game.id!,
+      imagePath: result.imagePath,
+      note: result.note,
+    );
+    if (!mounted) return;
+    ref.read(playPathVersionProvider.notifier).state++;
+    showNotice('已保存游玩路径图文记录');
+  }
+
+  Future<void> _editNode(PlayPathNode node) async {
+    final result = await _showNoteDialog(
+      context,
+      initialNote: node.note,
+      initialImagePath: node.resolvedImagePath,
+      allowEmptyNoteWithImage: node.imagePath.isNotEmpty,
+    );
+    if (result == null) return;
+    node.note = result.note;
+    if (result.imagePath.isNotEmpty) {
+      node.imagePath = AppServices.I.paths.toStored(result.imagePath);
+    }
+    await AppServices.I.repo.updatePlayPathNode(node);
+    if (!mounted) return;
+    ref.read(playPathVersionProvider.notifier).state++;
+    showNotice('已更新游玩路径笔记');
+  }
+
+  Future<void> _deleteNode(PlayPathNode node) async {
+    final ok = await showKisakiDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除游玩路径节点'),
+        content: const Text('确定删除这条记录吗？关联截图也会一并移除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: KisakiColors.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || node.id == null) return;
+    await AppServices.I.repo.deletePlayPathNode(node.id!);
+    if (!mounted) return;
+    ref.read(playPathVersionProvider.notifier).state++;
+    showNotice('已删除游玩路径节点');
+  }
+
+  Future<String?> _pickAndCopyImage(int gameId) async {
+    final res = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      dialogTitle: '选择游戏截图或 CG 图片',
+    );
+    final src = res?.files.single.path;
+    if (src == null || src.isEmpty) return null;
+    final ext = p.extension(src).toLowerCase();
+    final safeExt = ext.isEmpty ? '.png' : ext;
+    final destDir = Directory(p.join(AppServices.I.paths.playPath, '$gameId'));
+    destDir.createSync(recursive: true);
+    final dest = p.join(
+      destDir.path,
+      '${DateTime.now().millisecondsSinceEpoch}$safeExt',
+    );
+    await File(src).copy(dest);
+    return dest;
+  }
+
+  Future<({String note, String imagePath})?> _showNoteDialog(
+    BuildContext context, {
+    String initialNote = '',
+    String initialImagePath = '',
+    bool allowEmptyNoteWithImage = false,
+  }) {
+    return showKisakiDialog<({String note, String imagePath})>(
+      context: context,
+      builder: (_) => _PlayPathNoteDialog(
+        initialNote: initialNote,
+        initialImagePath: initialImagePath,
+        allowEmptyNoteWithImage: allowEmptyNoteWithImage,
+        onPickImage: () => _pickAndCopyImage(widget.game.id!),
+      ),
+    );
+  }
+
+  Future<void> _previewImage(BuildContext context, String path, String note) {
+    return showKisakiDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(28),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1120, maxHeight: 780),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.photo_library_outlined, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        p.basename(path),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Type.label,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(Radii.md),
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      child: Image.file(File(path), fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+                if (note.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    note.trim(),
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: Type.body,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final asyncNodes = ref.watch(playPathProvider(widget.game.id!));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        KSectionTitle(
+          '游玩路径',
+          accentColor: KisakiColors.m3Peach,
+          trailing: Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              if (widget.tracking)
+                KPill(
+                  label: _busy ? '截图中…' : '截取当前画面',
+                  icon: Icons.camera_alt_outlined,
+                  color: KisakiColors.m3Rose,
+                  onTap: _busy ? null : _captureNow,
+                ),
+              KPill(
+                label: '添加图文',
+                icon: Icons.add_photo_alternate_outlined,
+                filled: false,
+                onTap: _importImageNote,
+              ),
+              KPill(
+                label: '写笔记',
+                icon: Icons.edit_note_rounded,
+                filled: false,
+                onTap: _addTextNote,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 2),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Row(
+            children: [
+              KBadge(
+                text: '快捷键 ${_hotkeyLabel()}',
+                color: KisakiColors.m3Lavender,
+                icon: Icons.keyboard_rounded,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '游玩时按下截图键自动采集游戏窗口并保存至本地，支持随时补充图文心得',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Type.caption.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+        ),
+        asyncNodes.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: KLoading(),
+          ),
+          error: (e, _) => Text('加载游玩路径失败：$e', style: Type.caption),
+          data: (nodes) {
+            if (nodes.isEmpty) {
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                decoration: BoxDecoration(
+                  color: dark
+                      ? KisakiColors.nightContainer
+                      : const Color(0xFFFAF4F7),
+                  borderRadius: BorderRadius.circular(Radii.lg),
+                  border: Border.all(color: Elev.border(dark)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            KisakiColors.m3Rose.withValues(alpha: 0.25),
+                            KisakiColors.m3Peach.withValues(alpha: 0.25),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(Radii.full),
+                      ),
+                      child: Icon(
+                        Icons.route_rounded,
+                        size: 20,
+                        color: KisakiColors.roseInk(dark),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        '还没有任何游玩足迹。游玩时按下 ${_hotkeyLabel()} 可快速抓取精彩瞬间，也可以点右上角手动写笔记或添加图片。',
+                        style: Type.body.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < nodes.length; i++)
+                  _PlayPathTimelineTile(
+                    node: nodes[i],
+                    isLast: i == nodes.length - 1,
+                    dark: dark,
+                    onPreviewImage: (path) =>
+                        _previewImage(context, path, nodes[i].note),
+                    onEdit: () => _editNode(nodes[i]),
+                    onDelete: () => _deleteNode(nodes[i]),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _PlayPathTimelineTile extends StatelessWidget {
+  final PlayPathNode node;
+  final bool isLast;
+  final bool dark;
+  final ValueChanged<String> onPreviewImage;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _PlayPathTimelineTile({
+    required this.node,
+    required this.isLast,
+    required this.dark,
+    required this.onPreviewImage,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  String _formatDateTime(DateTime dt) {
+    final l = dt.toLocal();
+    final y = l.year;
+    final mo = l.month.toString().padLeft(2, '0');
+    final d = l.day.toString().padLeft(2, '0');
+    final h = l.hour.toString().padLeft(2, '0');
+    final m = l.minute.toString().padLeft(2, '0');
+    final s = l.second.toString().padLeft(2, '0');
+    return '$y-$mo-$d $h:$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final imgPath = node.resolvedImagePath;
+    final hasImage = imgPath.isNotEmpty && cachedFileExists(imgPath);
+    final dotColor = hasImage ? KisakiColors.m3Rose : KisakiColors.m3Peach;
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 左侧时间轴轨线
+          SizedBox(
+            width: 24,
+            child: Column(
+              children: [
+                const SizedBox(height: 14),
+                Container(
+                  width: 11,
+                  height: 11,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: dotColor,
+                    border: Border.all(
+                      color: dotColor.withValues(alpha: 0.35),
+                      width: 2.5,
+                    ),
+                  ),
+                ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            KisakiColors.m3Rose.withValues(alpha: 0.45),
+                            KisakiColors.m3Lavender.withValues(alpha: 0.35),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              margin: EdgeInsets.only(bottom: isLast ? 4 : 14),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: dark
+                    ? KisakiColors.nightContainer
+                    : KisakiColors.paperElevated,
+                borderRadius: BorderRadius.circular(Radii.lg),
+                border: Border.all(color: Elev.border(dark)),
+                boxShadow: Elev.card(dark),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      KBadge(
+                        text: hasImage ? '截图时刻' : '文字笔记',
+                        color: hasImage
+                            ? KisakiColors.m3Lavender
+                            : KisakiColors.m3Peach,
+                        icon: hasImage
+                            ? Icons.photo_camera_outlined
+                            : Icons.notes_rounded,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatDateTime(node.createdAt),
+                        style: Type.mono.copyWith(
+                          fontSize: 11.5,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const Spacer(),
+                      Tooltip(
+                        message: '编辑笔记',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(Radii.full),
+                          onTap: onEdit,
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Icon(
+                              Icons.edit_outlined,
+                              size: 16,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Tooltip(
+                        message: '删除节点',
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(Radii.full),
+                          onTap: onDelete,
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Icon(
+                              Icons.delete_outline_rounded,
+                              size: 16,
+                              color: KisakiColors.danger.withValues(alpha: 0.85),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (hasImage) ...[
+                    const SizedBox(height: 10),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () => onPreviewImage(imgPath),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(Radii.md),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxHeight: 240,
+                              minWidth: 160,
+                            ),
+                            child: Image.file(
+                              File(imgPath),
+                              fit: BoxFit.cover,
+                              cacheWidth: 960,
+                              gaplessPlayback: true,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  if (node.note.trim().isNotEmpty)
+                    Text(
+                      node.note.trim(),
+                      style: Type.body.copyWith(
+                        height: 1.62,
+                        color: scheme.onSurface,
+                      ),
+                    )
+                  else
+                    GestureDetector(
+                      onTap: onEdit,
+                      child: Text(
+                        '点击此处或右上角「编辑笔记」，写下此刻的剧情感受或分支备注…',
+                        style: Type.caption.copyWith(
+                          color: dark
+                              ? KisakiColors.nightInkSoft
+                              : KisakiColors.inkSoft,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayPathNoteDialog extends StatefulWidget {
+  final String initialNote;
+  final String initialImagePath;
+  final bool allowEmptyNoteWithImage;
+  final Future<String?> Function() onPickImage;
+
+  const _PlayPathNoteDialog({
+    required this.initialNote,
+    required this.initialImagePath,
+    required this.allowEmptyNoteWithImage,
+    required this.onPickImage,
+  });
+
+  @override
+  State<_PlayPathNoteDialog> createState() => _PlayPathNoteDialogState();
+}
+
+class _PlayPathNoteDialogState extends State<_PlayPathNoteDialog> {
+  late final TextEditingController _ctrl;
+  late String _imgPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialNote);
+    _imgPath = widget.initialImagePath;
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImg = _imgPath.isNotEmpty && File(_imgPath).existsSync();
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    return AlertDialog(
+      title: Text(widget.initialNote.isEmpty ? '新建游玩路径节点' : '编辑游玩路径笔记'),
+      content: SizedBox(
+        width: 500,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (hasImg) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(Radii.md),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: Image.file(
+                      File(_imgPath),
+                      fit: BoxFit.contain,
+                      cacheWidth: 960,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              Row(
+                children: [
+                  KPill(
+                    label: hasImg ? '更换图片' : '附带截图…',
+                    icon: Icons.image_outlined,
+                    filled: false,
+                    onTap: () async {
+                      final copied = await widget.onPickImage();
+                      if (copied != null && mounted) {
+                        setState(() => _imgPath = copied);
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      hasImg ? p.basename(_imgPath) : '可留空作为纯文字节点',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Type.caption.copyWith(
+                        color: dark
+                            ? KisakiColors.nightInkSoft
+                            : KisakiColors.inkSoft,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _ctrl,
+                minLines: 4,
+                maxLines: 9,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '游玩笔记 / 剧情备忘',
+                  hintText: '记录当前路线选择、伏笔线索或心情感受…',
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final text = _ctrl.text.trim();
+            if (text.isEmpty &&
+                !widget.allowEmptyNoteWithImage &&
+                _imgPath.isEmpty) {
+              return;
+            }
+            Navigator.pop(context, (note: text, imagePath: _imgPath));
+          },
+          child: const Text('保存节点'),
+        ),
+      ],
     );
   }
 }

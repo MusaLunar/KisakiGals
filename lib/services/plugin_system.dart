@@ -165,10 +165,6 @@ class IdleReminderPlugin extends KisakiPlugin {
     ctx.sessionStream.listen((_) {});
   }
 
-  /// 判断当前会话是否应提醒。
-  bool shouldRemind(int seconds) =>
-      enabled && seconds >= ((config['minutes'] ?? 90) as int) * 60;
-
   @override
   Future<void> onDispose() async {
     _subscribed = false;

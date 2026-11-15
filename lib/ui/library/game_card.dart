@@ -22,8 +22,6 @@ import '../theme.dart';
 import '../widgets/common.dart' show CoverImage, kCoverAspect;
 import 'game_card_actions.dart';
 
-const EdgeInsets kGameCardPadding = kCatalogCardPadding;
-const double kGameCardMetaHeight = kCatalogCardMetaHeight;
 const double _titleBoxHeight = kCatalogCardTitleHeight;
 const Color _coverScrim = Color(0xBF0F1015);
 
@@ -75,7 +73,7 @@ class _GameCardState extends ConsumerState<GameCard> {
         onSecondaryTapUp: (details) => GameCardActions.showContextMenu(
             context, ref, game, details.globalPosition),
         child: KCard(
-          padding: kGameCardPadding,
+          padding: kCatalogCardPadding,
           color: fill,
           onTap: () async {
             if (widget.selectionMode) {
@@ -210,9 +208,9 @@ class _CoverTag extends StatelessWidget {
         padding: padding,
         decoration: BoxDecoration(
           color: color,
-          borderRadius: BorderRadius.circular(Radii.xs),
+          borderRadius: BorderRadius.circular(Radii.full),
           border: Border.all(
-            color: Colors.white.withValues(alpha: 0.22),
+            color: Colors.white.withValues(alpha: 0.24),
             width: 1,
           ),
         ),
@@ -308,7 +306,8 @@ class _FavoriteButton extends ConsumerWidget {
       message: fav ? '取消收藏' : '加入收藏',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: PressableScale(
+        child: FluidPressable(
+          scaleFactor: 0.90,
           onTap: () async {
             game.isFavorite = !fav;
             await AppServices.I.repo.updateGame(game);

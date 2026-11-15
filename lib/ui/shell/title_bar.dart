@@ -1,4 +1,4 @@
-/// 标题栏：书眉刊头标识 + 专色青蓝运行计时胶囊 + 明暗纸张切换 + 窗口控制按钮.
+/// Windows 11 Fluent 2 标题栏：Mica 基底融合 + 实时游玩胶囊 + 明暗切换 + 标准 Win11 右上角窗口控制键.
 library;
 
 import 'dart:async';
@@ -15,7 +15,7 @@ import '../design.dart';
 import '../detail/game_detail_page.dart';
 import '../theme.dart';
 
-const double kTitleBarHeight = 42;
+const double kTitleBarHeight = 38;
 
 class AppTitleBar extends ConsumerWidget {
   const AppTitleBar({super.key});
@@ -39,98 +39,73 @@ class AppTitleBar extends ConsumerWidget {
             : windowManager.maximize();
       },
       behavior: HitTestBehavior.opaque,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: KisakiColors.spineSurface(dark),
-          border: Border(
-            bottom: BorderSide(
-              color: Elev.border(dark),
-              width: 1,
-            ),
-          ),
-        ),
+      child: ColoredBox(
+        color: KisakiColors.spineSurface(dark),
         child: SizedBox(
           height: kTitleBarHeight,
           child: Row(
             children: [
               const SizedBox(width: 14),
-              // 专色洋红定位方印 + 应用图标
               Container(
-                width: 22,
-                height: 22,
                 padding: const EdgeInsets.all(2.5),
                 decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: dark ? 0.18 : 0.10),
-                  borderRadius: BorderRadius.circular(Radii.xs),
-                  border: Border.all(
-                    color: scheme.primary.withValues(alpha: 0.35),
-                    width: 1,
+                  gradient: const LinearGradient(
+                    colors: [
+                      KisakiColors.m3Rose,
+                      KisakiColors.m3Lavender,
+                      KisakiColors.m3Peach,
+                    ],
                   ),
+                  borderRadius: BorderRadius.circular(Radii.sm),
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(Radii.xs),
                   child: Image.asset(
                     'assets/logo/logo_64.png',
-                    width: 16,
-                    height: 16,
+                    width: 15,
+                    height: 15,
                     errorBuilder: (_, __, ___) => Icon(
                       Icons.auto_stories_rounded,
-                      size: 14,
-                      color: scheme.primary,
+                      size: 15,
+                      color: scheme.onPrimary,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 9),
+              const SizedBox(width: 10),
               Text(
                 'KisakiGals',
-                style: Type.label.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.25,
-                  color: dark ? KisakiColors.nightInk : KisakiColors.ink,
+                style: Type.caption.copyWith(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface,
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                width: 1,
-                height: 12,
-                color: Elev.border(dark),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '视觉小说藏书志',
-                style: Type.micro.copyWith(
-                  color: dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft,
-                  fontWeight: FontWeight.w500,
-                ),
+              // M3 三色韵律点缀（#DA839C / #D0C0F5 / #EDABA0）
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  _TriColorDot(color: KisakiColors.m3Rose),
+                  SizedBox(width: 3),
+                  _TriColorDot(color: KisakiColors.m3Lavender),
+                  SizedBox(width: 3),
+                  _TriColorDot(color: KisakiColors.m3Peach),
+                ],
               ),
               const Spacer(),
               const _LiveBadge(),
               const SizedBox(width: 6),
               Tooltip(
-                message: dark ? '切换为浅色铜版纸' : '切换为深色凹版墨',
-                child: FluidPressable(
+                message: dark ? '切换为浅色模式' : '切换为深色模式',
+                child: _TitleBarIconAction(
+                  icon: dark
+                      ? Icons.light_mode_outlined
+                      : Icons.dark_mode_outlined,
                   onTap: () => _toggleTheme(ref, dark),
-                  child: Container(
-                    width: 30,
-                    height: 26,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(Radii.xs),
-                    ),
-                    child: Icon(
-                      dark
-                          ? Icons.light_mode_outlined
-                          : Icons.dark_mode_outlined,
-                      size: 15,
-                      color: dark
-                          ? KisakiColors.nightInkSoft
-                          : KisakiColors.inkSoft,
-                    ),
-                  ),
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 2),
               const _WindowButton(
                 icon: Icons.horizontal_rule_rounded,
                 kind: _BtnKind.minimize,
@@ -143,8 +118,54 @@ class AppTitleBar extends ConsumerWidget {
                 icon: Icons.close_rounded,
                 kind: _BtnKind.close,
               ),
-              const SizedBox(width: 6),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TitleBarIconAction extends StatefulWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _TitleBarIconAction({required this.icon, required this.onTap});
+
+  @override
+  State<_TitleBarIconAction> createState() => _TitleBarIconActionState();
+}
+
+class _TitleBarIconActionState extends State<_TitleBarIconAction> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: Motion.fast,
+          curve: Motion.enter,
+          width: 36,
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _hover
+                ? (dark
+                    ? KisakiColors.m3Lavender.withValues(alpha: 0.14)
+                    : KisakiColors.m3Rose.withValues(alpha: 0.12))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(Radii.full),
+          ),
+          child: Icon(
+            widget.icon,
+            size: 15,
+            color: scheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -207,12 +228,17 @@ class _LiveBadgeState extends ConsumerState<_LiveBadge> {
       onTap: () => Navigator.of(context).push(FadeThroughRoute.builder(
           builder: (_) => GameDetailPage(gameId: game.id!, initial: game))),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
         decoration: BoxDecoration(
-          color: cyanInk.withValues(alpha: dark ? 0.16 : 0.10),
-          borderRadius: BorderRadius.circular(Radii.sm),
+          gradient: LinearGradient(
+            colors: [
+              KisakiColors.m3Lavender.withValues(alpha: dark ? 0.20 : 0.34),
+              KisakiColors.m3Rose.withValues(alpha: dark ? 0.16 : 0.24),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(Radii.full),
           border: Border.all(
-            color: cyanInk.withValues(alpha: dark ? 0.45 : 0.32),
+            color: cyanInk.withValues(alpha: dark ? 0.48 : 0.28),
             width: 1,
           ),
         ),
@@ -292,38 +318,58 @@ class _WindowButtonState extends State<_WindowButton> {
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final isClose = widget.kind == _BtnKind.close;
-    final idle = dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft;
-    final hoverColor = isClose
-        ? KisakiColors.danger
-        : (dark ? Colors.white : const Color(0xFF16151A));
+    final iconSize = switch (widget.kind) {
+      _BtnKind.minimize => 15.0,
+      _BtnKind.maximize => 14.0,
+      _BtnKind.close => 16.0,
+    };
+    final idle = dark ? KisakiColors.nightInkMedium : KisakiColors.inkMedium;
+    final hoverBg = isClose
+        ? const Color(0xFFC42B1C)
+        : (dark ? const Color(0x14FFFFFF) : const Color(0x0F000000));
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: FluidPressable(
+      child: GestureDetector(
         onTap: _act,
+        behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
           duration: Motion.fast,
           curve: Motion.enter,
-          width: 34,
-          height: 26,
-          margin: const EdgeInsets.symmetric(horizontal: 1),
+          width: 46,
+          height: kTitleBarHeight,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: _hover
-                ? (isClose
-                    ? KisakiColors.danger
-                    : hoverColor.withValues(alpha: dark ? 0.10 : 0.06))
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(Radii.xs),
+            color: _hover ? hoverBg : Colors.transparent,
+            borderRadius: BorderRadius.zero,
           ),
           child: Icon(
             widget.icon,
-            size: 15,
-            color: isClose && _hover ? Colors.white : idle,
+            size: iconSize,
+            color: isClose && _hover
+                ? Colors.white
+                : (_hover ? Theme.of(context).colorScheme.onSurface : idle),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _TriColorDot extends StatelessWidget {
+  final Color color;
+  const _TriColorDot({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 5,
+      height: 5,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
       ),
     );
   }

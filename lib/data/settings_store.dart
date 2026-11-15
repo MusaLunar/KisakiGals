@@ -66,14 +66,12 @@ class SettingsStore {
 
   static const kThemeMode = 'theme.mode'; // system/light/dark
   static const kTrackingMode = 'tracking.mode'; // foreground/elapsed
-  static const kAutostart = 'system.autostart';
   static const kAfterLaunch = 'system.after_launch'; // none/minimize
   static const kCloseBehavior = 'system.close'; // exit/minimize_tray
   /// 游戏退出后主程序自动获取焦点 / 恢复前台（true=自动恢复前台，默认 true）
   static const kFocusOnGameExit = 'system.focus_on_game_exit';
   static const kNsfwMode = 'nsfw.mode'; // blur/placeholder/show
   static const kEnabledSources = 'sources.enabled';
-  static const kSourceOrder = 'sources.order';
   static const kDataDir = 'data.dir';
   static const kAutoBackup = 'plugin.auto_backup';
 
@@ -85,8 +83,6 @@ class SettingsStore {
   static const kBackupLastSuccess = 'backup.last_success_at';
   static const kBackupLastAttempt = 'backup.last_attempt_at';
   static const kBackupKeep = 'plugin.backup_keep';
-  static const kIdleReminder = 'plugin.idle_reminder';
-  static const kIdleMinutes = 'plugin.idle_minutes';
 
   // AI 助手（OpenAI 兼容端点）
   static const kAiBaseUrl = 'ai.baseUrl';
@@ -118,9 +114,11 @@ class SettingsStore {
   /// 已知库根目录（JSON 数组），换机后据此重定位游戏路径
   static const kLibraryRoots = 'library.roots';
 
-  /// 存档备份保留份数 / 自动备份阈值（分钟）
+  /// 存档备份保留份数
   static const kSaveBackupKeep = 'save.backup_keep';
-  static const kSaveAutoMinutes = 'save.auto_minutes';
+
+  /// 游玩路径全局截图热键（如 'F12' / 'F11' / 'F9' / 'PrintScreen'）
+  static const kScreenshotHotkey = 'play_path.hotkey';
 
   Future<ThemeModePref> themeMode() async {
     final s = await getString(kThemeMode, 'system');

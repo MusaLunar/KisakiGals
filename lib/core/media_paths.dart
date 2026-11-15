@@ -56,18 +56,21 @@ class MediaPaths {
     if (name.isEmpty) return stored;
     for (final candidate in [
       p.join(root, 'covers', name),
+      p.join(root, 'play_path', name),
       p.join(root, 'saves', name),
       p.join(root, name),
     ]) {
       if (File(candidate).existsSync()) return candidate;
     }
-    final coversDir = Directory(p.join(root, 'covers'));
-    if (coversDir.existsSync()) {
-      try {
-        for (final f in coversDir.listSync(recursive: true)) {
-          if (f is File && p.basename(f.path) == name) return f.path;
-        }
-      } catch (_) {}
+    for (final subName in const ['covers', 'play_path']) {
+      final subDir = Directory(p.join(root, subName));
+      if (subDir.existsSync()) {
+        try {
+          for (final f in subDir.listSync(recursive: true)) {
+            if (f is File && p.basename(f.path) == name) return f.path;
+          }
+        } catch (_) {}
+      }
     }
     return stored;
   }

@@ -7,7 +7,6 @@ import 'app_services.dart';
 import 'core/constants.dart';
 import 'data/models.dart';
 import 'data/settings_store.dart';
-import 'services/playtime_tracker.dart';
 import 'ui/shell/tabs.dart';
 
 // ---------- 应用配置 ----------
@@ -77,15 +76,6 @@ class LibraryFilter {
       developer != null ||
       source != null ||
       favoriteOnly;
-
-  LibraryFilter clone() => LibraryFilter()
-    ..query = query
-    ..status = status
-    ..tag = tag
-    ..developer = developer
-    ..source = source
-    ..favoriteOnly = favoriteOnly
-    ..sort = sort;
 }
 
 /// 游戏库排版：`grid` = 大封面网格；`list` = 紧凑列表（左封面右名称，一页看更多）
@@ -175,11 +165,6 @@ final usedSourcesProvider = FutureProvider<List<String>>((ref) async {
   return AppServices.I.repo.usedSources();
 });
 
-final gameCountProvider = FutureProvider<int>((ref) {
-  ref.watch(libraryVersionProvider);
-  return AppServices.I.repo.gameCount();
-});
-
 /// 已评分游戏（**不受游戏库筛选影响**，统计页评分墙专用）。
 final ratedGamesProvider = FutureProvider<List<Game>>((ref) async {
   ref.watch(libraryVersionProvider);
@@ -192,6 +177,17 @@ final ratedGamesProvider = FutureProvider<List<Game>>((ref) async {
 final platformRatingsProvider = FutureProvider<Map<int, double>>((ref) async {
   ref.watch(libraryVersionProvider);
   return AppServices.I.repo.bestPlatformRatings();
+});
+
+/// 游玩路径版本号（截图采集、笔记增删改时自增触发局部刷新）。
+final playPathVersionProvider = StateProvider<int>((ref) => 0);
+
+/// 某部游戏的游玩路径节点列表（时间倒序）。
+final playPathProvider =
+    FutureProvider.family<List<PlayPathNode>, int>((ref, gameId) async {
+  ref.watch(playPathVersionProvider);
+  ref.watch(libraryVersionProvider);
+  return AppServices.I.repo.playPathOf(gameId);
 });
 
 // ---------- 单个游戏 ----------
@@ -269,6 +265,3 @@ final tagCloudProvider = FutureProvider.family<List<TagItem>, StatsPeriod>(
 
 /// 当前正在跟踪的游戏（详情页/主页 Hero 显示"游戏中"）。
 final trackingGameProvider = StateProvider<int?>((ref) => null);
-
-final trackerEventsProvider = StreamProvider<PlaySessionEnd>(
-    (ref) => AppServices.I.tracker.onSessionEnd);

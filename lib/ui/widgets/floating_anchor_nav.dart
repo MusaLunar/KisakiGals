@@ -119,15 +119,20 @@ class _FloatingAnchorNavState extends State<FloatingAnchorNav> {
     final scheme = Theme.of(context).colorScheme;
     final cyanInk = KisakiColors.temporalInk(dark);
 
+    final fluentBg = dark
+        ? const Color(0xFF2C2C2C).withValues(alpha: 0.90)
+        : const Color(0xFFFCFCFC).withValues(alpha: 0.92);
+
     return AnimatedContainer(
       duration: Motion.fast,
       curve: Motion.enter,
       decoration: BoxDecoration(
-        color: (dark ? KisakiColors.nightCard : Colors.white)
-            .withValues(alpha: dark ? 0.92 : 0.96),
+        color: fluentBg,
         borderRadius: BorderRadius.circular(_expanded ? Radii.md : Radii.full),
         border: Border.all(
-          color: Elev.border(dark),
+          color: dark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.black.withValues(alpha: 0.08),
           width: 1,
         ),
         boxShadow: Elev.overlay(dark),
@@ -264,27 +269,35 @@ class _AnchorRowTile extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
 
+    final subtleSelected = dark
+        ? Colors.white.withValues(alpha: 0.065)
+        : Colors.black.withValues(alpha: 0.045);
+
     return FluidPressable(
       onTap: onTap,
-      scaleFactor: 0.96,
+      scaleFactor: 0.97,
       child: AnimatedContainer(
         duration: Motion.fast,
         curve: Motion.enter,
-        margin: const EdgeInsets.symmetric(vertical: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        margin: const EdgeInsets.symmetric(vertical: 1.5),
+        padding: const EdgeInsets.fromLTRB(4, 6, 8, 6),
         decoration: BoxDecoration(
-          color: active
-              ? scheme.primary.withValues(alpha: dark ? 0.20 : 0.12)
-              : Colors.transparent,
+          color: active ? subtleSelected : Colors.transparent,
           borderRadius: BorderRadius.circular(Radii.xs),
-          border: Border.all(
-            color: active
-                ? scheme.primary.withValues(alpha: dark ? 0.45 : 0.35)
-                : Colors.transparent,
-          ),
         ),
         child: Row(
           children: [
+            AnimatedContainer(
+              duration: Motion.fast,
+              curve: Motion.enter,
+              width: 3,
+              height: active ? 14 : 0,
+              decoration: BoxDecoration(
+                color: active ? scheme.primary : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 6),
             Icon(
               item.icon,
               size: 13.5,
@@ -297,21 +310,12 @@ class _AnchorRowTile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Type.caption.copyWith(
-                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
-                  color: active ? scheme.primary : scheme.onSurface,
-                  fontSize: 11.5,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                  color: active ? scheme.onSurface : scheme.onSurfaceVariant,
+                  fontSize: 12,
                 ),
               ),
             ),
-            if (active)
-              Container(
-                width: 4,
-                height: 4,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: scheme.primary,
-                ),
-              ),
           ],
         ),
       ),

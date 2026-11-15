@@ -10,31 +10,36 @@ import 'package:kisakigals/ui/shell/tabs.dart';
 import 'package:kisakigals/ui/theme.dart';
 
 void main() {
-  test('KisakiGals adopts Shimen CMYK Four-Ink functional palette and paper geometry', () {
+  test('KisakiGals adopts Material Design 3 tokens (#DA839C / #D0C0F5 / #EDABA0)', () {
     final light = buildLightTheme();
     final dark = buildDarkTheme();
 
-    // 专色洋红 (Process Magenta — M)：主交互与书脊标尺
-    expect(light.colorScheme.primary, const Color(0xFFE4005A));
-    expect(light.colorScheme.onPrimary, Colors.white);
-    expect(dark.colorScheme.primary, const Color(0xFFFF2E7E));
+    // Material Design 3 三原色令牌 (#DA839C / #D0C0F5 / #EDABA0)
+    expect(light.colorScheme.primary, const Color(0xFFDA839C));
+    expect(light.colorScheme.secondary, const Color(0xFFD0C0F5));
+    expect(light.colorScheme.tertiary, const Color(0xFFEDABA0));
+    expect(light.colorScheme.onPrimary, const Color(0xFF3A0E1E));
+    expect(dark.colorScheme.primary, const Color(0xFFDA839C));
 
-    // 专色青蓝 (Process Cyan — C)：时间与游玩时长专色
-    expect(KisakiColors.temporalInk(false), const Color(0xFF0088B8));
-    expect(KisakiColors.temporalInk(true), const Color(0xFF29B6E8));
+    // 高对比度可读辅助强调色（薰衣紫 & 暖桃珊瑚）
+    expect(KisakiColors.temporalInk(false), const Color(0xFF6B53B8));
+    expect(KisakiColors.temporalInk(true), const Color(0xFFD0C0F5));
+    expect(KisakiColors.ratingInk(false), const Color(0xFF9E5142));
+    expect(KisakiColors.ratingInk(true), const Color(0xFFEDABA0));
 
-    // 专色铭黄 (Process Yellow-Gold — Y)：评分专色
-    expect(KisakiColors.ratingInk(false), const Color(0xFFD49400));
-    expect(KisakiColors.ratingInk(true), const Color(0xFFFFC42E));
+    // Material 3 Tonal 表面色阶
+    expect(KisakiColors.spineSurface(false), const Color(0xFFF6F1F5));
+    expect(KisakiColors.spineSurface(true), const Color(0xFF151215));
+    expect(KisakiColors.pageSurface(false), const Color(0xFFFFFBFD));
+    expect(KisakiColors.pageSurface(true), const Color(0xFF1B171B));
 
-    // 铜版纸象牙白与凹版暗墨底版
-    expect(KisakiColors.pageSurface(false), const Color(0xFFFAF7F2));
-    expect(KisakiColors.pageSurface(true), const Color(0xFF13151C));
-
-    // 杂志图版圆角与自然投影
-    expect(Radii.lg, 12.0);
-    expect(Radii.md, 8.0);
-    expect(Radii.chip, BorderRadius.circular(6.0));
+    // M3 大圆角尺度与阴影
+    expect(Radii.xxl, 28.0);
+    expect(Radii.xl, 24.0);
+    expect(Radii.lg, 16.0);
+    expect(Radii.md, 14.0);
+    expect(Radii.sm, 10.0);
+    expect(Radii.chip, BorderRadius.circular(10.0));
 
     final cardShadows = Elev.card(false, light.colorScheme.primary);
     expect(cardShadows.isNotEmpty, true);
@@ -98,7 +103,7 @@ void main() {
     expect(projected, closeTo(499.0, 0.1));
   });
 
-  testWidgets('KPage and AppSidebar Fore-Edge Index Tabs render cleanly',
+  testWidgets('KPage and Fluent 2 NavigationView AppSidebar render cleanly',
       (tester) async {
     int selectedTab = Tabs.home;
     await tester.pumpWidget(
@@ -135,13 +140,14 @@ void main() {
       ),
     );
 
+    expect(find.text('SHIMEN INDEX'), findsNothing);
     expect(find.text('KISAKI / 游戏库'), findsNothing);
     expect(find.text('游戏库'), findsWidgets);
     expect(find.text('共 42 部作品'), findsOneWidget);
-    expect(find.text('01'), findsOneWidget);
-    expect(find.text('02'), findsOneWidget);
+    expect(find.text('主页'), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget);
 
-    // 点击侧栏切换到「统计」页签，验证弹簧驱动的页缘索引标签无异常过渡
+    // 点击侧栏切换到「统计」页签，验证 Fluent 2 NavigationView 切换无异常
     await tester.tap(find.text('统计'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 120));

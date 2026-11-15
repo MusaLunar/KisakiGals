@@ -89,10 +89,13 @@ List<ProcInfo> enumerateProcesses() {
 
 void _read(PROCESSENTRY32W e, List<ProcInfo> out) {
   final units = e.szExeFile;
-  final name = String.fromCharCodes(
-    List<int>.generate(260, (i) => units[i]).takeWhile((c) => c != 0),
-  );
-  out.add(ProcInfo(e.th32ProcessID, e.th32ParentProcessID, name));
+  final buffer = StringBuffer();
+  for (var i = 0; i < 260; i++) {
+    final code = units[i];
+    if (code == 0) break;
+    buffer.writeCharCode(code);
+  }
+  out.add(ProcInfo(e.th32ProcessID, e.th32ParentProcessID, buffer.toString()));
 }
 
 /// 前台窗口所属进程 PID；无前台窗口返回 0。

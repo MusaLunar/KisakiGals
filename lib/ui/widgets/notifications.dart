@@ -204,54 +204,86 @@ class _NoticeCardState extends State<_NoticeCard>
     final dark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     final base = dark ? KisakiColors.nightCard : Colors.white;
-    // 错误通知用语义色轻染底色（KCard 的描边色由 kit 统一，不逐条定制）
-    final fill = notice.error
-        ? Color.alphaBlend(
-            scheme.error.withValues(alpha: dark ? 0.16 : 0.05), base)
-        : base;
-    final accent = notice.error ? scheme.error : KisakiColors.success;
+    final accent = notice.error ? KisakiColors.danger : KisakiColors.successInk(dark);
+    final fill = Color.alphaBlend(
+      accent.withValues(alpha: dark ? 0.12 : 0.045),
+      base,
+    );
     final card = KCard(
       overlayShadow: true,
       color: fill,
+      borderColor: accent.withValues(alpha: dark ? 0.28 : 0.20),
       borderRadius: BorderRadius.circular(Radii.md),
-      padding: const EdgeInsets.fromLTRB(Gap.md, Gap.md, Gap.sm, Gap.md),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            notice.error
-                ? Icons.error_outline_rounded
-                : Icons.check_circle_outline_rounded,
-            size: 18,
-            color: accent,
-          ),
-          const SizedBox(width: Gap.sm + 2),
-          Expanded(
-            child: Padding(
-              // 与左侧图标的视觉基线对齐（图标 18，正文首行更高）
-              padding: const EdgeInsets.only(top: 1),
-              child: Text(
-                notice.message,
-                style: Type.body.copyWith(
-                    color: dark ? KisakiColors.nightInk : KisakiColors.ink),
+      padding: EdgeInsets.zero,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // WinUI 3 InfoBar 左侧 3px 状态强调竖条
+            Container(
+              width: 3,
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(Radii.md),
+                  bottomLeft: Radius.circular(Radii.md),
+                ),
               ),
             ),
-          ),
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: IconButton(
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              iconSize: 16,
-              // 刻意不设 tooltip：本浮层没有 Overlay 祖先（见文件头注释）
-              icon: Icon(Icons.close_rounded,
-                  color:
-                      dark ? KisakiColors.nightInkSoft : KisakiColors.inkSoft),
-              onPressed: _handleClose,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    Gap.md, Gap.md - 2, Gap.sm, Gap.md - 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      child: Icon(
+                        notice.error
+                            ? Icons.error_rounded
+                            : Icons.check_circle_rounded,
+                        size: 18,
+                        color: accent,
+                      ),
+                    ),
+                    const SizedBox(width: Gap.sm + 2),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Text(
+                          notice.message,
+                          style: Type.body.copyWith(color: scheme.onSurface),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: IconButton(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        iconSize: 15,
+                        style: IconButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(Radii.xs),
+                          ),
+                        ),
+                        // 刻意不设 tooltip：本浮层没有 Overlay 祖先（见文件头注释）
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        onPressed: _handleClose,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
 
