@@ -1,13 +1,14 @@
-/// 应用外壳：Microsoft Fluent 2 (Windows 11) Mica 基底 + 左侧 NavigationView 导航栏 + 右侧圆角内嵌内容帧.
+/// 应用外壳：Fluent 2 NavigationView + TitleBar（全局搜索与运行中徽章）+ 保活标签栈.
 library;
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show ImageByteFormat;
 
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -18,22 +19,46 @@ import '../../main.dart' show shotBoundaryKey;
 import '../../providers.dart';
 import '../../services/playtime_tracker.dart';
 import '../../services/save_backup.dart';
+import '../add/add_game_page.dart';
 import '../ai/ai_page.dart';
-import '../design.dart';
 import '../detail/game_detail_page.dart';
 import '../discover/discover_page.dart';
+import '../fluent/fluent_icons.dart';
+import '../fluent/fluent_motion.dart';
+import '../fluent/fluent_notices.dart';
 import '../home/home_page.dart';
-import '../kit.dart';
+import '../library/game_actions.dart';
 import '../library/library_page.dart';
 import '../settings/settings_page.dart';
 import '../stats/stats_page.dart';
-import '../theme.dart';
-import '../widgets/notifications.dart';
 import 'tabs.dart';
-import 'title_bar.dart';
 
 class AppShell extends ConsumerStatefulWidget {
-  const AppShell({super.key});
+  final bool enableWindowHooks;
+
+  const AppShell({super.key, this.enableWindowHooks = true});
+
+  static int tabToPaneIndex(int tab) => switch (tab) {
+        Tabs.home => 0,
+        Tabs.library => 1,
+        Tabs.discover => 2,
+        Tabs.stats => 3,
+        Tabs.ai => 4,
+        Tabs.add => 5,
+        Tabs.settings => 6,
+        _ => 0,
+      };
+
+  static int paneIndexToTab(int paneIndex) => switch (paneIndex) {
+        0 => Tabs.home,
+        1 => Tabs.library,
+        2 => Tabs.discover,
+        3 => Tabs.stats,
+        4 => Tabs.ai,
+        5 => Tabs.add,
+        6 => Tabs.settings,
+        _ => Tabs.home,
+      };
 
   @override
   ConsumerState<AppShell> createState() => _AppShellState();
@@ -42,69 +67,91 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   StreamSubscription<PlaySessionEnd>? _sessionSub;
   StreamSubscription<PlayPathCaptureEvent>? _captureSub;
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _isMaximized = false;
 
   @override
   void initState() {
     super.initState();
-    windowManager.addListener(this);
+    if (widget.enableWindowHooks) {
+      windowManager.addListener(this);
+      windowManager.isMaximized().then((v) {
+        if (mounted && v != _isMaximized) {
+          setState(() => _isMaximized = v);
+        }
+      }).catchError((_) {});
+    }
     HardwareKeyboard.instance.addHandler(_onKey);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final r = lastRelocateResult;
       if (r != null) {
+        lastRelocateResult = null;
         if (r.relocated.isNotEmpty) {
-          showNotice('已自动重新定位 ${r.relocated.length} 部游戏的路径：'
-              '${r.relocated.take(3).join("、")}${r.relocated.length > 3 ? " 等" : ""}');
+          showNotice(
+            '已自动重新定位 ${r.relocated.length} 部游戏的路径：'
+            '${r.relocated.take(3).join("、")}${r.relocated.length > 3 ? " 等" : ""}',
+          );
         }
         if (r.missing.isNotEmpty) {
-          showNotice('${r.missing.length} 部游戏的可执行文件未找到，请在编辑信息中重新设置',
-              error: true);
+          showNotice(
+            '${r.missing.length} 部游戏的可执行文件未找到，请在编辑信息中重新设置',
+            error: true,
+          );
         }
       }
       if (lastMediaRepairCount > 0) {
-        showNotice('已修复 $lastMediaRepairCount 部游戏的封面路径');
+        final count = lastMediaRepairCount;
+        lastMediaRepairCount = 0;
+        showNotice('已修复 $count 部游戏的封面路径');
       }
       if (lastCoverRefetch > 0) {
-        showNotice('已自动补回 $lastCoverRefetch 张缺失封面');
+        final count = lastCoverRefetch;
+        lastCoverRefetch = 0;
+        showNotice('已自动补回 $count 张缺失封面');
       }
     });
 
-    _sessionSub = AppServices.I.tracker.onSessionEnd.listen((event) async {
-      if (event.session != null) {
-        await AppServices.I.repo.addSession(event.session!);
-        await _maybeAutoBackupSave(event.gameId);
-      }
-      if (!mounted) return;
-      if (event.session != null) {
-        invalidateDailyTrend(event.gameId);
-        ref.read(libraryVersionProvider.notifier).state++;
-      }
-      final gid = ref.read(trackingGameProvider);
-      if (gid == event.gameId) {
-        ref.read(trackingGameProvider.notifier).state = null;
-      }
-    });
+    final services = tryAppServices();
+    if (services != null) {
+      _sessionSub = services.tracker.onSessionEnd.listen((event) async {
+        if (event.session != null) {
+          await services.repo.addSession(event.session!);
+          await _maybeAutoBackupSave(event.gameId);
+          if (mounted) {
+            invalidateDailyTrend(event.gameId);
+            ref.read(libraryVersionProvider.notifier).state++;
+          }
+        }
+        if (mounted && ref.read(trackingGameProvider) == event.gameId) {
+          ref.read(trackingGameProvider.notifier).state = null;
+        }
+      });
 
-    _captureSub = AppServices.I.tracker.onScreenshotCaptured.listen((event) {
-      if (!mounted) return;
-      if (event.node != null) {
-        ref.read(playPathVersionProvider.notifier).state++;
-        showNotice('已截取游戏画面并保存至游玩路径');
-      } else if (event.error != null) {
-        showNotice(event.error!, error: true);
-      }
-    });
+      _captureSub = services.tracker.onScreenshotCaptured.listen((event) {
+        if (!mounted) return;
+        if (event.node != null) {
+          ref.read(playPathVersionProvider.notifier).state++;
+          showNotice('已截取游戏画面并保存至游玩路径');
+        } else if (event.error != null) {
+          showNotice(event.error!, error: true);
+        }
+      });
+    }
   }
 
   Future<void> _maybeAutoBackupSave(int gameId) async {
+    final services = tryAppServices();
+    if (services == null) return;
     try {
-      final settings = AppServices.I.settings;
+      final settings = services.settings;
       if (!await settings.getBool('save.autosave_$gameId', def: false)) return;
-      final game = await AppServices.I.repo.getGame(gameId);
+      final game = await services.repo.getGame(gameId);
       if (game == null || game.savePath.isEmpty) return;
       if (!Directory(game.savePath).existsSync()) return;
       final keep = await settings.getInt(SettingsStore.kSaveBackupKeep, 10);
-      final name = await SaveBackupService(AppServices.I.paths.root).backup(
+      final name = await SaveBackupService(services.paths.root).backup(
         gameId,
         game.savePath,
         auto: true,
@@ -135,8 +182,9 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       final dir = Directory('docs/screens');
       dir.createSync(recursive: true);
       final stamp = DateTime.now().millisecondsSinceEpoch;
-      final file =
-          File('$dir/auto_$stamp.png'.replaceAll('/', Platform.pathSeparator));
+      final file = File(
+        '${dir.path}/auto_$stamp.png'.replaceAll('/', Platform.pathSeparator),
+      );
       await file.writeAsBytes(bytes!.buffer.asUint8List());
       debugPrint('screenshot saved: ${file.path}');
     } catch (e) {
@@ -146,11 +194,24 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
 
   @override
   void dispose() {
+    if (widget.enableWindowHooks) {
+      windowManager.removeListener(this);
+    }
     HardwareKeyboard.instance.removeHandler(_onKey);
     _sessionSub?.cancel();
     _captureSub?.cancel();
-    windowManager.removeListener(this);
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void onWindowMaximize() {
+    if (mounted) setState(() => _isMaximized = true);
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    if (mounted) setState(() => _isMaximized = false);
   }
 
   @override
@@ -158,72 +219,555 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     // 窗口获焦时不触发整棵 AppShell 重建，避免切回应用时卡顿。
   }
 
+  T _watchOptional<T>(ProviderListenable<T> provider, T fallback) {
+    try {
+      return ref.watch(provider);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  Future<void> _toggleNsfwMode() async {
+    final current = ref.read(nsfwModeProvider);
+    final next = current == 'blur' ? 'show' : 'blur';
+    ref.read(nsfwModeProvider.notifier).state = next;
+    final services = tryAppServices();
+    if (services != null) {
+      await services.settings.setString(SettingsStore.kNsfwMode, next);
+    }
+  }
+
+  void _toggleTheme() {
+    final brightness = FluentTheme.of(context).brightness;
+    final next = brightness == Brightness.dark
+        ? ThemeModePref.light
+        : ThemeModePref.dark;
+    try {
+      ref.read(themeProvider.notifier).set(next);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleMaximize() async {
+    if (!widget.enableWindowHooks) return;
+    if (await windowManager.isMaximized()) {
+      await windowManager.unmaximize();
+    } else {
+      await windowManager.maximize();
+    }
+  }
+
+  void _openGameDetail(Game game) {
+    final id = game.id;
+    if (id == null) return;
+    Navigator.of(context).push(
+      FluentPageRoute<void>(
+        builder: (_) => GameDetailPage(gameId: id, initial: game),
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchCtrl.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final tab = ref.watch(tabIndexProvider);
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final nsfwMode = ref.watch(nsfwModeProvider);
+    final isBlurred = nsfwMode == 'blur';
+    final themePref = _watchOptional(themeProvider, ThemeModePref.system);
+    final isDark = switch (themePref) {
+      ThemeModePref.dark => true,
+      ThemeModePref.light => false,
+      ThemeModePref.system =>
+        FluentTheme.of(context).brightness == Brightness.dark,
+    };
+    final games = ref.watch(gamesProvider).valueOrNull ?? const <Game>[];
+    final trackingId = ref.watch(trackingGameProvider);
+    final canPop = Navigator.maybeOf(context)?.canPop() ?? false;
+    final fluent = FluentTheme.of(context);
 
-    return Scaffold(
-      backgroundColor: KisakiColors.spineSurface(dark),
-      body: Column(
-        children: [
-          const AppTitleBar(),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AppSidebar(
-                  current: tab,
-                  onSelect: (i) =>
-                      ref.read(tabIndexProvider.notifier).state = i,
-                ),
-                Expanded(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 2, right: 4, bottom: 4),
-                    decoration: BoxDecoration(
-                      color: KisakiColors.pageSurface(dark),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Elev.border(dark), width: 1),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(19),
-                      child: _LazyKeepAliveTabStack(
-                        currentTab: tab,
-                        builder: _pageFor,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+    return NavigationView(
+      titleBar: TitleBar(
+        isBackButtonVisible: true,
+        backButton: canPop
+            ? IconButton(
+                icon: const Icon(FluentIcons.arrow_left_16_regular, size: 16),
+                onPressed: () => Navigator.maybeOf(context)?.maybePop(),
+              )
+            : Padding(
+                padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
+                child: _KisakiEmblem(accent: fluent.accentColor),
+              ),
+        title: DragToMoveArea(
+          child: Text(
+            'KisakiGals',
+            style: fluent.typography.bodyStrong?.copyWith(fontSize: 13),
+          ),
+        ),
+        content: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: _GameQuickSearchBox(
+              controller: _searchCtrl,
+              games: games,
+              onSelected: _openGameDetail,
             ),
           ),
+        ),
+        endHeader: trackingId != null
+            ? Flexible(
+                child: _ActiveTrackingPill(
+                  gameId: trackingId,
+                  games: games,
+                ),
+              )
+            : null,
+        captionControls: _WindowCaptionButtons(
+          enabled: widget.enableWindowHooks,
+          isMaximized: _isMaximized,
+          onToggleMaximize: _toggleMaximize,
+        ),
+        onDragStarted:
+            widget.enableWindowHooks ? windowManager.startDragging : null,
+        onDoubleTap: widget.enableWindowHooks ? _toggleMaximize : null,
+      ),
+      pane: NavigationPane(
+        displayMode: PaneDisplayMode.auto,
+        size: const NavigationPaneSize(openWidth: 210),
+        selected: AppShell.tabToPaneIndex(tab),
+        onChanged: (paneIndex) {
+          ref.read(tabIndexProvider.notifier).state =
+              AppShell.paneIndexToTab(paneIndex);
+        },
+        items: [
+          _buildPaneItem(
+            tab: Tabs.home,
+            currentTab: tab,
+            regularIcon: FluentIcons.home_20_regular,
+            filledIcon: FluentIcons.home_20_filled,
+            label: '主页',
+          ),
+          _buildPaneItem(
+            tab: Tabs.library,
+            currentTab: tab,
+            regularIcon: FluentIcons.library_20_regular,
+            filledIcon: FluentIcons.library_20_filled,
+            label: '游戏库',
+          ),
+          _buildPaneItem(
+            tab: Tabs.discover,
+            currentTab: tab,
+            regularIcon: FluentIcons.compass_northwest_20_regular,
+            filledIcon: FluentIcons.compass_northwest_20_filled,
+            label: '探索',
+          ),
+          _buildPaneItem(
+            tab: Tabs.stats,
+            currentTab: tab,
+            regularIcon: FluentIcons.data_histogram_20_regular,
+            filledIcon: FluentIcons.data_histogram_20_filled,
+            label: '统计',
+          ),
+          _buildPaneItem(
+            tab: Tabs.ai,
+            currentTab: tab,
+            regularIcon: FluentIcons.sparkle_20_regular,
+            filledIcon: FluentIcons.sparkle_20_filled,
+            label: 'AI 助手',
+          ),
         ],
+        footerItems: [
+          _buildPaneItem(
+            tab: Tabs.add,
+            currentTab: tab,
+            regularIcon: FluentIcons.add_circle_20_regular,
+            filledIcon: FluentIcons.add_circle_20_filled,
+            label: '入库',
+          ),
+          _buildPaneItem(
+            tab: Tabs.settings,
+            currentTab: tab,
+            regularIcon: FluentIcons.settings_20_regular,
+            filledIcon: FluentIcons.settings_20_filled,
+            label: '设置',
+          ),
+          PaneItemSeparator(),
+          PaneItemAction(
+            key: const ValueKey('nav_action_nsfw'),
+            icon: Icon(
+              isBlurred
+                  ? FluentIcons.eye_off_20_regular
+                  : FluentIcons.eye_20_regular,
+            ),
+            title: Text(isBlurred ? 'R18 已模糊' : 'R18 已显示'),
+            tooltip: isBlurred ? '点击显示 R18 封面' : '点击模糊 R18 封面',
+            onTap: _toggleNsfwMode,
+          ),
+          PaneItemAction(
+            key: const ValueKey('nav_action_theme'),
+            icon: Icon(
+              isDark
+                  ? FluentIcons.weather_sunny_20_regular
+                  : FluentIcons.weather_moon_20_regular,
+            ),
+            title: Text(isDark ? '切换浅色' : '切换深色'),
+            tooltip: isDark ? '切换为浅色主题' : '切换为深色主题',
+            onTap: _toggleTheme,
+          ),
+        ],
+      ),
+      paneBodyBuilder: (_, __) => _LazyKeepAliveTabStack(
+        currentTab: tab,
+        builder: _pageFor,
       ),
     );
   }
 
+  PaneItem _buildPaneItem({
+    required int tab,
+    required int currentTab,
+    required IconData regularIcon,
+    required IconData filledIcon,
+    required String label,
+  }) {
+    return PaneItem(
+      key: ValueKey('nav_tab_$tab'),
+      icon: Icon(tab == currentTab ? filledIcon : regularIcon),
+      title: Text(label),
+      body: const SizedBox.shrink(),
+    );
+  }
+
   Widget _pageFor(int tab) {
-    switch (tab) {
-      case Tabs.home:
-        return const HomePage(key: ValueKey(Tabs.home));
-      case Tabs.library:
-        return const LibraryPage(key: ValueKey(Tabs.library));
-      case Tabs.discover:
-        return const DiscoverPage(key: ValueKey(Tabs.discover));
-      case Tabs.stats:
-        return const StatsPage(key: ValueKey(Tabs.stats));
-      case Tabs.ai:
-        return const AiPage(key: ValueKey(Tabs.ai));
-      default:
-        return const SettingsPage(key: ValueKey(Tabs.settings));
-    }
+    return switch (tab) {
+      Tabs.home => const HomePage(key: ValueKey(Tabs.home)),
+      Tabs.library => const LibraryPage(key: ValueKey(Tabs.library)),
+      Tabs.discover => const DiscoverPage(key: ValueKey(Tabs.discover)),
+      Tabs.stats => const StatsPage(key: ValueKey(Tabs.stats)),
+      Tabs.ai => const AiPage(key: ValueKey(Tabs.ai)),
+      Tabs.add => const AddGamePage(key: ValueKey(Tabs.add)),
+      _ => const SettingsPage(key: ValueKey(Tabs.settings)),
+    };
   }
 }
 
-/// 懒加载 + 状态保活 + 纵向滚动平滑过渡的 Tab 容器
+class _KisakiEmblem extends StatelessWidget {
+  final Color accent;
+  const _KisakiEmblem({required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.asset(
+        'assets/logo/logo_32.png',
+        width: 20,
+        height: 20,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => Icon(
+          FluentIcons.book_open_20_regular,
+          size: 18,
+          color: accent,
+        ),
+      ),
+    );
+  }
+}
+
+class _GameQuickSearchBox extends StatelessWidget {
+  final TextEditingController controller;
+  final List<Game> games;
+  final ValueChanged<Game> onSelected;
+
+  const _GameQuickSearchBox({
+    required this.controller,
+    required this.games,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AutoSuggestBox<Game>(
+      controller: controller,
+      placeholder: '搜索库中作品、原名或开发商...',
+      leadingIcon: const Padding(
+        padding: EdgeInsetsDirectional.only(start: 8),
+        child: Icon(FluentIcons.search_16_regular, size: 14),
+      ),
+      items: [
+        for (final g in games)
+          AutoSuggestBoxItem<Game>(
+            value: g,
+            label: g.displayName,
+          ),
+      ],
+      sorter: (text, items) {
+        final q = text.trim().toLowerCase();
+        if (q.isEmpty) return const [];
+        return items.where((item) {
+          final g = item.value;
+          if (g == null) return false;
+          return g.displayName.toLowerCase().contains(q) ||
+              g.name.toLowerCase().contains(q) ||
+              g.nameCn.toLowerCase().contains(q) ||
+              g.developer.toLowerCase().contains(q) ||
+              g.aliases.any((a) => a.toLowerCase().contains(q));
+        }).toList();
+      },
+      onSelected: (item) {
+        final game = item.value;
+        if (game != null) onSelected(game);
+      },
+    );
+  }
+}
+
+class _ActiveTrackingPill extends ConsumerStatefulWidget {
+  final int gameId;
+  final List<Game> games;
+
+  const _ActiveTrackingPill({
+    required this.gameId,
+    required this.games,
+  });
+
+  @override
+  ConsumerState<_ActiveTrackingPill> createState() =>
+      _ActiveTrackingPillState();
+}
+
+class _ActiveTrackingPillState extends ConsumerState<_ActiveTrackingPill> {
+  Timer? _ticker;
+  Game? _cachedGame;
+  int _seconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveGame();
+    final services = tryAppServices();
+    if (services != null) {
+      _seconds = services.tracker.liveSeconds;
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        setState(() {
+          _seconds = services.tracker.liveSeconds;
+        });
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ActiveTrackingPill oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.gameId != widget.gameId || oldWidget.games != widget.games) {
+      _resolveGame();
+    }
+  }
+
+  Future<void> _resolveGame() async {
+    for (final g in widget.games) {
+      if (g.id == widget.gameId) {
+        if (mounted) setState(() => _cachedGame = g);
+        return;
+      }
+    }
+    final fetched = await tryAppServices()?.repo.getGame(widget.gameId);
+    if (mounted && fetched != null) {
+      setState(() => _cachedGame = fetched);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  String _formatElapsed(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    return h > 0
+        ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
+        : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final accent = theme.accentColor;
+    final game = _cachedGame;
+    final title = game?.displayName ?? '正在游玩';
+
+    return HoverButton(
+      key: const ValueKey('active_tracking_pill'),
+      onPressed: game?.id == null
+          ? null
+          : () {
+              Navigator.of(context).push(
+                FluentPageRoute<void>(
+                  builder: (_) => GameDetailPage(gameId: game!.id!, initial: game),
+                ),
+              );
+            },
+      builder: (context, states) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: states.isHovered ? 0.18 : 0.12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: accent.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: accent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.caption?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.resources.textFillColorPrimary,
+                    ),
+                  ),
+                ),
+              ),
+              if (_seconds > 0) ...[
+                const SizedBox(width: 6),
+                Text(
+                  _formatElapsed(_seconds),
+                  style: theme.typography.caption?.copyWith(
+                    color: accent,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
+              IconButton(
+                key: const ValueKey('active_tracking_stop'),
+                icon: Icon(
+                  FluentIcons.stop_16_filled,
+                  size: 12,
+                  color: accent,
+                ),
+                onPressed: () => stopActiveGameSession(ref),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WindowCaptionButtons extends StatelessWidget {
+  final bool enabled;
+  final bool isMaximized;
+  final VoidCallback onToggleMaximize;
+
+  const _WindowCaptionButtons({
+    required this.enabled,
+    required this.isMaximized,
+    required this.onToggleMaximize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _CaptionButton(
+          icon: FluentIcons.subtract_16_regular,
+          tooltip: '最小化',
+          onPressed: enabled ? windowManager.minimize : null,
+        ),
+        _CaptionButton(
+          icon: isMaximized
+              ? FluentIcons.square_multiple_16_regular
+              : FluentIcons.maximize_16_regular,
+          tooltip: isMaximized ? '还原' : '最大化',
+          onPressed: enabled ? onToggleMaximize : null,
+        ),
+        _CaptionButton(
+          icon: FluentIcons.dismiss_16_regular,
+          tooltip: '关闭',
+          isClose: true,
+          onPressed: enabled ? windowManager.close : null,
+        ),
+      ],
+    );
+  }
+}
+
+class _CaptionButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool isClose;
+  final VoidCallback? onPressed;
+
+  const _CaptionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.isClose = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final idleFg = theme.resources.textFillColorSecondary;
+    final hoverFg = isClose ? Colors.white : theme.resources.textFillColorPrimary;
+    final hoverBg = isClose
+        ? const Color(0xFFC42B1C)
+        : (isDark ? const Color(0x14FFFFFF) : const Color(0x0F000000));
+
+    return Tooltip(
+      message: tooltip,
+      child: HoverButton(
+        onPressed: onPressed,
+        builder: (context, states) {
+          final active = states.isHovered || states.isPressed;
+          return AnimatedContainer(
+            duration: FluentMotion.fast,
+            curve: FluentMotion.enterCurve,
+            width: 44,
+            height: 40,
+            alignment: Alignment.center,
+            color: active ? hoverBg : Colors.transparent,
+            child: Icon(
+              icon,
+              size: 14,
+              color: active ? hoverFg : idleFg,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 懒加载 + 状态保活 + Fluent 过渡的 Tab 容器
 class _LazyKeepAliveTabStack extends StatefulWidget {
   final int currentTab;
   final Widget Function(int tab) builder;
+
   const _LazyKeepAliveTabStack({
     required this.currentTab,
     required this.builder,
@@ -233,39 +777,15 @@ class _LazyKeepAliveTabStack extends StatefulWidget {
   State<_LazyKeepAliveTabStack> createState() => _LazyKeepAliveTabStackState();
 }
 
-class _LazyKeepAliveTabStackState extends State<_LazyKeepAliveTabStack>
-    with SingleTickerProviderStateMixin {
+class _LazyKeepAliveTabStackState extends State<_LazyKeepAliveTabStack> {
   final Set<int> _mountedTabs = {};
   final Map<int, Widget> _tabWidgets = {};
-  late final AnimationController _animController;
-  late final Animation<double> _anim;
-
-  int? _prevTab;
-  double _direction = 1.0; // 1.0 = 向下切换（新页面自下而上滑入）；-1.0 = 向上切换
 
   @override
   void initState() {
     super.initState();
     _mountedTabs.add(widget.currentTab);
-    _tabWidgets[widget.currentTab] = RepaintBoundary(
-      child: widget.builder(widget.currentTab),
-    );
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 220),
-    );
-    _anim = CurvedAnimation(
-      parent: _animController,
-      curve: Motion.enter,
-    );
-    _animController.value = 1.0;
-    _animController.addStatusListener((status) {
-      if (status == AnimationStatus.completed && _prevTab != null && mounted) {
-        setState(() {
-          _prevTab = null;
-        });
-      }
-    });
+    _tabChild(widget.currentTab);
   }
 
   Widget _tabChild(int index) {
@@ -282,21 +802,18 @@ class _LazyKeepAliveTabStackState extends State<_LazyKeepAliveTabStack>
       _mountedTabs.add(widget.currentTab);
       _tabChild(widget.currentTab);
     }
-    if (widget.currentTab != oldWidget.currentTab) {
-      _prevTab = oldWidget.currentTab;
-      _direction = widget.currentTab > oldWidget.currentTab ? 1.0 : -1.0;
-      _animController.forward(from: 0.0);
-    }
   }
 
   @override
   void dispose() {
     _tabWidgets.clear();
-    _animController.dispose();
     super.dispose();
   }
 
-  Widget _buildStaticStack() {
+  @override
+  Widget build(BuildContext context) {
+    final disableAnimations = fluentAnimationsDisabled(context);
+
     return Stack(
       fit: StackFit.expand,
       children: List.generate(Tabs.count, (index) {
@@ -304,507 +821,32 @@ class _LazyKeepAliveTabStackState extends State<_LazyKeepAliveTabStack>
           return const SizedBox.shrink();
         }
         final isCurrent = index == widget.currentTab;
+        Widget child = _tabChild(index);
+        if (!disableAnimations) {
+          child = child
+              .animate(
+                target: isCurrent ? 1.0 : 0.0,
+                autoPlay: false,
+              )
+              .fadeIn(
+                duration: FluentMotion.standard,
+                curve: FluentMotion.enterCurve,
+              )
+              .moveY(
+                begin: 8,
+                end: 0,
+                duration: FluentMotion.standard,
+                curve: FluentMotion.enterCurve,
+              );
+        }
         return Offstage(
           offstage: !isCurrent,
           child: TickerMode(
             enabled: isCurrent,
-            child: _tabChild(index),
+            child: child,
           ),
         );
       }),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final disableAnimations =
-        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-
-    if (disableAnimations || !_animController.isAnimating || _prevTab == null) {
-      return _buildStaticStack();
-    }
-
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (context, _) {
-        final progress = _anim.value;
-
-        return Stack(
-          fit: StackFit.expand,
-          children: List.generate(Tabs.count, (index) {
-            if (!_mountedTabs.contains(index)) {
-              return const SizedBox.shrink();
-            }
-
-            final isCurrent = index == widget.currentTab;
-            final isPrevious = index == _prevTab;
-
-            if (!isCurrent && !isPrevious) {
-              // 保留已挂载页的状态与滚动位置，避免下次切回重新查询与重建
-              return Offstage(
-                offstage: true,
-                child: TickerMode(
-                  enabled: false,
-                  child: _tabChild(index),
-                ),
-              );
-            }
-
-            if (isPrevious) {
-              final offset = Offset(0.0, -0.05 * _direction * progress);
-              final opacity = (1.0 - progress).clamp(0.0, 1.0);
-              return Positioned.fill(
-                child: TickerMode(
-                  enabled: false,
-                  child: Transform.translate(
-                    offset: offset * 280,
-                    child: Opacity(
-                      opacity: opacity,
-                      child: _tabChild(index),
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            final offset = Offset(0.0, 0.06 * _direction * (1.0 - progress));
-            final opacity = progress.clamp(0.0, 1.0);
-            return Positioned.fill(
-              child: TickerMode(
-                enabled: true,
-                child: Transform.translate(
-                  offset: offset * 280,
-                  child: Opacity(
-                    opacity: opacity,
-                    child: _tabChild(index),
-                  ),
-                ),
-              ),
-            );
-          }),
-        );
-      },
-    );
-  }
-}
-
-/// Microsoft Fluent 2 `NavigationView` 左侧导航栏
-class AppSidebar extends ConsumerStatefulWidget {
-  final int current;
-  final ValueChanged<int> onSelect;
-  const AppSidebar({super.key, required this.current, required this.onSelect});
-
-  static const primaryItems = [
-    (Icons.home_outlined, Icons.home_rounded, '主页', Tabs.home),
-    (
-      Icons.videogame_asset_outlined,
-      Icons.videogame_asset_rounded,
-      '游戏库',
-      Tabs.library
-    ),
-    (
-      Icons.explore_outlined,
-      Icons.explore_rounded,
-      '探索',
-      Tabs.discover
-    ),
-    (Icons.insights_outlined, Icons.insights_rounded, '统计', Tabs.stats),
-    (
-      Icons.auto_awesome_outlined,
-      Icons.auto_awesome_rounded,
-      'AI 助手',
-      Tabs.ai
-    ),
-  ];
-
-  static const footerItem = (
-    Icons.settings_outlined,
-    Icons.settings_rounded,
-    '设置',
-    Tabs.settings,
-  );
-
-  static const items = [
-    (Icons.home_rounded, '主页', Tabs.home, ''),
-    (Icons.videogame_asset_rounded, '游戏库', Tabs.library, ''),
-    (Icons.explore_rounded, '探索', Tabs.discover, ''),
-    (Icons.insights_rounded, '统计', Tabs.stats, ''),
-    (Icons.auto_awesome_rounded, 'AI 助手', Tabs.ai, ''),
-    (Icons.settings_rounded, '设置', Tabs.settings, ''),
-  ];
-
-  @override
-  ConsumerState<AppSidebar> createState() => _AppSidebarState();
-}
-
-class _AppSidebarState extends ConsumerState<AppSidebar>
-    with SingleTickerProviderStateMixin {
-  static const double _kTopPad = 6.0;
-  static const double _kItemHeight = 42.0;
-  static const double _kItemGap = 4.0;
-  static const double _kItemStride = _kItemHeight + _kItemGap;
-
-  late final AnimationController _tabSpringController;
-  late double _animatedIndex;
-
-  int? _primarySlotForTab(int tab) {
-    for (var i = 0; i < AppSidebar.primaryItems.length; i++) {
-      if (AppSidebar.primaryItems[i].$4 == tab) return i;
-    }
-    return null;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _animatedIndex = (_primarySlotForTab(widget.current) ?? 0).toDouble();
-    _tabSpringController = AnimationController.unbounded(
-      vsync: this,
-      value: _animatedIndex,
-    )..addListener(() {
-        if (mounted) {
-          setState(() {
-            _animatedIndex = _tabSpringController.value;
-          });
-        }
-      });
-  }
-
-  @override
-  void didUpdateWidget(covariant AppSidebar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.current != widget.current) {
-      final slot = _primarySlotForTab(widget.current);
-      if (slot == null) return;
-      final targetSlot = slot.toDouble();
-      final disableAnimations =
-          MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-      if (disableAnimations) {
-        _tabSpringController.stop();
-        _tabSpringController.value = targetSlot;
-        setState(() => _animatedIndex = targetSlot);
-      } else {
-        final inheritedVelocity = _tabSpringController.isAnimating
-            ? _tabSpringController.velocity
-            : 0.0;
-        final simulation = AppleSpringSimulation.fromResponse(
-          start: _animatedIndex,
-          end: targetSlot,
-          velocity: inheritedVelocity,
-          dampingRatio: 1.0,
-          response: 0.28,
-        );
-        _tabSpringController.animateWith(simulation);
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _tabSpringController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final tracking = ref.watch(trackingGameProvider);
-    final isFooterSelected = widget.current == AppSidebar.footerItem.$4;
-    final indicatorTop = _kTopPad + _animatedIndex * _kItemStride;
-
-    return SizedBox(
-      width: 204,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              height: _kTopPad + AppSidebar.primaryItems.length * _kItemStride,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  if (!isFooterSelected)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: indicatorTop,
-                      height: _kItemHeight,
-                      child: IgnorePointer(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                KisakiColors.m3Rose
-                                    .withValues(alpha: dark ? 0.24 : 0.34),
-                                KisakiColors.m3Lavender
-                                    .withValues(alpha: dark ? 0.20 : 0.34),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(Radii.full),
-                            border: Border.all(
-                              color: KisakiColors.m3Rose
-                                  .withValues(alpha: dark ? 0.36 : 0.42),
-                              width: 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  Positioned.fill(
-                    top: _kTopPad,
-                    child: Column(
-                      children: [
-                        for (final item in AppSidebar.primaryItems)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: _kItemGap),
-                            child: NavItem(
-                              icon: widget.current == item.$4 ? item.$2 : item.$1,
-                              label: item.$3,
-                              selected: widget.current == item.$4,
-                              dark: dark,
-                              showPill: false,
-                              onTap: () => widget.onSelect(item.$4),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Spacer(),
-            if (tracking != null) const _SidebarRunning(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              child: Divider(
-                height: 1,
-                thickness: 1,
-                color: Elev.border(dark),
-              ),
-            ),
-            NavItem(
-              icon: isFooterSelected
-                  ? AppSidebar.footerItem.$2
-                  : AppSidebar.footerItem.$1,
-              label: AppSidebar.footerItem.$3,
-              selected: isFooterSelected,
-              dark: dark,
-              showPill: true,
-              onTap: () => widget.onSelect(AppSidebar.footerItem.$4),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Material Design 3 `NavigationDrawer` 胶囊导航项
-class NavItem extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final String indexCode;
-  final bool selected;
-  final bool dark;
-  final bool showPill;
-  final VoidCallback onTap;
-
-  const NavItem({
-    super.key,
-    required this.icon,
-    required this.label,
-    this.indexCode = '',
-    required this.selected,
-    required this.dark,
-    this.showPill = true,
-    required this.onTap,
-  });
-
-  @override
-  State<NavItem> createState() => _NavItemState();
-}
-
-class _NavItemState extends State<NavItem> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final idle =
-        widget.dark ? KisakiColors.nightInkMedium : KisakiColors.inkMedium;
-    final fgColor = widget.selected
-        ? (widget.dark ? KisakiColors.nightInk : KisakiColors.ink)
-        : idle;
-    final iconColor = widget.selected
-        ? KisakiColors.roseInk(widget.dark)
-        : idle;
-    final hoverBg = widget.dark
-        ? KisakiColors.m3Lavender.withValues(alpha: 0.08)
-        : KisakiColors.m3Rose.withValues(alpha: 0.09);
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: FluidPressable(
-        onTap: widget.onTap,
-        scaleFactor: 0.985,
-        child: AnimatedContainer(
-          duration: Motion.fast,
-          curve: Motion.enter,
-          height: 42,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: (!widget.showPill || !widget.selected)
-                ? (_hover && !widget.selected ? hoverBg : Colors.transparent)
-                : null,
-            gradient: (widget.showPill && widget.selected)
-                ? LinearGradient(
-                    colors: [
-                      KisakiColors.m3Rose
-                          .withValues(alpha: widget.dark ? 0.24 : 0.34),
-                      KisakiColors.m3Lavender
-                          .withValues(alpha: widget.dark ? 0.20 : 0.34),
-                    ],
-                  )
-                : null,
-            borderRadius: BorderRadius.circular(Radii.full),
-            border: (widget.showPill && widget.selected)
-                ? Border.all(
-                    color: KisakiColors.m3Rose
-                        .withValues(alpha: widget.dark ? 0.36 : 0.42),
-                    width: 1,
-                  )
-                : null,
-          ),
-          child: Row(
-            children: [
-              Icon(widget.icon, size: 19, color: iconColor),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Type.body.copyWith(
-                    fontSize: 13.5,
-                    color: fgColor,
-                    fontWeight:
-                        widget.selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 侧栏底部：当前正在游玩的游戏（专色青蓝 C 实时计时卡片）
-class _SidebarRunning extends ConsumerStatefulWidget {
-  const _SidebarRunning();
-
-  @override
-  ConsumerState<_SidebarRunning> createState() => _SidebarRunningState();
-}
-
-class _SidebarRunningState extends ConsumerState<_SidebarRunning> {
-  Timer? _t;
-  int _seconds = 0;
-  Game? _game;
-
-  @override
-  void initState() {
-    super.initState();
-    _t = Timer.periodic(const Duration(seconds: 1), (_) async {
-      final id = ref.read(trackingGameProvider);
-      if (id == null) {
-        if (mounted && _game != null) setState(() => _game = null);
-        return;
-      }
-      final g = _game?.id == id ? _game : await AppServices.I.repo.getGame(id);
-      if (!mounted) return;
-      setState(() {
-        _game = g;
-        _seconds = AppServices.I.tracker.liveSeconds;
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _t?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final game = _game;
-    if (game == null) return const SizedBox.shrink();
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final cyanInk = KisakiColors.temporalInk(dark);
-    final h = _seconds ~/ 3600;
-    final m = (_seconds % 3600) ~/ 60;
-    final s = _seconds % 60;
-    final text = h > 0
-        ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
-        : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 0, 12, 8),
-      child: KCard(
-        dense: true,
-        borderColor: cyanInk.withValues(alpha: dark ? 0.40 : 0.28),
-        onTap: () => Navigator.of(context).push(FadeThroughRoute.builder(
-            builder: (_) => GameDetailPage(gameId: game.id!, initial: game))),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              PulsingGlow(
-                minOpacity: 0.55,
-                maxOpacity: 1.0,
-                minScale: 0.85,
-                maxScale: 1.15,
-                child: Container(
-                  width: 6.5,
-                  height: 6.5,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: cyanInk,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '正在运行',
-                style: Type.micro.copyWith(
-                  color: cyanInk,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ]),
-            const SizedBox(height: 5),
-            Text(
-              game.displayName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Type.caption.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              text,
-              style: Type.mono.copyWith(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: cyanInk,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

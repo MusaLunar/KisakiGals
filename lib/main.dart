@@ -1,10 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show PlatformDispatcher;
 
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:flutter_acrylic/flutter_acrylic.dart' as acrylic;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:system_theme/system_theme.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -15,11 +17,11 @@ import 'data/models.dart';
 import 'data/settings_store.dart';
 import 'providers.dart';
 import 'services/game_launch_service.dart';
-import 'ui/design.dart';
+import 'ui/fluent/fluent_notices.dart';
+import 'ui/fluent/fluent_theme.dart';
+import 'ui/library/game_actions.dart' show tryAppServices;
 import 'ui/shell/app_shell.dart';
 import 'ui/shell/tabs.dart' show Tabs;
-import 'ui/theme.dart';
-import 'ui/widgets/notifications.dart';
 
 const MethodChannel _trayPopupChannel = MethodChannel('kisaki/tray_menu');
 
@@ -30,13 +32,16 @@ Future<void> main() async {
   PaintingBinding.instance.imageCache.maximumSize = 260;
   PaintingBinding.instance.imageCache.maximumSizeBytes = 160 << 20; // 160 MB
 
+  SystemTheme.fallbackColor = kDefaultWin11Azure;
+  await SystemTheme.accentColor.load();
+
   await windowManager.ensureInitialized();
   await acrylic.Window.initialize();
 
-  // Windows 11 Mica 效果；失败静默回退纯色背景
-  try {
-    await acrylic.Window.setEffect(effect: acrylic.WindowEffect.mica);
-  } catch (_) {}
+  await syncWindowBackdrop(
+    effect: BackdropEffectPref.mica,
+    dark: PlatformDispatcher.instance.platformBrightness == Brightness.dark,
+  );
 
   const windowOptions = WindowOptions(
     title: 'KisakiGals',
@@ -65,26 +70,42 @@ bool _trayReady = false;
 Future<Map<String, dynamic>> _buildTrayPopupPayload({
   String? runningGameTitle,
   bool? darkOverride,
+  int? accentArgb,
 }) async {
-  final tracker = AppServices.I.tracker;
+  final services = tryAppServices();
+  if (services == null) {
+    return {
+      'dark': darkOverride ?? false,
+      'accentArgb': accentArgb ??
+          resolveAccentBaseColor(
+            AccentPreset.system,
+            SystemTheme.accentColor.accent,
+          ).toARGB32(),
+      'version': AppInfo.version,
+      'runningTitle': runningGameTitle?.trim() ?? '',
+      'recentGames': const <Map<String, dynamic>>[],
+    };
+  }
+
+  final tracker = services.tracker;
   final activeId =
       tracker.refreshAndCheckActive() ? tracker.trackedGameId : null;
   var activeTitle = runningGameTitle?.trim() ?? '';
   if (activeTitle.isEmpty && activeId != null) {
-    final activeGame = await AppServices.I.repo.getGame(activeId);
+    final activeGame = await services.repo.getGame(activeId);
     activeTitle = activeGame?.displayName ?? '';
   }
 
   // 查询最近游玩的 2 部作品
   List<Game> recentGames = const [];
   try {
-    recentGames = await AppServices.I.repo.recentPlayedGames(limit: 2);
+    recentGames = await services.repo.recentPlayedGames(limit: 2);
   } catch (_) {}
 
   bool dark = darkOverride ?? false;
   if (darkOverride == null) {
     final mode =
-        await AppServices.I.settings.getString(SettingsStore.kThemeMode, 'system');
+        await services.settings.getString(SettingsStore.kThemeMode, 'system');
     if (mode == 'dark') {
       dark = true;
     } else if (mode == 'light') {
@@ -100,7 +121,7 @@ Future<Map<String, dynamic>> _buildTrayPopupPayload({
     if (gid == null) continue;
     final isRunning = activeId == gid;
     var coverPath =
-        g.coverPath.isEmpty ? '' : AppServices.I.paths.resolveStored(g.coverPath);
+        g.coverPath.isEmpty ? '' : services.paths.resolveStored(g.coverPath);
     if (coverPath.isNotEmpty && !File(coverPath).existsSync()) {
       coverPath = '';
     }
@@ -120,6 +141,11 @@ Future<Map<String, dynamic>> _buildTrayPopupPayload({
 
   return {
     'dark': dark,
+    'accentArgb': accentArgb ??
+        resolveAccentBaseColor(
+          AccentPreset.system,
+          SystemTheme.accentColor.accent,
+        ).toARGB32(),
     'version': AppInfo.version,
     'runningTitle': activeTitle,
     'recentGames': recentPayload,
@@ -129,13 +155,15 @@ Future<Map<String, dynamic>> _buildTrayPopupPayload({
 /// 同步托盘悬停提示（右键菜单由自绘「誌面」顶层弹出窗口渲染，不再调用 Windows 原生菜单）。
 Future<void> updateTrayMenu({String? runningGameTitle}) async {
   if (!_trayReady) return;
+  final services = tryAppServices();
+  if (services == null) return;
 
-  final tracker = AppServices.I.tracker;
+  final tracker = services.tracker;
   final activeId =
       tracker.refreshAndCheckActive() ? tracker.trackedGameId : null;
   var activeTitle = runningGameTitle?.trim() ?? '';
   if (activeTitle.isEmpty && activeId != null) {
-    final activeGame = await AppServices.I.repo.getGame(activeId);
+    final activeGame = await services.repo.getGame(activeId);
     activeTitle = activeGame?.displayName ?? '';
   }
 
@@ -150,13 +178,16 @@ Future<void> updateTrayMenu({String? runningGameTitle}) async {
 /// 创建托盘图标。
 Future<void> _setupTray() async {
   if (_trayReady) return;
+  final services = tryAppServices();
+  if (services == null) return;
   // 把 ico 从资源包复制到数据目录，保证 release 下路径可解析
-  final icoPath = '${AppServices.I.paths.root}/tray.ico';
+  final icoPath = '${services.paths.root}/tray.ico';
   try {
     final data = await rootBundle.load('assets/logo/kisaki.ico');
     await File(icoPath).writeAsBytes(
-        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-        flush: true);
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
   } catch (_) {
     return;
   }
@@ -170,8 +201,10 @@ Future<void> _setupTray() async {
 /// 托盘图标**始终存在**（与关闭行为无关），关闭行为只决定点 × 的动作。
 /// 设置页切换后调用以实时生效。
 Future<void> applyCloseBehavior() async {
-  final behavior = await AppServices.I.settings
-      .getString(SettingsStore.kCloseBehavior, 'exit');
+  final services = tryAppServices();
+  if (services == null) return;
+  final behavior =
+      await services.settings.getString(SettingsStore.kCloseBehavior, 'exit');
   await windowManager.setPreventClose(behavior == 'tray');
   await _setupTray();
 }
@@ -182,57 +215,127 @@ Future<void> minimizeToTray() async {
   await windowManager.hide();
 }
 
-/// 应用根：主题切换 + 外壳 + 托盘/关闭行为。
+/// 应用根：Fluent 2 主题 / 系统强调色 / DWM Backdrop + 外壳 + 托盘/关闭行为。
 class KisakiApp extends ConsumerStatefulWidget {
-  const KisakiApp({super.key});
+  final bool enableDesktopHooks;
+
+  const KisakiApp({super.key, this.enableDesktopHooks = true});
 
   @override
   ConsumerState<KisakiApp> createState() => _KisakiAppState();
 }
 
 class _KisakiAppState extends ConsumerState<KisakiApp>
-    with WindowListener, TrayListener {
+    with WindowListener, TrayListener, WidgetsBindingObserver {
+  StreamSubscription<SystemAccentColor>? _accentSub;
+
   @override
   void initState() {
     super.initState();
-    windowManager.addListener(this);
-    trayManager.addListener(this);
-    _trayPopupChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onTrayAction') {
-        final action = (call.arguments ?? '').toString();
-        if (action.isNotEmpty) {
-          await _handleTrayAction(action);
+    WidgetsBinding.instance.addObserver(this);
+
+    if (widget.enableDesktopHooks) {
+      windowManager.addListener(this);
+      trayManager.addListener(this);
+      _trayPopupChannel.setMethodCallHandler((call) async {
+        if (call.method == 'onTrayAction') {
+          final action = (call.arguments ?? '').toString();
+          if (action.isNotEmpty) {
+            await _handleTrayAction(action);
+          }
         }
-      }
-    });
-    Future.microtask(() async {
-      final s = AppServices.I.settings;
-      ref.read(nsfwModeProvider.notifier).state =
-          await s.getString(SettingsStore.kNsfwMode, 'blur');
-      ref.read(nsfwBlurProvider.notifier).state =
-          await s.getDouble('nsfw.blur', 12);
-      ref.read(detailBgBlurProvider.notifier).state =
-          await s.getDouble('detail.bg_blur', 14);
-      ref.read(libraryLayoutProvider.notifier).state =
-          await s.getString(SettingsStore.kLibraryLayout, 'grid');
-      ref.read(discoverLayoutProvider.notifier).state =
-          await s.getString(SettingsStore.kDiscoverLayout, 'grid');
-      await applyCloseBehavior();
-    });
+      });
+      _accentSub = SystemTheme.onChange.listen((event) {
+        if (mounted) {
+          ref.read(systemAccentColorProvider.notifier).state = event.accent;
+        }
+      });
+
+      Future.microtask(() async {
+        if (!mounted) return;
+        final services = tryAppServices();
+        if (services == null) return;
+        final s = services.settings;
+        ref.read(nsfwModeProvider.notifier).state =
+            await s.getString(SettingsStore.kNsfwMode, 'blur');
+        ref.read(nsfwBlurProvider.notifier).state =
+            await s.getDouble('nsfw.blur', 12);
+        ref.read(detailBgBlurProvider.notifier).state =
+            await s.getDouble('detail.bg_blur', 14);
+        ref.read(libraryLayoutProvider.notifier).state =
+            await s.getString(SettingsStore.kLibraryLayout, 'grid');
+        ref.read(discoverLayoutProvider.notifier).state =
+            await s.getString(SettingsStore.kDiscoverLayout, 'grid');
+        await applyCloseBehavior();
+        if (mounted) {
+          _syncBackdrop();
+        }
+      });
+    }
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    super.didChangePlatformBrightness();
+    if (widget.enableDesktopHooks) {
+      _syncBackdrop();
+    }
   }
 
   @override
   void dispose() {
-    _trayPopupChannel.setMethodCallHandler(null);
-    windowManager.removeListener(this);
-    trayManager.removeListener(this);
+    WidgetsBinding.instance.removeObserver(this);
+    _accentSub?.cancel();
+    if (widget.enableDesktopHooks) {
+      _trayPopupChannel.setMethodCallHandler(null);
+      windowManager.removeListener(this);
+      trayManager.removeListener(this);
+    }
     super.dispose();
+  }
+
+  T _watchOptional<T>(ProviderListenable<T> provider, T fallback) {
+    try {
+      return ref.watch(provider);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  T _readOptional<T>(ProviderListenable<T> provider, T fallback) {
+    try {
+      return ref.read(provider);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  bool _isDarkForPref(ThemeModePref pref) => switch (pref) {
+        ThemeModePref.dark => true,
+        ThemeModePref.light => false,
+        ThemeModePref.system =>
+          PlatformDispatcher.instance.platformBrightness == Brightness.dark,
+      };
+
+  void _syncBackdrop() {
+    if (!widget.enableDesktopHooks) return;
+    final pref = _readOptional(themeProvider, ThemeModePref.system);
+    final effect = _readOptional(backdropEffectProvider, BackdropEffectPref.mica);
+    unawaited(
+      syncWindowBackdrop(
+        effect: effect,
+        dark: _isDarkForPref(pref),
+      ),
+    );
   }
 
   @override
   void onWindowClose() async {
-    final behavior = await AppServices.I.settings
-        .getString(SettingsStore.kCloseBehavior, 'exit');
+    final services = tryAppServices();
+    final behavior = services == null
+        ? 'exit'
+        : await services.settings
+            .getString(SettingsStore.kCloseBehavior, 'exit');
     if (behavior == 'tray') {
       await minimizeToTray();
     } else {
@@ -251,14 +354,16 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
     try {
       await _trayPopupChannel.invokeMethod('hidePopup');
     } catch (_) {}
+    final services = tryAppServices();
+    if (services == null) return;
     try {
-      final scheduler = AppServices.I.autoBackup;
+      final scheduler = services.autoBackup;
       await scheduler.backupOnExitIfDue();
       scheduler.suspend();
       await scheduler.waitForRunning();
     } catch (_) {}
     try {
-      await AppServices.I.dispose();
+      await services.dispose();
     } catch (_) {}
   }
 
@@ -282,29 +387,34 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
   @override
   void onTrayIconRightMouseDown() async {
     // 弹出自绘「誌面」托盘菜单（含 2 部最近游玩游戏封面与一键启动）
-    final pref = ref.read(themeProvider);
-    final dark = switch (pref) {
-      ThemeModePref.dark => true,
-      ThemeModePref.light => false,
-      ThemeModePref.system =>
-        PlatformDispatcher.instance.platformBrightness == Brightness.dark,
-    };
-    final payload = await _buildTrayPopupPayload(darkOverride: dark);
+    final pref = _readOptional(themeProvider, ThemeModePref.system);
+    final dark = _isDarkForPref(pref);
+    final preset = _readOptional(accentPresetProvider, AccentPreset.system);
+    final sysAccent = ref.read(systemAccentColorProvider);
+    final accent = resolveAccentBaseColor(preset, sysAccent);
+
+    final payload = await _buildTrayPopupPayload(
+      darkOverride: dark,
+      accentArgb: accent.toARGB32(),
+    );
     try {
       await _trayPopupChannel.invokeMethod('showPopup', payload);
     } catch (_) {}
   }
 
   Future<void> _handleTrayAction(String key) async {
+    final services = tryAppServices();
     if (key.startsWith('launch_game_')) {
       final gameId = int.tryParse(key.substring('launch_game_'.length));
-      if (gameId == null) return;
-      final game = await AppServices.I.repo.getGame(gameId);
+      if (gameId == null || services == null) return;
+      final game = await services.repo.getGame(gameId);
       if (game == null) return;
       if (game.exePath.isEmpty || !File(game.exePath).existsSync()) {
         await _restoreAndFocusWindow();
-        showNotice('未找到「${game.displayName}」的可执行文件，请先在游戏详情中配置路径',
-            error: true);
+        showNotice(
+          '未找到「${game.displayName}」的可执行文件，请先在游戏详情中配置路径',
+          error: true,
+        );
         return;
       }
       await GameLaunchService.launchAndTrack(game, ref);
@@ -328,7 +438,7 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
         await _restoreAndFocusWindow();
         ref.read(tabIndexProvider.notifier).state = Tabs.settings;
       case 'stop_tracking':
-        AppServices.I.tracker.stopTracking(saveSession: true);
+        services?.tracker.stopTracking(saveSession: true);
         ref.read(trackingGameProvider.notifier).state = null;
         await updateTrayMenu();
       case 'quit':
@@ -340,49 +450,73 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
 
   @override
   Widget build(BuildContext context) {
-    // 监听运行中的游戏与库变更，动态刷新托盘状态提示
-    ref.listen<int?>(trackingGameProvider, (prev, next) async {
-      if (next != null) {
-        final game = await AppServices.I.repo.getGame(next);
-        await updateTrayMenu(runningGameTitle: game?.displayName ?? '');
-      } else {
+    if (widget.enableDesktopHooks) {
+      // 监听运行中的游戏与库变更，动态刷新托盘状态提示
+      ref.listen<int?>(trackingGameProvider, (prev, next) async {
+        final services = tryAppServices();
+        if (next != null && services != null) {
+          final game = await services.repo.getGame(next);
+          await updateTrayMenu(runningGameTitle: game?.displayName ?? '');
+        } else {
+          await updateTrayMenu();
+        }
+      });
+      ref.listen<int>(libraryVersionProvider, (prev, next) async {
         await updateTrayMenu();
-      }
-    });
-    ref.listen<int>(libraryVersionProvider, (prev, next) async {
-      await updateTrayMenu();
-    });
+      });
+      ref.listen<ThemeModePref>(themeProvider, (prev, next) {
+        _syncBackdrop();
+      });
+      ref.listen<BackdropEffectPref>(backdropEffectProvider, (prev, next) {
+        _syncBackdrop();
+      });
+    }
 
-    final pref = ref.watch(themeProvider);
-    return MaterialApp(
+    final pref = _watchOptional(themeProvider, ThemeModePref.system);
+    final preset = _watchOptional(accentPresetProvider, AccentPreset.system);
+    final backdrop = _watchOptional(
+      backdropEffectProvider,
+      BackdropEffectPref.mica,
+    );
+    final systemAccent = ref.watch(systemAccentColorProvider);
+
+    return FluentApp(
       title: 'KisakiGals',
       debugShowCheckedModeBanner: false,
-      theme: buildLightTheme(),
-      darkTheme: buildDarkTheme(),
+      theme: buildFluentTheme(
+        brightness: Brightness.light,
+        preset: preset,
+        systemAccent: systemAccent,
+        backdrop: backdrop,
+      ),
+      darkTheme: buildFluentTheme(
+        brightness: Brightness.dark,
+        preset: preset,
+        systemAccent: systemAccent,
+        backdrop: backdrop,
+      ),
       themeMode: switch (pref) {
         ThemeModePref.system => ThemeMode.system,
         ThemeModePref.light => ThemeMode.light,
         ThemeModePref.dark => ThemeMode.dark,
       },
+      localizationsDelegates: const [
+        FluentLocalizations.delegate,
+        DefaultWidgetsLocalizations.delegate,
+      ],
+      supportedLocales: FluentLocalizations.supportedLocales,
       builder: (context, child) {
-        final scheme = Theme.of(context).colorScheme;
-        return Material(
-          type: MaterialType.transparency,
-          child: DefaultTextStyle(
-            style: Type.body.copyWith(color: scheme.onSurface),
-            child: Stack(
-              children: [
-                RepaintBoundary(
-                  key: shotBoundaryKey,
-                  child: child ?? const SizedBox.shrink(),
-                ),
-                const NoticeHost(),
-              ],
+        return Stack(
+          children: [
+            RepaintBoundary(
+              key: shotBoundaryKey,
+              child: child ?? const SizedBox.shrink(),
             ),
-          ),
+            const FluentNoticeHost(),
+          ],
         );
       },
-      home: const AppShell(),
+      home: AppShell(enableWindowHooks: widget.enableDesktopHooks),
     );
   }
 }
