@@ -1,35 +1,78 @@
-/// 存档目录候选选择对话框。
-///
-/// 由 [SaveDirDetector] 汇总多个来源（游戏目录关键词 / 用户目录同名 / 注册表 /
-/// 游玩期间写入）给出候选，按可信度降序排列，用户点一行即选中。
-/// 存在失效路径（注册表记录但目录已不存在）时置灰不可选，避免误选。
-///
-/// 视觉全部走 ui/kit.dart 原语：外层 `showKisakiDialog`、候选行 KCard(flat)
-/// + KRow、徽标 KBadge、按钮 KPill、空态 KEmpty、加载 KLoading。
+/// Fluent 2 存档目录识别与候选选择对话框。
 library;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 
 import '../../app_services.dart';
 import '../../core/utils.dart';
 import '../../data/models.dart';
 import '../../services/save_dir_detector.dart';
 import '../../services/save_write_watcher.dart';
-import '../design.dart';
-import '../kit.dart';
-import '../theme.dart';
+import '../fluent/fluent_icons.dart';
+import '../fluent/fluent_surfaces.dart';
 
+/// 打开存档目录选择对话框，返回用户选中或手动浏览的目录路径；取消返回 null。
+Future<String?> showSaveDirPickerDialog(
+  BuildContext context,
+  Game game, {
+  Future<List<SaveDirCandidate>> Function(Game game)? detectCandidates,
+  Future<String?> Function()? pickManualDir,
+}) {
+  final hasTheme = FluentTheme.maybeOf(context) != null;
+  final hasL10n =
+      Localizations.of<FluentLocalizations>(context, FluentLocalizations) !=
+          null;
+  if (hasTheme && hasL10n) {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => SaveDirPickerDialog(
+        game: game,
+        detectCandidates: detectCandidates,
+        pickManualDir: pickManualDir,
+      ),
+    );
+  }
+
+  // 过渡期兼容：旧页面仍托管在 MaterialApp 下时，兜底补齐 FluentTheme 与本地化。
+  return Navigator.of(context, rootNavigator: true).push<String>(
+    RawDialogRoute<String>(
+      barrierDismissible: true,
+      barrierColor: const Color(0x8A000000),
+      pageBuilder: (ctx, _, __) => FluentTheme(
+        data: FluentThemeData.light(),
+        child: Localizations.override(
+          context: ctx,
+          delegates: const [FluentLocalizations.delegate],
+          child: SafeArea(
+            child: SaveDirPickerDialog(
+              game: game,
+              detectCandidates: detectCandidates,
+              pickManualDir: pickManualDir,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// 兼容旧调用点 `SaveDirPickerDialog.show(...)` 的 Fluent 对话框组件。
 class SaveDirPickerDialog extends StatefulWidget {
   final Game game;
-  const SaveDirPickerDialog({super.key, required this.game});
+  final Future<List<SaveDirCandidate>> Function(Game game)? detectCandidates;
+  final Future<String?> Function()? pickManualDir;
 
-  /// 打开对话框；返回用户选中的路径（取消 / 关闭返回 null）。
+  const SaveDirPickerDialog({
+    super.key,
+    required this.game,
+    this.detectCandidates,
+    this.pickManualDir,
+  });
+
   static Future<String?> show(BuildContext context, Game game) =>
-      showKisakiDialog<String>(
-        context: context,
-        builder: (_) => SaveDirPickerDialog(game: game),
-      );
+      showSaveDirPickerDialog(context, game);
 
   @override
   State<SaveDirPickerDialog> createState() => _SaveDirPickerDialogState();
@@ -39,6 +82,7 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
   List<SaveDirCandidate> _items = const [];
   bool _loading = true;
   String _note = '';
+  String? _selectedPath;
 
   @override
   void initState() {
@@ -46,189 +90,286 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
     _scan();
   }
 
-  /// 检测窗口的起点 [since]：晚于它被改动过的候选会得到小幅加分。
-  /// 优先用「当前会话开始时间」（游戏正在跑或刚跑完），否则退回最近 30 分钟。
   DateTime _since() {
     try {
       final tracker = AppServices.I.tracker;
       if (widget.game.id != null && tracker.trackedGameId == widget.game.id) {
-        // liveSeconds 是已计入的秒数，反推即可得到会话开始时间
         return DateTime.now().subtract(Duration(seconds: tracker.liveSeconds));
       }
-    } catch (_) {
-      // AppServices 未初始化（例如单测里直接构造对话框）：退回默认窗口
-    }
+    } catch (_) {}
     return DateTime.now().subtract(const Duration(minutes: 30));
   }
 
-  /// 重新扫描：拿写入线索 → 汇总所有来源。
   Future<void> _scan() async {
     setState(() {
       _loading = true;
       _note = '';
+      _selectedPath = null;
     });
-    final game = widget.game;
-    final since = _since();
-
-    // 写入线索优先取监视器记录的（游戏运行期间的真实写入）；
-    // 没有记录（本次进程没跑过该游戏）时做一次一次性扫描兜底，
-    // 这样「先玩一把 → 再来识别」在没有会话记录的情况下也能生效。
-    var hits = SaveWriteWatcher.lastHits(game.id ?? -1);
-    if (hits.isEmpty) {
-      try {
-        hits = await SaveWriteWatcher.scanNow(
-          gameDir: game.directory,
-          since: since,
-          budget: const Duration(milliseconds: 900),
-        );
-      } catch (_) {}
-    }
 
     List<SaveDirCandidate> list;
-    try {
-      list = await SaveDirDetector.detect(game, writeHits: hits, since: since);
-    } catch (_) {
-      list = const [];
+    var note = '';
+    if (widget.detectCandidates != null) {
+      try {
+        list = await widget.detectCandidates!(widget.game);
+      } catch (_) {
+        list = const [];
+      }
+    } else {
+      final since = _since();
+      var hits = SaveWriteWatcher.lastHits(widget.game.id ?? -1);
+      if (hits.isEmpty) {
+        try {
+          hits = await SaveWriteWatcher.scanNow(
+            gameDir: widget.game.directory,
+            since: since,
+            budget: const Duration(milliseconds: 900),
+          );
+        } catch (_) {}
+      }
+      if (hits.isNotEmpty) {
+        note = '其中 ${hits.length} 个目录在最近一次运行中被写入';
+      }
+      try {
+        list = await SaveDirDetector.detect(
+          widget.game,
+          writeHits: hits,
+          since: since,
+        );
+      } catch (_) {
+        list = const [];
+      }
     }
+
     if (!mounted) return;
     setState(() {
       _items = list;
       _loading = false;
-      _note = hits.isEmpty ? '' : '其中 ${hits.length} 个目录在最近一次运行中被写入';
+      _note = note;
+      if (widget.game.savePath.isNotEmpty &&
+          list.any((c) => c.exists && c.path == widget.game.savePath)) {
+        _selectedPath = widget.game.savePath;
+      }
     });
   }
 
-  /// 手动选择：绕开自动识别，直接选目录。
   Future<void> _pickManual() async {
-    final dir = await FilePicker.platform
-        .getDirectoryPath(dialogTitle: '选择存档目录');
-    if (dir == null || dir.isEmpty || !mounted) return;
-    Navigator.pop(context, dir);
+    final dir = widget.pickManualDir != null
+        ? await widget.pickManualDir!()
+        : await FilePicker.platform.getDirectoryPath(dialogTitle: '选择存档目录');
+    if (dir == null || dir.trim().isEmpty || !mounted) return;
+    Navigator.pop(context, dir.trim());
   }
 
-  Color _badgeColor(SaveDirCandidate c, ColorScheme scheme) {
-    if (c.confidence >= 90) return KisakiColors.success;
-    if (c.confidence >= 70) return KisakiColors.warning;
-    return scheme.onSurfaceVariant;
+  Color _badgeColor(SaveDirCandidate c, FluentThemeData theme, bool isDark) {
+    if (c.confidence >= 90) {
+      return isDark ? const Color(0xFF6CCB5F) : const Color(0xFF107C10);
+    }
+    if (c.confidence >= 70) {
+      return isDark ? const Color(0xFFFCE100) : const Color(0xFF9D5D00);
+    }
+    return theme.inactiveColor;
   }
 
-  /// 副标题：来源说明 + 文件数 / 最后修改时间；失效路径改为灰色说明。
   String _subtitle(SaveDirCandidate c) {
     if (!c.exists) return '${c.reason} · 目录不存在，已失效';
     final parts = <String>['${c.fileCount} 个文件'];
-    final last = c.lastModified;
-    if (last != null) parts.add('最后修改 ${fmtDateTime(last)}');
+    if (c.lastModified != null) {
+      parts.add('最后修改 ${fmtDateTime(c.lastModified!)}');
+    }
     return '${c.reason} · ${parts.join(' · ')}';
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return AlertDialog(
-      title: const Text('选择存档目录'),
+    final theme = FluentTheme.of(context);
+    return ContentDialog(
+      constraints: const BoxConstraints(maxWidth: 640, maxHeight: 580),
+      title: const Row(
+        children: [
+          Icon(FluentIcons.folder_open_20_regular, size: 18),
+          SizedBox(width: 8),
+          Expanded(child: Text('选择存档目录')),
+        ],
+      ),
       content: SizedBox(
-        width: 680,
-        height: 460,
+        width: 590,
+        height: 410,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('已按可信度排序；建议选「游玩期间检测到文件写入」的目录',
-                style: Type.caption.copyWith(color: scheme.onSurfaceVariant)),
-            const SizedBox(height: Gap.md),
+            Text(
+              '已按可信度排序；建议优先选择「游玩期间检测到文件写入」的目录',
+              style: theme.typography.caption?.copyWith(
+                color: theme.inactiveColor,
+              ),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
-                KPill(
-                  label: '重新扫描',
-                  icon: Icons.refresh_rounded,
-                  filled: false,
-                  onTap: _loading ? null : _scan,
+                Button(
+                  onPressed: _loading ? null : _scan,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.arrow_clockwise_20_regular, size: 16),
+                      SizedBox(width: 6),
+                      Text('重新扫描'),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: Gap.sm),
-                KPill(
-                  label: '手动选择目录…',
-                  icon: Icons.folder_open_rounded,
-                  filled: false,
-                  onTap: _pickManual,
+                const SizedBox(width: 8),
+                Button(
+                  onPressed: _pickManual,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.folder_open_20_regular, size: 16),
+                      SizedBox(width: 6),
+                      Text('手动浏览目录'),
+                    ],
+                  ),
                 ),
                 if (_note.isNotEmpty) ...[
-                  const SizedBox(width: Gap.md),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text(_note,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Type.caption
-                            .copyWith(color: scheme.onSurfaceVariant)),
+                    child: Text(
+                      _note,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.caption?.copyWith(
+                        color: theme.inactiveColor,
+                      ),
+                    ),
                   ),
                 ],
               ],
             ),
-            const Divider(height: 24),
-            Expanded(child: _body()),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 12),
+            Expanded(child: _buildBody(theme)),
           ],
         ),
       ),
       actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        Button(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _selectedPath == null
+              ? null
+              : () => Navigator.pop(context, _selectedPath),
+          child: const Text('确定'),
+        ),
       ],
     );
   }
 
-  Widget _body() {
-    if (_loading) return const KLoading();
-    if (_items.isEmpty) {
-      return const KEmpty(
-        icon: Icons.search_off_rounded,
-        title: '没有找到疑似存档目录',
-        subtitle: '可以先运行一次游戏，让「游玩期间写入检测」生效；\n'
-            '也可以用上方「手动选择目录…」直接指定',
+  Widget _buildBody(FluentThemeData theme) {
+    if (_loading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ProgressRing(),
+            SizedBox(height: 12),
+            Text('正在扫描疑似存档目录…'),
+          ],
+        ),
       );
     }
-    return ListView.builder(
-      padding: EdgeInsets.zero,
-      itemCount: _items.length,
-      itemBuilder: (context, i) => Padding(
-        padding: const EdgeInsets.only(bottom: Gap.sm),
-        child: _row(_items[i]),
-      ),
-    );
-  }
-
-  /// 单个候选：主标题是路径末两段（完整路径在 Tooltip 里），
-  /// 副标题是来源说明与文件信息，右侧是可置信度徽标。
-  Widget _row(SaveDirCandidate c) {
-    final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: c.path,
-      child: KCard(
-        flat: true,
-        dense: true,
-        // 路径已不存在时禁用选择（注册表/写入线索可能指向已删除的目录）
-        onTap: c.exists ? () => Navigator.pop(context, c.path) : null,
-        child: KRow(
-          leading: Icon(
-            c.exists ? Icons.folder_rounded : Icons.folder_off_rounded,
-            size: 20,
-            color: c.exists
-                ? scheme.primary
-                : scheme.onSurfaceVariant.withValues(alpha: 0.55),
-          ),
-          title: c.shortPath,
-          subtitle: _subtitle(c),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              KBadge(
-                text: '${c.confidenceLevel} ${c.confidence}',
-                color: _badgeColor(c, scheme),
+    if (_items.isEmpty) {
+      return const FluentEmptyState(
+        icon: FluentIcons.folder_search_24_regular,
+        title: '没有找到疑似存档目录',
+        message: '可以先运行一次游戏让「游玩期间写入检测」生效；\n'
+            '也可以点击上方「手动浏览目录」直接指定',
+      );
+    }
+    final isDark = theme.brightness == Brightness.dark;
+    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    return RadioGroup<String>(
+      groupValue: _selectedPath,
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _selectedPath = value);
+      },
+      child: ListView.separated(
+        itemCount: _items.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final c = _items[index];
+          final selected = c.exists && _selectedPath == c.path;
+          final badgeColor = _badgeColor(c, theme, isDark);
+          return Tooltip(
+            message: c.path,
+            child: FluentSurfaceCard(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              backgroundColor: selected
+                  ? accent.withValues(alpha: isDark ? 0.18 : 0.08)
+                  : null,
+              onTap: c.exists
+                  ? () => setState(() => _selectedPath = c.path)
+                  : null,
+              child: Row(
+                children: [
+                  RadioButton<String>(
+                    value: c.path,
+                    enabled: c.exists,
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    c.exists
+                        ? FluentIcons.folder_20_regular
+                        : FluentIcons.folder_prohibited_20_regular,
+                    size: 18,
+                    color: c.exists ? accent : theme.inactiveColor,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.shortPath,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.typography.bodyStrong?.copyWith(
+                            color: c.exists ? null : theme.inactiveColor,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _subtitle(c),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.typography.caption?.copyWith(
+                            color: theme.inactiveColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FluentBadge(
+                    text: '${c.confidenceLevel} ${c.confidence}',
+                    foreground: badgeColor,
+                    background: badgeColor.withValues(alpha: isDark ? 0.18 : 0.11),
+                  ),
+                  if (!c.exists) ...[
+                    const SizedBox(width: 6),
+                    FluentBadge(
+                      text: '目录不存在',
+                      foreground: theme.inactiveColor,
+                    ),
+                  ],
+                ],
               ),
-              if (!c.exists) ...[
-                const SizedBox(width: Gap.xs),
-                KBadge(text: '目录不存在', color: scheme.onSurfaceVariant),
-              ],
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
