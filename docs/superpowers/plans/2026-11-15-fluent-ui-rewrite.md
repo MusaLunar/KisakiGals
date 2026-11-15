@@ -26,7 +26,7 @@
 - Modify: `pubspec.yaml`, `lib/data/settings_store.dart`, `lib/providers.dart`, `lib/services/game_launch_service.dart`, `lib/state/ai_state.dart`, `lib/main.dart`, `windows/runner/tray_popup.h`, `windows/runner/tray_popup.cpp`, `windows/runner/flutter_window.cpp`, `test/ui_redesign_test.dart`
 - Create (`lib/ui/fluent/`): `fluent_icons.dart`, `fluent_theme.dart`, `fluent_motion.dart`, `fluent_surfaces.dart`, `fluent_notices.dart`, `fluent_dialogs.dart`
 - Rewrite (`lib/ui/`): `shell/tabs.dart`, `shell/app_shell.dart`, `home/home_page.dart`, `library/game_actions.dart`, `library/game_card.dart`, `library/game_list_tile.dart`, `library/filter_rail.dart`, `library/library_page.dart`, `detail/save_backup_dialog.dart`, `detail/play_path_tab.dart`, `detail/edit_dialog.dart`, `detail/rate_dialog.dart`, `detail/game_detail_page.dart`, `discover/discover_state.dart`, `discover/discover_filter_state.dart`, `discover/resource_links.dart`, `discover/discover_page.dart`, `discover/game_explore_page.dart`, `stats/word_cloud.dart`, `stats/stats_page.dart`, `ai/ai_page.dart`, `add/scrape_search_dialog.dart`, `add/add_game_page.dart`, `settings/settings_page.dart`, `widgets/image_picker_dialog.dart`, `widgets/save_dir_picker_dialog.dart`
-- Delete obsolete legacy UI files: `lib/ui/design.dart`, `lib/ui/kit.dart`, `lib/ui/theme.dart`, `lib/ui/shell/title_bar.dart`, `lib/ui/widgets/common.dart`, `lib/ui/widgets/filter_sidebar.dart`, `lib/ui/widgets/floating_anchor_nav.dart`, `lib/ui/widgets/image_picker.dart`, `lib/ui/widgets/notifications.dart`, `lib/ui/widgets/save_backup_dialog.dart`, `lib/ui/widgets/save_dir_picker_dialog.dart`, `lib/ui/widgets/scrape_search_sheet.dart`, `lib/ui/library/game_card_actions.dart`, `lib/ui/detail/edit_sheet.dart`
+- Delete obsolete legacy UI files: `lib/ui/design.dart`, `lib/ui/kit.dart`, `lib/ui/theme.dart`, `lib/ui/shell/title_bar.dart`, `lib/ui/widgets/common.dart`, `lib/ui/widgets/filter_sidebar.dart`, `lib/ui/widgets/floating_anchor_nav.dart`, `lib/ui/widgets/image_picker.dart`, `lib/ui/widgets/notifications.dart`, `lib/ui/widgets/save_backup_dialog.dart`, `lib/ui/widgets/scrape_search_sheet.dart`, `lib/ui/library/game_card_actions.dart`, `lib/ui/detail/edit_sheet.dart`
 
 ---
 
@@ -2138,7 +2138,6 @@ Expected: PASS and clean analyzer across all of `lib/`.
   - `lib/ui/widgets/image_picker.dart`
   - `lib/ui/widgets/notifications.dart`
   - `lib/ui/widgets/save_backup_dialog.dart`
-  - `lib/ui/widgets/save_dir_picker_dialog.dart`
   - `lib/ui/widgets/scrape_search_sheet.dart`
   - `lib/ui/library/game_card_actions.dart`
   - `lib/ui/detail/edit_sheet.dart`
@@ -2147,7 +2146,7 @@ Expected: PASS and clean analyzer across all of `lib/`.
 
 Run:
 ```powershell
-Get-ChildItem -Path lib -Recurse -Filter *.dart | Select-String -Pattern "(design|kit|theme|title_bar|floating_anchor_nav|scrape_search_sheet|game_card_actions|edit_sheet|widgets/common|widgets/filter_sidebar|widgets/image_picker|widgets/notifications|widgets/save_backup_dialog|widgets/save_dir_picker_dialog|flutter/material)\.dart"
+Get-ChildItem -Path lib -Recurse -Filter *.dart | Select-String -Pattern "(design|kit|theme|title_bar|floating_anchor_nav|scrape_search_sheet|game_card_actions|edit_sheet|widgets/common|widgets/filter_sidebar|widgets/image_picker|widgets/notifications|widgets/save_backup_dialog|flutter/material)\.dart"
 ```
 Expected: Zero matches (or only `test/ui_redesign_test.dart` outside `lib/`, which Task 12 replaces; handle Task 12 right after or delete cleanly now—WAIT: if `test/ui_redesign_test.dart` imports deleted files, rewrite `test/ui_redesign_test.dart` BEFORE or IN this step so `flutter test` stays green!).
 Let's delete the obsolete files AND update `test/ui_redesign_test.dart` stub/new tests atomically in Task 12, or run Task 10 cleanup + immediately verify `dart analyze lib/`.
@@ -2167,7 +2166,6 @@ Remove-Item `
   lib/ui/widgets/image_picker.dart, `
   lib/ui/widgets/notifications.dart, `
   lib/ui/widgets/save_backup_dialog.dart, `
-  lib/ui/widgets/save_dir_picker_dialog.dart, `
   lib/ui/widgets/scrape_search_sheet.dart, `
   lib/ui/library/game_card_actions.dart, `
   lib/ui/detail/edit_sheet.dart -Force
