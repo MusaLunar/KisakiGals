@@ -1454,6 +1454,7 @@ class _LibraryAccountPrivacySectionState
     final dir = await FilePicker.platform.getDirectoryPath(
       dialogTitle: '选择游戏库根目录',
     );
+    if (!mounted) return;
     if (dir == null || dir.trim().isEmpty) return;
     final trimmed = dir.trim();
     if (_libraryRoots.contains(trimmed)) {
@@ -1623,23 +1624,31 @@ class _LibraryAccountPrivacySectionState
                     runSpacing: 8,
                     children: [
                       for (final root in _libraryRoots)
-                        FluentBadge(
-                          icon: FluentIcons.folder_16_regular,
-                          text: root,
-                          onTap: null,
-                        ),
-                      for (final root in _libraryRoots)
-                        IconButton(
-                          icon: const Icon(
-                            FluentIcons.delete_16_regular,
-                            size: 14,
-                          ),
-                          onPressed: () {
-                            final next = _libraryRoots
-                                .where((r) => r != root)
-                                .toList();
-                            _saveLibraryRoots(next);
-                          },
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FluentBadge(
+                              icon: FluentIcons.folder_16_regular,
+                              text: root,
+                              onTap: null,
+                            ),
+                            const SizedBox(width: 2),
+                            Tooltip(
+                              message: '移除根目录',
+                              child: IconButton(
+                                icon: const Icon(
+                                  FluentIcons.delete_16_regular,
+                                  size: 14,
+                                ),
+                                onPressed: () {
+                                  final next = _libraryRoots
+                                      .where((r) => r != root)
+                                      .toList();
+                                  _saveLibraryRoots(next);
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                     ],
                   ),
@@ -1757,8 +1766,10 @@ class _LibraryAccountPrivacySectionState
               onLogin: _loginKunOAuth,
               onCancelLogin: _cancelKunOAuth,
               onLogout: _logoutKunOAuth,
-              onStatus: (msg) =>
-                  setState(() => _accountStatus[KisakiSources.kun] = msg),
+              onStatus: (msg) {
+                if (!mounted) return;
+                setState(() => _accountStatus[KisakiSources.kun] = msg);
+              },
               onSync: () => _syncPlatform(KisakiSources.kun),
             ),
             for (final platform in _tokens.keys)
@@ -1767,8 +1778,10 @@ class _LibraryAccountPrivacySectionState
                 controller: _tokens[platform]!,
                 status: _accountStatus[platform],
                 syncing: _syncing.contains(platform),
-                onStatus: (msg) =>
-                    setState(() => _accountStatus[platform] = msg),
+                onStatus: (msg) {
+                  if (!mounted) return;
+                  setState(() => _accountStatus[platform] = msg);
+                },
                 onSync: () => _syncPlatform(platform),
               ),
           ],
