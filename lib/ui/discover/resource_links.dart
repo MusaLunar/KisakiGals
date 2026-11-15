@@ -385,6 +385,7 @@ class ResourceLinkStore {
       if (_entries.length <= kResourceMaxCacheEntries) break;
       if (_running.contains(k)) continue;
       _entries.remove(k);
+      _gen.remove(k);
     }
   }
 }
@@ -425,15 +426,20 @@ String _friendly(String raw) {
 String _shortName(String name) =>
     name.length > 12 ? '${name.substring(0, 12)}…' : name;
 
-Future<void> _openExternalUrl(String rawUrl) async {
+/// 使用系统默认浏览器打开探索页外部链接（站点发布页 / 商店 / 百科）。
+Future<void> openExternalExploreUrl(String rawUrl) async {
   final uri = Uri.tryParse(rawUrl);
   if (uri == null || !uri.hasScheme) {
     showNotice('链接地址无效：$rawUrl', error: true);
     return;
   }
-  final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-  if (!ok) {
-    showNotice('无法调用系统浏览器打开链接', error: true);
+  try {
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok) {
+      showNotice('无法调用系统浏览器打开链接', error: true);
+    }
+  } catch (e) {
+    showNotice('无法打开链接：$e', error: true);
   }
 }
 
@@ -1018,7 +1024,7 @@ class _ResourceLinkRow extends StatelessWidget {
     return FluentSurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       backgroundColor: theme.resources.subtleFillColorSecondary,
-      onTap: () => _openExternalUrl(item.url),
+      onTap: () => openExternalExploreUrl(item.url),
       child: Row(
         children: [
           Expanded(
@@ -1052,7 +1058,7 @@ class _ResourceLinkRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Button(
-            onPressed: () => _openExternalUrl(item.url),
+            onPressed: () => openExternalExploreUrl(item.url),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: const [

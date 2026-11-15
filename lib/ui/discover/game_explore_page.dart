@@ -8,7 +8,6 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/models.dart';
 import '../../providers.dart';
@@ -222,6 +221,8 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
         ref.read(libraryVersionProvider.notifier).state++;
         showNotice('已入库：${game.displayName}');
       }
+    } catch (e) {
+      if (mounted) showNotice('入库失败：$e', error: true);
     } finally {
       if (mounted) setState(() => _adding = false);
     }
@@ -235,18 +236,6 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
         onAdd: widget.onAdd,
       ),
     );
-  }
-
-  Future<void> _openExternalUrl(String rawUrl) async {
-    final uri = Uri.tryParse(rawUrl);
-    if (uri == null || !uri.hasScheme) {
-      showNotice('链接地址无效：$rawUrl', error: true);
-      return;
-    }
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok) {
-      showNotice('无法调用系统浏览器打开链接', error: true);
-    }
   }
 
   void _scrollToSection(GlobalKey key) {
@@ -561,7 +550,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                                 : '${r.label} ${r.displayScore}',
                             icon: FluentIcons.star_16_regular,
                             onTap: r.url.isNotEmpty
-                                ? () => _openExternalUrl(r.url)
+                                ? () => openExternalExploreUrl(r.url)
                                 : null,
                           ),
                       ],
@@ -940,7 +929,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                   if (i > 0) const SizedBox(height: 8),
                   _ReleaseRowCard(
                     item: detail.releases[i],
-                    onOpenLink: _openExternalUrl,
+                    onOpenLink: openExternalExploreUrl,
                     theme: theme,
                   ),
                 ],
@@ -1284,7 +1273,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                   children: [
                     for (final v in videos)
                       Button(
-                        onPressed: () => _openExternalUrl(v.url),
+                        onPressed: () => openExternalExploreUrl(v.url),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1390,7 +1379,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                   if (i > 0) const SizedBox(height: 10),
                   _CrossMediaCard(
                     item: items[i],
-                    onOpenLink: _openExternalUrl,
+                    onOpenLink: openExternalExploreUrl,
                     theme: theme,
                   ).fluentEntrance(index: i),
                 ],
@@ -1427,7 +1416,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                   if (i > 0) const SizedBox(height: 8),
                   _ExternalLinkCard(
                     link: storeAndSiteLinks[i],
-                    onOpen: () => _openExternalUrl(storeAndSiteLinks[i].url),
+                    onOpen: () => openExternalExploreUrl(storeAndSiteLinks[i].url),
                   ),
                 ],
               ],

@@ -415,4 +415,47 @@ void main() {
     expect(container.read(resourceQueryProvider), isEmpty);
     expect(container.read(discoverFilterProvider).keyword, '星之终途');
   });
+
+  testWidgets(
+      'GameExplorePage catches add-to-library failures and openExternalExploreUrl rejects invalid URLs safely',
+      (tester) async {
+    const detail = ExploreWorkDetail(
+      cacheKey: 'vndb:v18',
+      seedGame: ScrapedGame(source: 'vndb', sourceId: 'v18', name: 'ErrWork'),
+      title: '异常测试作品',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: FluentApp(
+          home: GameExplorePage(
+            seedGame: detail.seedGame,
+            initialDetail: detail,
+            onAdd: (_) async => throw StateError('disk full'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('一键入库'));
+    await tester.pumpAndSettle();
+
+    expect(
+      NoticeCenter.instance.items.any(
+        (n) => n.error && n.message.contains('入库失败'),
+      ),
+      isTrue,
+    );
+    NoticeCenter.instance.clear();
+
+    await openExternalExploreUrl('invalid-url-without-scheme');
+    expect(
+      NoticeCenter.instance.items.any(
+        (n) => n.error && n.message.contains('链接地址无效'),
+      ),
+      isTrue,
+    );
+    NoticeCenter.instance.clear();
+  });
 }
