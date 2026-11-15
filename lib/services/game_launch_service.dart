@@ -15,7 +15,7 @@ import '../core/constants.dart';
 import '../data/models.dart';
 import '../data/settings_store.dart';
 import '../providers.dart';
-import '../ui/widgets/notifications.dart';
+import '../ui/fluent/fluent_notices.dart';
 import 'game_launcher.dart';
 
 class GameLaunchService {

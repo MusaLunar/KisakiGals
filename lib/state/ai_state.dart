@@ -25,7 +25,7 @@ import '../data/settings_store.dart';
 import '../providers.dart';
 import '../scraping/apply.dart';
 import '../services/ai_service.dart';
-import '../ui/widgets/notifications.dart';
+import '../ui/fluent/fluent_notices.dart';
 
 /// 未配置 AI 时的统一提示（页面内错误框与通知共用同一份文案）。
 const String kAiNotConfiguredMsg =

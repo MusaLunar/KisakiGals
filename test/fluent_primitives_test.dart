@@ -1,0 +1,282 @@
+import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/gestures.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:kisakigals/core/constants.dart';
+import 'package:kisakigals/data/settings_store.dart';
+import 'package:kisakigals/providers.dart';
+import 'package:kisakigals/ui/fluent/fluent_dialogs.dart';
+import 'package:kisakigals/ui/fluent/fluent_icons.dart';
+import 'package:kisakigals/ui/fluent/fluent_motion.dart';
+import 'package:kisakigals/ui/fluent/fluent_notices.dart';
+import 'package:kisakigals/ui/fluent/fluent_surfaces.dart';
+import 'package:kisakigals/ui/fluent/fluent_theme.dart';
+
+void main() {
+  tearDown(() {
+    NoticeCenter.instance.clear();
+  });
+
+  test('buildFluentTheme resolves AccentColor presets and Brightness', () {
+    const sys = Color(0xFF2288CC);
+    final lightSys = buildFluentTheme(
+      brightness: Brightness.light,
+      preset: AccentPreset.system,
+      systemAccent: sys,
+      backdrop: BackdropEffectPref.mica,
+    );
+    final darkSakura = buildFluentTheme(
+      brightness: Brightness.dark,
+      preset: AccentPreset.sakura,
+      systemAccent: sys,
+      backdrop: BackdropEffectPref.acrylic,
+    );
+    final solidDark = buildFluentTheme(
+      brightness: Brightness.dark,
+      preset: AccentPreset.lavender,
+      systemAccent: const Color(0x00000000),
+      backdrop: BackdropEffectPref.solid,
+    );
+
+    expect(lightSys.brightness, Brightness.light);
+    expect(lightSys.accentColor.normal, sys);
+    expect(lightSys.scaffoldBackgroundColor, const Color(0x00000000));
+    expect(darkSakura.brightness, Brightness.dark);
+    expect(darkSakura.accentColor.normal, const Color(0xFFD85C84));
+    expect(solidDark.scaffoldBackgroundColor, const Color(0xFF202020));
+    expect(solidDark.accentColor.normal, kLavenderAccent);
+    expect(
+      resolveAccentBaseColor(AccentPreset.system, const Color(0x00000000)),
+      kDefaultWin11Azure,
+    );
+  });
+
+  test('NoticeCenter caps active notices at 3 and dismisses cleanly', () {
+    final c = NoticeCenter.instance;
+    c.show('msg 1');
+    c.show('msg 2');
+    c.show('msg 3');
+    c.show('msg 4', error: true);
+
+    expect(c.items.length, 3);
+    expect(c.items.first.message, 'msg 2');
+    expect(c.items.last.error, true);
+
+    c.dismiss(c.items.first.id);
+    expect(c.items.length, 2);
+  });
+
+  testWidgets('FluentNoticeHost renders InfoBar stack inside FluentApp',
+      (tester) async {
+    var backgroundTapped = false;
+    await tester.pumpWidget(
+      FluentApp(
+        theme: buildFluentTheme(
+          brightness: Brightness.light,
+          preset: AccentPreset.azure,
+          systemAccent: const Color(0xFF0078D4),
+          backdrop: BackdropEffectPref.mica,
+        ),
+        builder: (context, child) => Stack(
+          children: [
+            if (child != null) child,
+            const Positioned.fill(child: FluentNoticeHost()),
+          ],
+        ),
+        home: Align(
+          alignment: Alignment.bottomLeft,
+          child: Button(
+            onPressed: () => backgroundTapped = true,
+            child: const Text('底层按钮'),
+          ),
+        ),
+      ),
+    );
+
+    showNotice('已保存游玩笔记');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byType(InfoBar), findsOneWidget);
+    expect(find.text('已保存游玩笔记'), findsOneWidget);
+
+    // 验证通知层不会阻挡下方非通知区域的点击交互
+    await tester.tap(find.text('底层按钮'));
+    await tester.pump();
+    expect(backgroundTapped, isTrue);
+
+    // 验证悬停关闭按钮不会因缺少 Overlay 崩溃，且可正常关闭通知
+    final closeBtn = find.descendant(
+      of: find.byType(InfoBar),
+      matching: find.byType(IconButton),
+    );
+    expect(closeBtn, findsOneWidget);
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: Offset.zero);
+    addTearDown(gesture.removePointer);
+    await gesture.moveTo(tester.getCenter(closeBtn));
+    await tester.pump();
+    await tester.tap(closeBtn);
+    await tester.pumpAndSettle();
+    expect(find.byType(InfoBar), findsNothing);
+  });
+
+  testWidgets('FluentR18ScoreRow places R18 pill strictly before Score pill',
+      (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: FluentApp(
+          home: const FluentR18ScoreRow(
+            nsfw: true,
+            scoreText: '9.2',
+            voteText: '128 票',
+          ).fluentEntrance(index: 0, disable: true),
+        ),
+      ),
+    );
+
+    final r18Box = tester.getTopLeft(find.text('R18'));
+    final scoreBox = tester.getTopLeft(find.textContaining('9.2'));
+    expect(r18Box.dx, lessThan(scoreBox.dx));
+    expect(FluentMotion.fast.inMilliseconds, 140);
+    expect(FluentMotion.standard.inMilliseconds, 220);
+    expect(FluentMotion.section.inMilliseconds, 280);
+    expect(FluentMotion.enterCurve, Curves.easeOutCubic);
+  });
+
+  testWidgets('Fluent surfaces and cover fallback render safely',
+      (tester) async {
+    var tapped = false;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          nsfwModeProvider.overrideWith((ref) => 'blur'),
+          nsfwBlurProvider.overrideWith((ref) => 10.0),
+        ],
+        child: FluentApp(
+          theme: buildFluentTheme(
+            brightness: Brightness.dark,
+            preset: AccentPreset.sakura,
+            systemAccent: kSakuraAccent,
+            backdrop: BackdropEffectPref.mica,
+          ),
+          home: ScaffoldPage(
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const FluentSectionHeader(
+                    title: '最近游玩',
+                    subtitle: '共 3 部作品',
+                    icon: FluentIcons.library_20_regular,
+                  ),
+                  FluentSurfaceCard(
+                    onTap: () => tapped = true,
+                    child: const Row(
+                      children: [
+                        FluentCoverImage(
+                          pathOrUrl: 'nonexistent/cover.png',
+                          nsfw: true,
+                          width: 80,
+                          height: 120,
+                        ),
+                        SizedBox(width: 12),
+                        FluentStatusPill(status: PlayStatus.playing),
+                      ],
+                    ),
+                  ),
+                  const FluentAcrylicPanel(
+                    padding: EdgeInsets.all(8),
+                    child: Text('Acrylic 浮层'),
+                  ),
+                  const FluentEmptyState(
+                    icon: FluentIcons.library_24_regular,
+                    title: '暂无游戏',
+                    message: '请先添加作品',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byType(FluentSurfaceCard));
+    await tester.pump();
+    expect(tapped, isTrue);
+    expect(find.text('R18 已遮罩'), findsOneWidget);
+    expect(find.text('在玩'), findsOneWidget);
+    expect(find.text('最近游玩'), findsOneWidget);
+    expect(find.text('暂无游戏'), findsOneWidget);
+  });
+
+  testWidgets('Fluent dialogs confirm, info, and lightbox work cleanly',
+      (tester) async {
+    bool? confirmed;
+    await tester.pumpWidget(
+      FluentApp(
+        theme: buildFluentTheme(
+          brightness: Brightness.light,
+          preset: AccentPreset.azure,
+          systemAccent: kDefaultWin11Azure,
+          backdrop: BackdropEffectPref.mica,
+        ),
+        home: Builder(
+          builder: (context) => Row(
+            children: [
+              Button(
+                onPressed: () async {
+                  confirmed = await showFluentConfirmDialog(
+                    context,
+                    title: '删除确认',
+                    content: '确定删除该条目？',
+                    destructive: true,
+                  );
+                },
+                child: const Text('打开确认'),
+              ),
+              Button(
+                onPressed: () => showFluentInfoDialog(
+                  context,
+                  title: '提示信息',
+                  content: '操作说明内容',
+                ),
+                child: const Text('打开提示'),
+              ),
+              Button(
+                onPressed: () => showFluentLightboxDialog(
+                  context,
+                  pathOrUrl: 'missing/shot.png',
+                  caption: '截图注释',
+                ),
+                child: const Text('打开灯箱'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开确认'));
+    await tester.pumpAndSettle();
+    expect(find.text('删除确认'), findsOneWidget);
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(confirmed, isTrue);
+
+    await tester.tap(find.text('打开提示'));
+    await tester.pumpAndSettle();
+    expect(find.text('操作说明内容'), findsOneWidget);
+    await tester.tap(find.text('知道了'));
+    await tester.pumpAndSettle();
+    expect(find.text('操作说明内容'), findsNothing);
+
+    await tester.tap(find.text('打开灯箱'));
+    await tester.pumpAndSettle();
+    expect(find.text('截图注释'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('截图注释'), findsNothing);
+  });
+}
