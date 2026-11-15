@@ -341,6 +341,62 @@ void main() {
   });
 
   testWidgets(
+      'showRateGameDialog does not mutate game in-place when onSave fails',
+      (tester) async {
+    final game = Game(
+      id: 22,
+      name: 'FailRateVN',
+      nameCn: '失败不改原对象',
+      playStatus: PlayStatus.wish,
+      userRating: 6.0,
+      userReview: '原始短评',
+    );
+    bool? dialogResult;
+
+    await tester.pumpWidget(
+      _fluentHost(
+        child: Consumer(
+          builder: (context, ref, _) => ScaffoldPage(
+            content: Center(
+              child: FilledButton(
+                onPressed: () async {
+                  dialogResult = await showRateGameDialog(
+                    context,
+                    ref,
+                    game,
+                    sources: const [],
+                    onSave: (_) async {
+                      throw StateError('db write failed');
+                    },
+                  );
+                },
+                child: const Text('打开评分'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开评分'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('rate-inc-btn')));
+    await tester.pump();
+    await tester.enterText(find.byType(TextBox), '不应写入的短评');
+    await tester.tap(find.text('保存评分'));
+    await tester.pumpAndSettle();
+
+    expect(dialogResult, isNull);
+    expect(game.userRating, 6.0);
+    expect(game.userReview, '原始短评');
+    expect(game.playStatus, PlayStatus.wish);
+    expect(NoticeCenter.instance.items.last.error, isTrue);
+    expect(NoticeCenter.instance.items.last.message, contains('保存评分失败'));
+    NoticeCenter.instance.clear();
+  });
+
+  testWidgets(
       'showEditGameDialog shows anchor bar, Expanders, and saves edited fields',
       (tester) async {
     final game = Game(

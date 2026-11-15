@@ -145,6 +145,53 @@ void main() {
       expect(find.byType(ContentDialog), findsNothing);
       expect(picked, 'https://example.com/b.jpg');
     });
+
+    testWidgets(
+        'filters partial URL typing from preview grid while keeping confirm synchronous',
+        (tester) async {
+      String? picked;
+      await tester.pumpWidget(
+        _testHost(
+          builder: (context, _) => FilledButton(
+            onPressed: () async {
+              picked = await showImagePickerDialog(
+                context,
+                title: '选择封面',
+                candidates: const ['https://example.com/a.jpg'],
+              );
+            },
+            child: const Text('打开'),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      expect(find.byType(FluentCoverImage), findsOneWidget);
+
+      for (final partial in const ['h', 'htt', 'http://', 'https://']) {
+        await tester.enterText(find.byType(TextBox), partial);
+        await tester.pump();
+        expect(
+          find.byType(FluentCoverImage),
+          findsOneWidget,
+          reason: 'Partial input "$partial" should not mount a preview tile',
+        );
+      }
+
+      await tester.enterText(
+        find.byType(TextBox),
+        'https://example.com/new.jpg',
+      );
+      await tester.pump();
+      expect(find.byType(FluentCoverImage), findsNWidgets(2));
+
+      await tester.enterText(find.byType(TextBox), 'htt');
+      await tester.pump();
+      await tester.tap(find.text('确定'));
+      await tester.pumpAndSettle();
+      expect(picked, 'htt');
+    });
   });
 
   group('SaveDirPickerDialog', () {

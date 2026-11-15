@@ -123,28 +123,6 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     super.dispose();
   }
 
-  Widget _wrapFluent(BuildContext context, Widget child) {
-    final hasTheme = FluentTheme.maybeOf(context) != null;
-    final hasLoc = Localizations.of<FluentLocalizations>(
-          context,
-          FluentLocalizations,
-        ) !=
-        null;
-    if (hasTheme && hasLoc) return child;
-    var wrapped = child;
-    if (!hasLoc) {
-      wrapped = Localizations.override(
-        context: context,
-        delegates: const [FluentLocalizations.delegate],
-        child: wrapped,
-      );
-    }
-    if (!hasTheme) {
-      wrapped = ensureFluentTheme(context, wrapped);
-    }
-    return wrapped;
-  }
-
   String _groupKey(ScrapeHitGroup g) =>
       '${g.merged.source}:${g.merged.sourceId}:${g.merged.displayName}';
 
@@ -571,7 +549,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
 
   @override
   Widget build(BuildContext context) {
-    return _wrapFluent(
+    return ensureFluentScope(
       context,
       Builder(builder: _buildScaffold),
     );

@@ -101,31 +101,9 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
     super.dispose();
   }
 
-  Widget _wrapFluent(BuildContext context, Widget child) {
-    final hasTheme = FluentTheme.maybeOf(context) != null;
-    final hasLoc = Localizations.of<FluentLocalizations>(
-          context,
-          FluentLocalizations,
-        ) !=
-        null;
-    if (hasTheme && hasLoc) return child;
-    var wrapped = child;
-    if (!hasLoc) {
-      wrapped = Localizations.override(
-        context: context,
-        delegates: const [FluentLocalizations.delegate],
-        child: wrapped,
-      );
-    }
-    if (!hasTheme) {
-      wrapped = ensureFluentTheme(context, wrapped);
-    }
-    return wrapped;
-  }
-
   @override
   Widget build(BuildContext context) {
-    return _wrapFluent(
+    return ensureFluentScope(
       context,
       Builder(builder: _buildFluentContent),
     );
@@ -271,12 +249,19 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
 
   Future<void> _pickSaveDir(Game game) async {
     final picked = await showSaveDirPickerDialog(context, game);
-    if (picked == null || picked.isEmpty) return;
+    if (!mounted || picked == null || picked.isEmpty) return;
     game.savePath = picked;
     await tryAppServices()?.repo.updateGame(game);
+    if (!mounted) return;
     if (game.id != null) ref.invalidate(gameProvider(game.id!));
     bumpLibrary(ref);
     showNotice('已更新存档目录');
+  }
+
+  Future<void> _toggleFavorite(Game game) async {
+    await toggleGameFavorite(ref, game);
+    if (!mounted) return;
+    if (game.id != null) ref.invalidate(gameProvider(game.id!));
   }
 
   Widget _buildTopBar(
@@ -339,10 +324,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                 size: 16,
                 color: game.isFavorite ? const Color(0xFFE0527F) : null,
               ),
-              onPressed: () async {
-                await toggleGameFavorite(ref, game);
-                if (game.id != null) ref.invalidate(gameProvider(game.id!));
-              },
+              onPressed: () => _toggleFavorite(game),
             ),
           ),
         ],
@@ -516,10 +498,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
                       : FluentIcons.heart_16_regular,
                 ),
                 label: Text(game.isFavorite ? '取消收藏' : '加入收藏'),
-                onPressed: () async {
-                  await toggleGameFavorite(ref, game);
-                  if (game.id != null) ref.invalidate(gameProvider(game.id!));
-                },
+                onPressed: () => _toggleFavorite(game),
               ),
               CommandBarButton(
                 icon: Icon(FluentIcons.delete_16_regular, color: Colors.red),
@@ -583,6 +562,7 @@ class _GameDetailPageState extends ConsumerState<GameDetailPage> {
               onPressed: () async {
                 Navigator.of(flyoutCtx).pop();
                 await updateGamePlayStatus(ref, game, status);
+                if (!mounted) return;
                 if (game.id != null) ref.invalidate(gameProvider(game.id!));
               },
             ),

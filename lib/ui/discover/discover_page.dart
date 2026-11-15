@@ -64,30 +64,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     super.dispose();
   }
 
-  Widget _wrapFluent(
-    BuildContext context,
-    Widget Function(BuildContext ctx) builder,
-  ) {
-    final hasTheme = FluentTheme.maybeOf(context) != null;
-    final hasLoc = Localizations.of<FluentLocalizations>(
-          context,
-          FluentLocalizations,
-        ) !=
-        null;
-    Widget wrapped = Builder(builder: builder);
-    if (!hasLoc) {
-      wrapped = Localizations.override(
-        context: context,
-        delegates: const [FluentLocalizations.delegate],
-        child: wrapped,
-      );
-    }
-    if (!hasTheme) {
-      wrapped = ensureFluentTheme(context, wrapped);
-    }
-    return wrapped;
-  }
-
   Future<void> _toggleSidebar() async {
     setState(() => _sidebarVisible = !_sidebarVisible);
     await tryAppServices()
@@ -230,59 +206,67 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     final libIndex = ref.watch(discoverLibraryIndexProvider).valueOrNull ??
         const <String, Game>{};
 
-    return _wrapFluent(
+    return ensureFluentScope(
       context,
-      (ctx) => ColoredBox(
-        color: Colors.transparent,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(ctx, mode, filter),
-            if (mode == DiscoverMode.aggregate) ...[
-              _buildAggregateToolbar(ctx, filter, layout, feedAsync),
-              const SizedBox(height: 8),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: _buildFeedBody(ctx, filter, layout, feedAsync, libIndex),
-                    ),
-                    AnimatedSize(
-                      duration: FluentMotion.standard,
-                      curve: FluentMotion.enterCurve,
-                      alignment: Alignment.centerRight,
-                      child: _sidebarVisible
-                          ? SizedBox(
-                              width: 268,
-                              child: Padding(
-                                padding: const EdgeInsets.only(
-                                  right: 24,
-                                  bottom: 16,
+      Builder(
+        builder: (ctx) => ColoredBox(
+          color: Colors.transparent,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(ctx, mode, filter),
+              if (mode == DiscoverMode.aggregate) ...[
+                _buildAggregateToolbar(ctx, filter, layout, feedAsync),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _buildFeedBody(
+                          ctx,
+                          filter,
+                          layout,
+                          feedAsync,
+                          libIndex,
+                        ),
+                      ),
+                      AnimatedSize(
+                        duration: FluentMotion.standard,
+                        curve: FluentMotion.enterCurve,
+                        alignment: Alignment.centerRight,
+                        child: _sidebarVisible
+                            ? SizedBox(
+                                width: 268,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    right: 24,
+                                    bottom: 16,
+                                  ),
+                                  child: _DiscoverFilterRail(
+                                    filter: filter,
+                                    onChanged: (next) => ref
+                                        .read(discoverFeedProvider.notifier)
+                                        .updateFilter(next),
+                                  ),
                                 ),
-                                child: _DiscoverFilterRail(
-                                  filter: filter,
-                                  onChanged: (next) => ref
-                                      .read(discoverFeedProvider.notifier)
-                                      .updateFilter(next),
-                                ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ] else
-              Expanded(
-                child: ResourceSearchPane(
-                  initialKeyword: _resourceQuerySeed.isNotEmpty
-                      ? _resourceQuerySeed
-                      : filter.keyword,
-                  onKeywordSubmitted: (kw) => _resourceQuerySeed = kw,
+              ] else
+                Expanded(
+                  child: ResourceSearchPane(
+                    initialKeyword: _resourceQuerySeed.isNotEmpty
+                        ? _resourceQuerySeed
+                        : filter.keyword,
+                    onKeywordSubmitted: (kw) => _resourceQuerySeed = kw,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -512,7 +512,7 @@ class _GameQuickSearchBox extends StatelessWidget {
               g.nameCn.toLowerCase().contains(q) ||
               g.developer.toLowerCase().contains(q) ||
               g.aliases.any((a) => a.toLowerCase().contains(q));
-        }).toList();
+        }).take(20).toList();
       },
       onSelected: (item) {
         final game = item.value;

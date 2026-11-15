@@ -279,4 +279,56 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('截图注释'), findsNothing);
   });
+
+  testWidgets(
+      'ensureFluentScope early-returns when scope is present and wraps missing ancestors',
+      (tester) async {
+    const marker = SizedBox(key: ValueKey('scope-marker'));
+    late Widget directReturn;
+
+    await tester.pumpWidget(
+      FluentApp(
+        home: Overlay(
+          initialEntries: [
+            OverlayEntry(
+              builder: (context) {
+                directReturn = ensureFluentScope(
+                  context,
+                  marker,
+                  ensureOverlay: true,
+                );
+                return directReturn;
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(identical(directReturn, marker), isTrue);
+
+    await tester.pumpWidget(
+      WidgetsApp(
+        color: const Color(0xFFFFFFFF),
+        builder: (context, _) => ensureFluentScope(
+          context,
+          Builder(
+            builder: (innerCtx) {
+              expect(FluentTheme.maybeOf(innerCtx), isNotNull);
+              expect(
+                Localizations.of<FluentLocalizations>(
+                  innerCtx,
+                  FluentLocalizations,
+                ),
+                isNotNull,
+              );
+              expect(Overlay.maybeOf(innerCtx), isNotNull);
+              return const Text('Scoped OK');
+            },
+          ),
+          ensureOverlay: true,
+        ),
+      ),
+    );
+    expect(find.text('Scoped OK'), findsOneWidget);
+  });
 }

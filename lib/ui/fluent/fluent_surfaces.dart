@@ -10,8 +10,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
 import '../../core/media_paths.dart';
+import '../../data/settings_store.dart';
 import '../../providers.dart';
 import 'fluent_icons.dart';
+import 'fluent_theme.dart';
 
 /// 标准 Win11 卡片容器：中性层 + 1px 微妙描边 + 8px 圆角 + 可选悬停高亮。
 class FluentSurfaceCard extends StatefulWidget {
@@ -552,4 +554,54 @@ class FluentEmptyState extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 若上层缺少 [FluentTheme]，则提供兜底 Win11 Fluent 主题（测试/局部挂载安全）。
+Widget ensureFluentTheme(BuildContext context, Widget child) {
+  if (FluentTheme.maybeOf(context) != null) return child;
+  final brightness =
+      MediaQuery.maybePlatformBrightnessOf(context) ?? Brightness.light;
+  return FluentTheme(
+    data: buildFluentTheme(
+      brightness: brightness,
+      preset: AccentPreset.system,
+      systemAccent: kDefaultWin11Azure,
+      backdrop: BackdropEffectPref.mica,
+    ),
+    child: child,
+  );
+}
+
+/// 确保子树同时具备 [FluentTheme]、[FluentLocalizations] 与（可选）[Overlay] 作用域。
+///
+/// 当所需祖先均已存在时直接返回 [child] 本身，避免在生产页面树中引入多余包裹层。
+Widget ensureFluentScope(
+  BuildContext context,
+  Widget child, {
+  bool ensureOverlay = false,
+}) {
+  final hasTheme = FluentTheme.maybeOf(context) != null;
+  final hasLoc = Localizations.of<FluentLocalizations>(
+        context,
+        FluentLocalizations,
+      ) !=
+      null;
+  final hasOverlay = !ensureOverlay || Overlay.maybeOf(context) != null;
+  if (hasTheme && hasLoc && hasOverlay) return child;
+
+  var wrapped = child;
+  if (!hasOverlay) {
+    wrapped = Overlay.wrap(child: wrapped);
+  }
+  if (!hasLoc) {
+    wrapped = Localizations.override(
+      context: context,
+      delegates: const [FluentLocalizations.delegate],
+      child: wrapped,
+    );
+  }
+  if (!hasTheme) {
+    wrapped = ensureFluentTheme(context, wrapped);
+  }
+  return wrapped;
 }

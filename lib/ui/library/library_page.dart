@@ -353,7 +353,13 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(child: _buildBody(context, games, layout, filter)),
-                      if (_sidebarVisible) const SizedBox(width: 16),
+                      AnimatedContainer(
+                        duration: fluentAnimationsDisabled(context)
+                            ? Duration.zero
+                            : FluentMotion.standard,
+                        curve: FluentMotion.enterCurve,
+                        width: _sidebarVisible ? 16 : 0,
+                      ),
                       FilterRail(
                         visible: _sidebarVisible,
                         onClear: _clearAllFilters,

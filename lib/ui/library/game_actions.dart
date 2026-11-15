@@ -24,7 +24,10 @@ import '../discover/game_explore_page.dart';
 import '../fluent/fluent_dialogs.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_notices.dart';
-import '../fluent/fluent_theme.dart';
+import '../fluent/fluent_surfaces.dart';
+
+export '../fluent/fluent_surfaces.dart'
+    show ensureFluentScope, ensureFluentTheme;
 
 /// 若全局服务尚未初始化（例如独立 Widget 测试），安全返回 null。
 AppServices? tryAppServices() {
@@ -34,22 +37,6 @@ AppServices? tryAppServices() {
   } catch (_) {
     return null;
   }
-}
-
-/// 在任务 9 全面切换 FluentApp 之前，若上层缺少 FluentTheme 则提供兜底主题。
-Widget ensureFluentTheme(BuildContext context, Widget child) {
-  if (FluentTheme.maybeOf(context) != null) return child;
-  final brightness =
-      MediaQuery.maybePlatformBrightnessOf(context) ?? Brightness.light;
-  return FluentTheme(
-    data: buildFluentTheme(
-      brightness: brightness,
-      preset: AccentPreset.system,
-      systemAccent: kDefaultWin11Azure,
-      backdrop: BackdropEffectPref.mica,
-    ),
-    child: child,
-  );
 }
 
 /// 统一页面导航：在 FluentApp 下使用 FluentPageRoute，兼容过渡期 MaterialApp。
@@ -133,7 +120,10 @@ Future<void> openGameExploreForGame(BuildContext context, Game game) async {
 Future<void> openGameDir(Game g) async {
   final exe = g.exePath.trim();
   if (exe.isNotEmpty && File(exe).existsSync()) {
-    await Process.run('explorer.exe', ['/select,', exe.replaceAll('/', r'\')]);
+    await Process.run(
+      'explorer.exe',
+      ['/select,${exe.replaceAll('/', r'\')}'],
+    );
     return;
   }
   final dir = g.directory.trim();

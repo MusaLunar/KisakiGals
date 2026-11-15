@@ -131,30 +131,6 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
     super.dispose();
   }
 
-  Widget _wrapFluent(
-    BuildContext context,
-    Widget Function(BuildContext ctx) builder,
-  ) {
-    final hasTheme = FluentTheme.maybeOf(context) != null;
-    final hasLoc = Localizations.of<FluentLocalizations>(
-          context,
-          FluentLocalizations,
-        ) !=
-        null;
-    Widget wrapped = Builder(builder: builder);
-    if (!hasLoc) {
-      wrapped = Localizations.override(
-        context: context,
-        delegates: const [FluentLocalizations.delegate],
-        child: wrapped,
-      );
-    }
-    if (!hasTheme) {
-      wrapped = ensureFluentTheme(context, wrapped);
-    }
-    return wrapped;
-  }
-
   Future<void> _load({bool forceRefresh = false}) async {
     setState(() {
       _loading = true;
@@ -267,12 +243,14 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
     final libIndex = ref.watch(discoverLibraryIndexProvider).valueOrNull ??
         const <String, Game>{};
 
-    return _wrapFluent(
+    return ensureFluentScope(
       context,
-      (ctx) => ScaffoldPage(
-        padding: EdgeInsets.zero,
-        header: _buildTopHeader(ctx),
-        content: _buildBody(ctx, libIndex),
+      Builder(
+        builder: (ctx) => ScaffoldPage(
+          padding: EdgeInsets.zero,
+          header: _buildTopHeader(ctx),
+          content: _buildBody(ctx, libIndex),
+        ),
       ),
     );
   }

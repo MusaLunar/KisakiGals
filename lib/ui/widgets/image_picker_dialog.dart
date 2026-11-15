@@ -1,9 +1,12 @@
 /// Fluent 2 共享图片选择对话框（支持候选缩略图、手动 URL/路径输入、本地图片文件选择）。
 library;
 
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 
+import '../../core/media_paths.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_surfaces.dart';
 
@@ -69,8 +72,31 @@ class _ImagePickerDialogState extends State<_ImagePickerDialog> {
     super.dispose();
   }
 
+  static bool _isPreviewableInput(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+    final lower = trimmed.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      final uri = Uri.tryParse(trimmed);
+      return uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.isNotEmpty;
+    }
+    if ('http://'.startsWith(lower) || 'https://'.startsWith(lower)) {
+      return false;
+    }
+    try {
+      final resolved = MediaPaths.instance.resolveStored(trimmed);
+      return resolved.isNotEmpty && File(resolved).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
   List<String> get _displayItems {
-    if (_selected.isEmpty || _baseCandidates.contains(_selected)) {
+    if (_selected.isEmpty ||
+        _baseCandidates.contains(_selected) ||
+        !_isPreviewableInput(_selected)) {
       return _baseCandidates;
     }
     return [_selected, ..._baseCandidates];

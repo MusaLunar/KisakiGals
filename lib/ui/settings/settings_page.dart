@@ -133,32 +133,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     super.dispose();
   }
 
-  Widget _wrapFluent(BuildContext context, Widget child) {
-    final hasTheme = FluentTheme.maybeOf(context) != null;
-    final hasLoc = Localizations.of<FluentLocalizations>(
-          context,
-          FluentLocalizations,
-        ) !=
-        null;
-    final hasOverlay = Overlay.maybeOf(context) != null;
-    if (hasTheme && hasLoc && hasOverlay) return child;
-    var wrapped = child;
-    if (!hasOverlay) {
-      wrapped = Overlay.wrap(child: wrapped);
-    }
-    if (!hasLoc) {
-      wrapped = Localizations.override(
-        context: context,
-        delegates: const [FluentLocalizations.delegate],
-        child: wrapped,
-      );
-    }
-    if (!hasTheme) {
-      wrapped = ensureFluentTheme(context, wrapped);
-    }
-    return wrapped;
-  }
-
   Future<void> _scrollToSection(int index, {bool animate = true}) async {
     if (index < 0 || index >= _sectionKeys.length) return;
     final targetContext = _sectionKeys[index].currentContext;
@@ -237,9 +211,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return _wrapFluent(
+    return ensureFluentScope(
       context,
       Builder(builder: _buildPage),
+      ensureOverlay: true,
     );
   }
 

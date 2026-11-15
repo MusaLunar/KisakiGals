@@ -338,4 +338,45 @@ void main() {
     NoticeCenter.instance.clear();
     await tester.pumpAndSettle();
   });
+
+  testWidgets('AppShell quick search caps suggestions at 20 items',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final manyGames = [
+      for (var i = 1; i <= 25; i++)
+        Game(
+          id: i,
+          name: 'Key Work $i',
+          nameCn: 'Key 作品 $i',
+          developer: 'Key',
+        ),
+    ];
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: _shellOverrides(games: manyGames),
+        child: FluentApp(
+          theme: buildFluentTheme(
+            brightness: Brightness.light,
+            preset: AccentPreset.azure,
+            systemAccent: kDefaultWin11Azure,
+            backdrop: BackdropEffectPref.solid,
+          ),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: const AppShell(enableWindowHooks: false),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final boxFinder = find.byType(AutoSuggestBox<Game>);
+    final box = tester.widget<AutoSuggestBox<Game>>(boxFinder);
+    final results = box.sorter!('Key', box.items);
+    expect(results.length, 20);
+  });
 }

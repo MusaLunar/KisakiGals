@@ -138,10 +138,6 @@ void main() {
     PaintingBinding.instance.imageCache.clearLiveImages();
   });
 
-  test('fluentAnimationsDisabled respects MediaQuery.disableAnimations', () {
-    // Verified via widget pump test below
-  });
-
   testWidgets(
       'fluentAnimationsDisabled accurately detects animation preferences',
       (tester) async {

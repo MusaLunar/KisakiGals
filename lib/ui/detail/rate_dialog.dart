@@ -175,12 +175,40 @@ class _RateGameDialogState extends State<_RateGameDialog> {
     final double finalRating = rounded <= 0 ? 0.0 : rounded;
     final String finalReview = _reviewCtrl.text.trim();
 
-    final updated = widget.game
-      ..userRating = finalRating
-      ..userReview = finalReview
-      ..playStatus = (finalRating > 0 && widget.game.playStatus == PlayStatus.wish)
-          ? PlayStatus.played
-          : widget.game.playStatus;
+    final nextStatus =
+        (finalRating > 0 && widget.game.playStatus == PlayStatus.wish)
+            ? PlayStatus.played
+            : widget.game.playStatus;
+    final updated = Game(
+      id: widget.game.id,
+      name: widget.game.name,
+      nameCn: widget.game.nameCn,
+      aliases: List<String>.of(widget.game.aliases),
+      coverPath: widget.game.coverPath,
+      developer: widget.game.developer,
+      releaseDate: widget.game.releaseDate,
+      summary: widget.game.summary,
+      nsfw: widget.game.nsfw,
+      playStatus: nextStatus,
+      userRating: finalRating,
+      userReview: finalReview,
+      exePath: widget.game.exePath,
+      directory: widget.game.directory,
+      launchType: widget.game.launchType,
+      isFavorite: widget.game.isFavorite,
+      totalSeconds: widget.game.totalSeconds,
+      createdAt: widget.game.createdAt,
+      updatedAt: widget.game.updatedAt,
+      firstPlayedAt: widget.game.firstPlayedAt,
+      lastPlayedAt: widget.game.lastPlayedAt,
+      screenshots: List<String>.of(widget.game.screenshots),
+      backgroundUrl: widget.game.backgroundUrl,
+      localeMode: widget.game.localeMode,
+      savePath: widget.game.savePath,
+      deviceId: widget.game.deviceId,
+      relPath: widget.game.relPath,
+      dirName: widget.game.dirName,
+    )..sessionCount = widget.game.sessionCount;
 
     try {
       if (widget.onSave != null) {
@@ -188,6 +216,11 @@ class _RateGameDialogState extends State<_RateGameDialog> {
       } else if (services != null) {
         await services.repo.updateGame(updated);
       }
+
+      widget.game
+        ..userRating = finalRating
+        ..userReview = finalReview
+        ..playStatus = nextStatus;
 
       final synced = <String>[];
       final failed = <String>[];
@@ -215,11 +248,13 @@ class _RateGameDialogState extends State<_RateGameDialog> {
         }
       }
 
-      if (updated.id != null) {
-        widget.ref.invalidate(gameProvider(updated.id!));
-        widget.ref.invalidate(gameSourcesProvider(updated.id!));
+      if (mounted) {
+        if (updated.id != null) {
+          widget.ref.invalidate(gameProvider(updated.id!));
+          widget.ref.invalidate(gameSourcesProvider(updated.id!));
+        }
+        bumpLibrary(widget.ref);
       }
-      bumpLibrary(widget.ref);
 
       final buffer = StringBuffer('已保存评分');
       if (synced.isNotEmpty) {

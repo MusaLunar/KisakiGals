@@ -156,6 +156,7 @@ class _SaveBackupDialogState extends State<_SaveBackupDialog> {
   }
 
   Future<void> _createBackup() async {
+    if (_busy) return;
     final gameId = widget.game.id;
     if (gameId == null) {
       _setStatus('作品尚未入库，无法创建备份', error: true);
@@ -174,11 +175,14 @@ class _SaveBackupDialogState extends State<_SaveBackupDialog> {
     });
     try {
       final keep = await _keepLimit();
+      if (!mounted) return;
       final name = await _store().backup(gameId, _savePath, keep: keep);
+      if (!mounted) return;
       _reload();
       _setStatus('备份完成：$name');
       showNotice('存档已备份：$name');
     } catch (e) {
+      if (!mounted) return;
       _setStatus('备份失败：$e', error: true);
       showNotice('备份失败：$e', error: true);
     } finally {
@@ -187,6 +191,7 @@ class _SaveBackupDialogState extends State<_SaveBackupDialog> {
   }
 
   Future<void> _restore(SaveBackupEntry e) async {
+    if (_busy) return;
     final gameId = widget.game.id;
     if (gameId == null) return;
     if (_running()) {
@@ -212,10 +217,12 @@ class _SaveBackupDialogState extends State<_SaveBackupDialog> {
     });
     try {
       final (done, total) = await _store().restore(gameId, e.name);
+      if (!mounted) return;
       _reload();
       _setStatus('已恢复 $done / $total 个文件');
       showNotice('存档恢复完成（$done/$total）');
     } catch (err) {
+      if (!mounted) return;
       _setStatus('恢复失败：$err', error: true);
       showNotice('恢复失败：$err', error: true);
     } finally {
@@ -224,6 +231,7 @@ class _SaveBackupDialogState extends State<_SaveBackupDialog> {
   }
 
   Future<void> _delete(SaveBackupEntry e) async {
+    if (_busy) return;
     final gameId = widget.game.id;
     if (gameId == null) return;
     final ok = await showFluentConfirmDialog(
@@ -234,14 +242,23 @@ class _SaveBackupDialogState extends State<_SaveBackupDialog> {
       destructive: true,
     );
     if (!ok || !mounted) return;
+    setState(() {
+      _busy = true;
+      _status = '正在删除…';
+      _statusError = false;
+    });
     try {
       _store().remove(gameId, e.name);
+      if (!mounted) return;
       _reload();
       _setStatus('已删除备份：${e.name}');
       showNotice('已删除备份：${e.name}');
     } catch (err) {
+      if (!mounted) return;
       _setStatus('删除失败：$err', error: true);
       showNotice('删除失败：$err', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
