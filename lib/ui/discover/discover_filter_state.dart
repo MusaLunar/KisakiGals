@@ -269,3 +269,13 @@ class DiscoverFilter {
   static String _trim(double v) =>
       v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 }
+
+/// 探索页顶栏视图模式。
+enum DiscoverMode {
+  aggregate('发现聚合', '多源榜单浏览与作品百科搜索'),
+  resource('资源检索', '全网资源站流式检索与站点发布页外链');
+
+  final String label;
+  final String description;
+  const DiscoverMode(this.label, this.description);
+}

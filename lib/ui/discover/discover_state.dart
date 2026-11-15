@@ -41,6 +41,15 @@ const int kBangumiSearchPageSize = 20;
 final discoverFilterProvider =
     StateProvider<DiscoverFilter>((ref) => const DiscoverFilter());
 
+AppServices? _tryServices() {
+  try {
+    final services = AppServices.I;
+    return services.ready ? services : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// 「已在库」判定用的平台索引，key 形如 `vndb:123` / `bgm:45678`。
 ///
 /// 为什么用 source id 而不是 `repo.findGameByTitle`：
@@ -51,7 +60,9 @@ final discoverFilterProvider =
 final discoverLibraryIndexProvider =
     FutureProvider<Map<String, Game>>((ref) async {
   ref.watch(libraryVersionProvider);
-  return AppServices.I.repo.sourceIndex();
+  final services = _tryServices();
+  if (services == null) return const {};
+  return services.repo.sourceIndex();
 });
 
 /// 刮削条目 → [GameRepository.sourceIndex] 的 key。
@@ -189,6 +200,16 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
     required int startPage,
     DiscoverFeedState? previous,
   }) async {
+    final services = _tryServices();
+    if (services == null) {
+      return DiscoverFeedState(
+        items: previous?.items ?? const [],
+        page: startPage,
+        hasMore: false,
+        preloading: false,
+        filterKey: filter.key,
+      );
+    }
     // ---- 关键词搜索：并行查询所有来源并合并 ----
     //
     // 别名/简称往往只被某一个来源收录：实测「金恋」在 VNDB 命中
@@ -203,7 +224,7 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
       final results = await Future.wait(DiscoverSource.values.map((src) async {
         try {
           final params = _paramsFor(filter.withSource(src), 1);
-          return await AppServices.I.fetcher.browse(src.id, params);
+          return await services.fetcher.browse(src.id, params);
         } catch (_) {
           // 单个来源失败不影响其它来源（KunGal 这类要求登录的源会抛异常）
           return const <ScrapedGame>[];
@@ -261,8 +282,8 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
     // 设上限是为了不给 Bangumi（1 req/s）造成压力。
     for (var attempt = 0; attempt < _kMaxAutoPages; attempt++) {
       final params = _paramsFor(filter, page);
-      final raw = await AppServices.I.fetcher.browse(filter.source.id, params);
-      hasMore = AppServices.I.fetcher.browseHasMore(filter.source.id, params);
+      final raw = await services.fetcher.browse(filter.source.id, params);
+      hasMore = services.fetcher.browseHasMore(filter.source.id, params);
       var added = 0;
       for (final g in raw) {
         if (!_passes(filter, g)) continue;
@@ -384,3 +405,10 @@ class DiscoverFeed extends AsyncNotifier<DiscoverFeedState> {
 
 final discoverFeedProvider =
     AsyncNotifierProvider<DiscoverFeed, DiscoverFeedState>(DiscoverFeed.new);
+
+/// 与设计规范名称兼容的别名。
+final discoverStateProvider = discoverFeedProvider;
+
+/// 探索页顶栏视图模式（发现聚合 / 资源检索）。
+final discoverModeProvider =
+    StateProvider<DiscoverMode>((ref) => DiscoverMode.aggregate);
