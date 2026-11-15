@@ -1519,6 +1519,33 @@ class _DailyTrendCardState extends State<_DailyTrendCard> {
               child: BarChart(
                 BarChartData(
                   maxY: maxMinutes * 1.15,
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      tooltipRoundedRadius: 6,
+                      tooltipBorder: BorderSide(
+                        color: theme.resources.cardStrokeColorDefault,
+                      ),
+                      getTooltipColor: (_) => theme.cardColor,
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                        final point =
+                            groupIndex >= 0 && groupIndex < _points.length
+                                ? _points[groupIndex]
+                                : null;
+                        final label = point != null && point.date.isNotEmpty
+                            ? '${point.date}\n${rod.toY.toStringAsFixed(0)} 分钟'
+                            : '${rod.toY.toStringAsFixed(0)} 分钟';
+                        return BarTooltipItem(
+                          label,
+                          (theme.typography.caption ?? const TextStyle())
+                              .copyWith(
+                            color: theme.typography.bodyStrong?.color ??
+                                theme.inactiveColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                   borderData: FlBorderData(show: false),
                   gridData: FlGridData(
                     show: true,

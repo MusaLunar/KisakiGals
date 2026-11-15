@@ -151,8 +151,12 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     _playStatus = g.playStatus;
     _nsfw = g.nsfw;
     _isFavorite = g.isFavorite;
-    _localeMode =
-        g.localeMode.isEmpty ? (g.useLocaleEmulator ? 'le' : 'none') : g.localeMode;
+    final rawLocale = g.localeMode.trim().toLowerCase();
+    _localeMode = switch (rawLocale) {
+      'japanese' || 'le' => 'japanese',
+      'none' || '' => g.useLocaleEmulator ? 'japanese' : 'none',
+      _ => 'none',
+    };
 
     _loadMeta();
   }
@@ -888,18 +892,15 @@ class _EditGameDialogState extends State<_EditGameDialog> {
                 label: '转区启动方式',
                 child: ComboBox<String>(
                   isExpanded: true,
-                  value: const ['none', 'le', 'shiftjis', 'utf8']
-                          .contains(_localeMode)
+                  value: const ['none', 'japanese'].contains(_localeMode)
                       ? _localeMode
                       : 'none',
                   items: const [
                     ComboBoxItem(value: 'none', child: Text('直接启动')),
                     ComboBoxItem(
-                      value: 'le',
-                      child: Text('Locale Emulator (LE 转区)'),
+                      value: 'japanese',
+                      child: Text('Locale Emulator (日语转区)'),
                     ),
-                    ComboBoxItem(value: 'shiftjis', child: Text('Shift-JIS')),
-                    ComboBoxItem(value: 'utf8', child: Text('UTF-8')),
                   ],
                   onChanged: (v) {
                     if (v != null) setState(() => _localeMode = v);
@@ -911,10 +912,11 @@ class _EditGameDialogState extends State<_EditGameDialog> {
             Padding(
               padding: const EdgeInsets.only(top: 18),
               child: ToggleSwitch(
-                checked: _localeMode == 'le',
+                key: const ValueKey('edit-le-switch'),
+                checked: _localeMode == 'japanese',
                 content: const Text('LE 快捷转区'),
                 onChanged: (v) =>
-                    setState(() => _localeMode = v ? 'le' : 'none'),
+                    setState(() => _localeMode = v ? 'japanese' : 'none'),
               ),
             ),
           ],

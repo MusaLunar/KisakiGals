@@ -411,6 +411,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('edit-nsfw-switch')));
     await tester.pumpAndSettle();
 
+    final leSwitchFinder = find.byKey(const ValueKey('edit-le-switch'));
+    await tester.ensureVisible(leSwitchFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(leSwitchFinder);
+    await tester.pumpAndSettle();
+
     // Anchor jump to 视觉封面
     await tester.tap(find.byKey(const ValueKey('edit-anchor-media')));
     await tester.pumpAndSettle();
@@ -422,7 +428,64 @@ void main() {
     expect(savedGame?.nameCn, '编辑后中文名');
     expect(savedGame?.aliases, ['别名甲', '别名乙']);
     expect(savedGame?.nsfw, isTrue);
+    expect(savedGame?.localeMode, 'japanese');
+    expect(savedGame?.useLocaleEmulator, isTrue);
     expect(libVersion, 1);
+    NoticeCenter.instance.clear();
+  });
+
+  testWidgets(
+      'showEditGameDialog normalizes legacy "le" localeMode to canonical "japanese"',
+      (tester) async {
+    final game = Game(
+      id: 34,
+      name: 'LegacyLeVN',
+      localeMode: 'le',
+    );
+    Game? savedGame;
+
+    await tester.pumpWidget(
+      _fluentHost(
+        child: Consumer(
+          builder: (context, ref, _) {
+            return ScaffoldPage(
+              content: Center(
+                child: FilledButton(
+                  onPressed: () async {
+                    await showEditGameDialog(
+                      context,
+                      ref,
+                      game,
+                      loadSources: (_) async => const [],
+                      loadTags: (_) async => const [],
+                      onSave: (g) async {
+                        savedGame = g;
+                      },
+                    );
+                  },
+                  child: const Text('打开编辑'),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开编辑'));
+    await tester.pumpAndSettle();
+
+    final leSwitchFinder = find.byKey(const ValueKey('edit-le-switch'));
+    await tester.ensureVisible(leSwitchFinder);
+    await tester.pumpAndSettle();
+    final leSwitch = tester.widget<ToggleSwitch>(leSwitchFinder);
+    expect(leSwitch.checked, isTrue);
+
+    await tester.tap(find.text('保存修改'));
+    await tester.pumpAndSettle();
+
+    expect(savedGame?.localeMode, 'japanese');
+    expect(savedGame?.useLocaleEmulator, isTrue);
     NoticeCenter.instance.clear();
   });
 }
