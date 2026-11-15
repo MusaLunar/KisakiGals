@@ -16,7 +16,9 @@ import '../../scraping/scraped_game.dart';
 import '../../services/game_explore_service.dart';
 import '../../services/game_launch_service.dart';
 import '../../services/game_launcher.dart';
+import '../detail/edit_dialog.dart';
 import '../detail/game_detail_page.dart';
+import '../detail/rate_dialog.dart';
 import '../detail/save_backup_dialog.dart';
 import '../discover/game_explore_page.dart';
 import '../fluent/fluent_dialogs.dart';
@@ -368,12 +370,7 @@ Future<void> showGameMenuFlyout(
             onPressed: onEdit ??
                 (game.id == null
                     ? null
-                    : () => openGameDetail(
-                          context,
-                          game.id!,
-                          initial: game,
-                          ref: ref,
-                        )),
+                    : () => showEditGameDialog(context, ref, game)),
           ),
           MenuFlyoutItem(
             leading: const Icon(FluentIcons.star_16_regular, size: 16),
@@ -381,12 +378,7 @@ Future<void> showGameMenuFlyout(
             onPressed: onRate ??
                 (game.id == null
                     ? null
-                    : () => openGameDetail(
-                          context,
-                          game.id!,
-                          initial: game,
-                          ref: ref,
-                        )),
+                    : () => showRateGameDialog(context, ref, game)),
           ),
           MenuFlyoutItem(
             leading: const Icon(FluentIcons.archive_16_regular, size: 16),
