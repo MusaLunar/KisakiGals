@@ -1,7 +1,6 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kisakigals/data/db.dart';
 import 'package:kisakigals/data/settings_store.dart';
 import 'package:kisakigals/ui/shell/tabs.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
