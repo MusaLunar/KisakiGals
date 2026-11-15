@@ -300,51 +300,86 @@ void KisakiTrayPopup::Paint(HDC hdc) {
 
   const bool dark = data_.dark;
 
-  // Material Design 3 palette (#DA839C / #D0C0F5 / #EDABA0)
+  const uint32_t raw_accent =
+      ((data_.accent_argb & 0xFF000000u) == 0u) ? 0xFF0078D4u
+                                               : data_.accent_argb;
+  const BYTE ar = static_cast<BYTE>((raw_accent >> 16) & 0xFFu);
+  const BYTE ag = static_cast<BYTE>((raw_accent >> 8) & 0xFFu);
+  const BYTE ab = static_cast<BYTE>(raw_accent & 0xFFu);
+
+  // Windows 11 Fluent 2 Neutral surfaces + dynamic system accent
   const Gdiplus::Color bg_color =
-      dark ? Gdiplus::Color(255, 27, 23, 27)
-           : Gdiplus::Color(255, 255, 251, 253);
+      dark ? Gdiplus::Color(255, 32, 32, 32)
+           : Gdiplus::Color(255, 243, 243, 243);
   const Gdiplus::Color card_bg =
-      dark ? Gdiplus::Color(255, 36, 31, 36)
+      dark ? Gdiplus::Color(255, 44, 44, 44)
            : Gdiplus::Color(255, 255, 255, 255);
   const Gdiplus::Color hover_bg =
-      dark ? Gdiplus::Color(255, 48, 41, 48)
-           : Gdiplus::Color(255, 248, 239, 245);
+      dark ? Gdiplus::Color(255, 56, 56, 56)
+           : Gdiplus::Color(255, 234, 234, 234);
   const Gdiplus::Color border_color =
-      dark ? Gdiplus::Color(255, 62, 54, 62)
-           : Gdiplus::Color(255, 231, 221, 228);
+      dark ? Gdiplus::Color(255, 68, 68, 68)
+           : Gdiplus::Color(255, 224, 224, 224);
   const Gdiplus::Color ink_color =
-      dark ? Gdiplus::Color(255, 245, 237, 242)
-           : Gdiplus::Color(255, 31, 26, 29);
+      dark ? Gdiplus::Color(255, 245, 245, 245)
+           : Gdiplus::Color(255, 27, 27, 27);
   const Gdiplus::Color ink_soft =
-      dark ? Gdiplus::Color(255, 180, 168, 175)
-           : Gdiplus::Color(255, 118, 106, 113);
-  // M3 Rose (#DA839C)
-  const Gdiplus::Color crimson = Gdiplus::Color(255, 218, 131, 156);
-  const Gdiplus::Color crimson_ink =
-      dark ? Gdiplus::Color(255, 218, 131, 156)
-           : Gdiplus::Color(255, 156, 62, 92);
-  const Gdiplus::Color crimson_tint =
-      dark ? Gdiplus::Color(52, 218, 131, 156)
-           : Gdiplus::Color(48, 218, 131, 156);
-  // M3 Lavender (#D0C0F5)
-  const Gdiplus::Color cyan = Gdiplus::Color(255, 208, 192, 245);
-  const Gdiplus::Color cyan_ink =
-      dark ? Gdiplus::Color(255, 208, 192, 245)
-           : Gdiplus::Color(255, 107, 83, 184);
-  const Gdiplus::Color cyan_tint =
-      dark ? Gdiplus::Color(46, 208, 192, 245)
-           : Gdiplus::Color(60, 208, 192, 245);
-  // M3 Peach (#EDABA0)
-  const Gdiplus::Color peach = Gdiplus::Color(255, 237, 171, 160);
-  const Gdiplus::Color on_primary_ink = Gdiplus::Color(255, 58, 14, 30);
+      dark ? Gdiplus::Color(255, 178, 178, 178)
+           : Gdiplus::Color(255, 108, 108, 108);
+
+  const Gdiplus::Color accent = Gdiplus::Color(255, ar, ag, ab);
+  const Gdiplus::Color accent_tint =
+      dark ? Gdiplus::Color(48, ar, ag, ab)
+           : Gdiplus::Color(32, ar, ag, ab);
+  const float luma = 0.2126f * static_cast<float>(ar) +
+                     0.7152f * static_cast<float>(ag) +
+                     0.0722f * static_cast<float>(ab);
+  const Gdiplus::Color on_primary_ink =
+      luma > 152.0f ? Gdiplus::Color(255, 20, 20, 20)
+                    : Gdiplus::Color(255, 255, 255, 255);
+
+  auto compute_accent_ink = [&]() -> Gdiplus::Color {
+    const float fr = static_cast<float>(ar);
+    const float fg = static_cast<float>(ag);
+    const float fb = static_cast<float>(ab);
+    if (dark) {
+      if (luma >= 165.0f) return accent;
+      const float t = std::clamp(
+          (165.0f - luma) / std::max(1.0f, 255.0f - luma), 0.25f, 0.75f);
+      return Gdiplus::Color(
+          255,
+          static_cast<BYTE>(std::clamp(fr + (255.0f - fr) * t, 0.0f, 255.0f)),
+          static_cast<BYTE>(std::clamp(fg + (255.0f - fg) * t, 0.0f, 255.0f)),
+          static_cast<BYTE>(std::clamp(fb + (255.0f - fb) * t, 0.0f, 255.0f)));
+    }
+    if (luma <= 92.0f) return accent;
+    const float scale = 92.0f / luma;
+    return Gdiplus::Color(
+        255,
+        static_cast<BYTE>(std::clamp(fr * scale, 0.0f, 255.0f)),
+        static_cast<BYTE>(std::clamp(fg * scale, 0.0f, 255.0f)),
+        static_cast<BYTE>(std::clamp(fb * scale, 0.0f, 255.0f)));
+  };
+  const Gdiplus::Color accent_ink = compute_accent_ink();
+
+  // Fluent 2 semantic danger colors (#C42B1C / #D13438 light, #F28B82 dark)
+  const Gdiplus::Color danger_fill =
+      dark ? Gdiplus::Color(255, 196, 43, 28)
+           : Gdiplus::Color(255, 209, 52, 56);
+  const Gdiplus::Color danger_ink =
+      dark ? Gdiplus::Color(255, 242, 139, 130)
+           : Gdiplus::Color(255, 196, 43, 28);
+  const Gdiplus::Color danger_tint =
+      dark ? Gdiplus::Color(44, 242, 139, 130)
+           : Gdiplus::Color(28, 209, 52, 56);
+  const Gdiplus::Color on_danger_ink = Gdiplus::Color(255, 255, 255, 255);
 
   g.Clear(bg_color);
   DrawRoundRect(
       g,
       Gdiplus::RectF(0.5f, 0.5f, static_cast<float>(width_ - 1),
                      static_cast<float>(height_ - 1)),
-      SF(16.0f), border_color, 1.0f);
+      SF(12.0f), border_color, 1.0f);
 
   Gdiplus::FontFamily font_family(L"Microsoft YaHei UI");
   Gdiplus::Font font_title(&font_family, SF(13.0f), Gdiplus::FontStyleBold,
@@ -360,9 +395,10 @@ void KisakiTrayPopup::Paint(HDC hdc) {
 
   Gdiplus::SolidBrush ink_brush(ink_color);
   Gdiplus::SolidBrush soft_brush(ink_soft);
-  Gdiplus::SolidBrush crimson_brush(crimson_ink);
-  Gdiplus::SolidBrush cyan_brush(cyan_ink);
+  Gdiplus::SolidBrush accent_brush(accent_ink);
+  Gdiplus::SolidBrush danger_brush(danger_ink);
   Gdiplus::SolidBrush on_primary_brush(on_primary_ink);
+  Gdiplus::SolidBrush on_danger_brush(on_danger_ink);
   Gdiplus::Pen divider_pen(border_color, 1.0f);
 
   Gdiplus::StringFormat left_vcenter;
@@ -404,7 +440,7 @@ void KisakiTrayPopup::Paint(HDC hdc) {
                              static_cast<float>(icon_y),
                              static_cast<float>(icon_size),
                              static_cast<float>(icon_size));
-      FillRoundRect(g, icon_rc, SF(8.0f), crimson);
+      FillRoundRect(g, icon_rc, SF(6.0f), accent);
       g.DrawString(L"K", -1, &font_body_bold, icon_rc, &center_fmt,
                    &on_primary_brush);
     }
@@ -423,9 +459,9 @@ void KisakiTrayPopup::Paint(HDC hdc) {
         data_.version.empty() ? L"v1.1.0" : (L"v" + data_.version);
     Gdiplus::RectF ver_rc(static_cast<float>(width_ - pad - S(54)),
                           static_cast<float>(y + S(9)), SF(54.0f), SF(20.0f));
-    FillRoundRect(g, ver_rc, SF(10.0f), crimson_tint);
+    FillRoundRect(g, ver_rc, SF(6.0f), accent_tint);
     g.DrawString(ver_label.c_str(), -1, &font_micro, ver_rc, &center_fmt,
-                 &crimson_brush);
+                 &accent_brush);
 
     y += S(40) + S(6);
   }
@@ -436,19 +472,19 @@ void KisakiTrayPopup::Paint(HDC hdc) {
     Gdiplus::RectF banner_rc(static_cast<float>(pad), static_cast<float>(y),
                              static_cast<float>(width_ - pad * 2),
                              static_cast<float>(banner_h));
-    FillRoundRect(g, banner_rc, SF(14.0f), cyan_tint);
-    DrawRoundRect(g, banner_rc, SF(14.0f), cyan, 1.0f);
+    FillRoundRect(g, banner_rc, SF(8.0f), accent_tint);
+    DrawRoundRect(g, banner_rc, SF(8.0f), accent, 1.0f);
 
     Gdiplus::RectF dot_rc(static_cast<float>(pad + S(10)),
                           static_cast<float>(y + S(19)), SF(8.0f), SF(8.0f));
-    g.FillEllipse(&cyan_brush, dot_rc);
+    g.FillEllipse(&accent_brush, dot_rc);
 
     Gdiplus::RectF label_rc(static_cast<float>(pad + S(24)),
                             static_cast<float>(y + S(6)),
                             static_cast<float>(width_ - pad * 2 - S(108)),
                             SF(16.0f));
     g.DrawString(kStrPlayingNow, -1, &font_micro, label_rc, &left_vcenter,
-                 &cyan_brush);
+                 &accent_brush);
 
     Gdiplus::RectF title_rc(static_cast<float>(pad + S(24)),
                             static_cast<float>(y + S(22)),
@@ -460,12 +496,12 @@ void KisakiTrayPopup::Paint(HDC hdc) {
     const int stop_idx = static_cast<int>(region_cursor++);
     Gdiplus::RectF stop_rc = ToRectF(regions_[stop_idx].rect);
     const bool stop_hover = (hovered_index_ == stop_idx);
-    FillRoundRect(g, stop_rc, SF(14.0f), stop_hover ? crimson : card_bg);
+    FillRoundRect(g, stop_rc, SF(6.0f), stop_hover ? danger_fill : card_bg);
     if (!stop_hover) {
-      DrawRoundRect(g, stop_rc, SF(14.0f), crimson, 1.0f);
+      DrawRoundRect(g, stop_rc, SF(6.0f), danger_ink, 1.0f);
     }
     g.DrawString(kStrStopSession, -1, &font_micro, stop_rc, &center_fmt,
-                 stop_hover ? &on_primary_brush : &crimson_brush);
+                 stop_hover ? &on_danger_brush : &danger_brush);
 
     y += banner_h + S(10);
   }
@@ -484,8 +520,8 @@ void KisakiTrayPopup::Paint(HDC hdc) {
   if (data_.recent_games.empty()) {
     Gdiplus::RectF empty_rc(static_cast<float>(pad), static_cast<float>(y),
                             static_cast<float>(width_ - pad * 2), SF(44.0f));
-    FillRoundRect(g, empty_rc, SF(14.0f), card_bg);
-    DrawRoundRect(g, empty_rc, SF(14.0f), border_color, 1.0f);
+    FillRoundRect(g, empty_rc, SF(8.0f), card_bg);
+    DrawRoundRect(g, empty_rc, SF(8.0f), border_color, 1.0f);
     g.DrawString(kStrRecentEmpty, -1, &font_caption, empty_rc, &center_fmt,
                  &soft_brush);
     y += S(48);
@@ -498,14 +534,14 @@ void KisakiTrayPopup::Paint(HDC hdc) {
       const auto& game = data_.recent_games[i];
       Gdiplus::RectF card_rc = ToRectF(regions_[idx].rect);
 
-      FillRoundRect(g, card_rc, SF(14.0f), hovered ? hover_bg : card_bg);
-      DrawRoundRect(g, card_rc, SF(14.0f),
-                    hovered ? crimson : border_color, 1.0f);
+      FillRoundRect(g, card_rc, SF(8.0f), hovered ? hover_bg : card_bg);
+      DrawRoundRect(g, card_rc, SF(8.0f),
+                    hovered ? accent : border_color, 1.0f);
 
       if (hovered) {
         Gdiplus::RectF bar_rc(card_rc.X + SF(4.0f), card_rc.Y + SF(13.0f),
                               SF(3.5f), card_rc.Height - SF(26.0f));
-        FillRoundRect(g, bar_rc, SF(2.0f), peach);
+        FillRoundRect(g, bar_rc, SF(2.0f), accent);
       }
 
       // 2:3 Cover thumbnail (30x44)
@@ -517,20 +553,20 @@ void KisakiTrayPopup::Paint(HDC hdc) {
         if (img.GetLastStatus() == Gdiplus::Ok && img.GetWidth() > 0 &&
             img.GetHeight() > 0) {
           Gdiplus::GraphicsPath clip_path;
-          AddRoundRect(clip_path, cov_rc, SF(7.0f));
+          AddRoundRect(clip_path, cov_rc, SF(6.0f));
           Gdiplus::GraphicsState state = g.Save();
           g.SetClip(&clip_path);
           g.DrawImage(&img, cov_rc);
           g.Restore(state);
-          DrawRoundRect(g, cov_rc, SF(7.0f), border_color, 1.0f);
+          DrawRoundRect(g, cov_rc, SF(6.0f), border_color, 1.0f);
           drew_cover = true;
         }
       }
       if (!drew_cover) {
-        FillRoundRect(g, cov_rc, SF(7.0f), crimson_tint);
-        DrawRoundRect(g, cov_rc, SF(7.0f), border_color, 1.0f);
+        FillRoundRect(g, cov_rc, SF(6.0f), accent_tint);
+        DrawRoundRect(g, cov_rc, SF(6.0f), border_color, 1.0f);
         g.DrawString(L"G", -1, &font_body_bold, cov_rc, &center_fmt,
-                     &crimson_brush);
+                     &accent_brush);
       }
 
       const float text_left = cov_rc.GetRight() + SF(10.0f);
@@ -546,20 +582,20 @@ void KisakiTrayPopup::Paint(HDC hdc) {
       Gdiplus::RectF sub_rc(text_left, card_rc.Y + SF(30.0f), text_w,
                             SF(17.0f));
       g.DrawString(game.subtitle.c_str(), -1, &font_caption, sub_rc,
-                   &left_vcenter, game.running ? &cyan_brush : &soft_brush);
+                   &left_vcenter, game.running ? &accent_brush : &soft_brush);
 
       Gdiplus::RectF badge_rc(card_rc.GetRight() - pill_w - SF(10.0f),
                               card_rc.Y + (card_rc.Height - SF(24.0f)) * 0.5f,
                               pill_w, SF(24.0f));
       if (game.running) {
-        FillRoundRect(g, badge_rc, SF(12.0f), cyan_tint);
+        FillRoundRect(g, badge_rc, SF(6.0f), accent_tint);
         g.DrawString(kStrRunning, -1, &font_micro, badge_rc, &center_fmt,
-                     &cyan_brush);
+                     &accent_brush);
       } else {
-        FillRoundRect(g, badge_rc, SF(12.0f),
-                      hovered ? crimson : crimson_tint);
+        FillRoundRect(g, badge_rc, SF(6.0f),
+                      hovered ? accent : accent_tint);
         g.DrawString(kStrLaunch, -1, &font_micro, badge_rc, &center_fmt,
-                     hovered ? &on_primary_brush : &crimson_brush);
+                     hovered ? &on_primary_brush : &accent_brush);
       }
     }
     y += count * (S(58) + S(6));
@@ -580,10 +616,10 @@ void KisakiTrayPopup::Paint(HDC hdc) {
     const int idx = static_cast<int>(region_cursor++);
     const bool hovered = (hovered_index_ == idx);
     Gdiplus::RectF rc = ToRectF(regions_[idx].rect);
-    FillRoundRect(g, rc, SF(18.0f), hovered ? hover_bg : card_bg);
-    DrawRoundRect(g, rc, SF(18.0f), hovered ? crimson : border_color, 1.0f);
+    FillRoundRect(g, rc, SF(6.0f), hovered ? hover_bg : card_bg);
+    DrawRoundRect(g, rc, SF(6.0f), hovered ? accent : border_color, 1.0f);
     g.DrawString(nav_labels[i], -1, hovered ? &font_body_bold : &font_body, rc,
-                 &center_fmt, hovered ? &crimson_brush : &ink_brush);
+                 &center_fmt, hovered ? &accent_brush : &ink_brush);
   }
 
   const int nav_h = S(36);
@@ -598,17 +634,17 @@ void KisakiTrayPopup::Paint(HDC hdc) {
     const int set_idx = static_cast<int>(region_cursor++);
     const bool set_hover = (hovered_index_ == set_idx);
     Gdiplus::RectF set_rc = ToRectF(regions_[set_idx].rect);
-    FillRoundRect(g, set_rc, SF(17.0f), set_hover ? hover_bg : card_bg);
-    DrawRoundRect(g, set_rc, SF(17.0f), border_color, 1.0f);
+    FillRoundRect(g, set_rc, SF(6.0f), set_hover ? hover_bg : card_bg);
+    DrawRoundRect(g, set_rc, SF(6.0f), border_color, 1.0f);
     g.DrawString(kStrNavSettings, -1, &font_body, set_rc, &center_fmt,
                  &ink_brush);
 
     const int quit_idx = static_cast<int>(region_cursor++);
     const bool quit_hover = (hovered_index_ == quit_idx);
     Gdiplus::RectF quit_rc = ToRectF(regions_[quit_idx].rect);
-    FillRoundRect(g, quit_rc, SF(17.0f), quit_hover ? crimson : crimson_tint);
+    FillRoundRect(g, quit_rc, SF(6.0f), quit_hover ? danger_fill : danger_tint);
     g.DrawString(kStrQuit, -1, &font_body_bold, quit_rc, &center_fmt,
-                 quit_hover ? &on_primary_brush : &crimson_brush);
+                 quit_hover ? &on_danger_brush : &danger_brush);
   }
 
   Gdiplus::Graphics screen_g(hdc);

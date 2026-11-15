@@ -116,6 +116,14 @@ void FlutterWindow::SetupTrayPopupChannel() {
           if (const auto* args =
                   std::get_if<flutter::EncodableMap>(call.arguments())) {
             data.dark = GetBoolField(*args, "dark", false);
+            auto accent_it = args->find(flutter::EncodableValue("accentArgb"));
+            if (accent_it != args->end()) {
+              if (auto* v32 = std::get_if<int32_t>(&accent_it->second)) {
+                data.accent_argb = static_cast<uint32_t>(*v32);
+              } else if (auto* v64 = std::get_if<int64_t>(&accent_it->second)) {
+                data.accent_argb = static_cast<uint32_t>(*v64);
+              }
+            }
             data.version = Utf8ToWide(GetStringField(*args, "version"));
             data.running_title =
                 Utf8ToWide(GetStringField(*args, "runningTitle"));

@@ -5,6 +5,7 @@
 #include <flutter/method_channel.h>
 #include <windows.h>
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@ struct TrayRecentGame {
 
 struct TrayPopupData {
   bool dark = false;
+  uint32_t accent_argb = 0xFF0078D4u;
   std::wstring version;
   std::wstring running_title;
   std::vector<TrayRecentGame> recent_games;
