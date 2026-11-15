@@ -120,6 +120,20 @@ class SettingsStore {
   /// 游玩路径全局截图热键（如 'F12' / 'F11' / 'F9' / 'PrintScreen'）
   static const kScreenshotHotkey = 'play_path.hotkey';
 
+  /// 外观强调色来源：system（跟随 Windows）/ sakura / lavender / azure
+  static const kAccentPreset = 'appearance.accent_preset';
+
+  /// 窗口材质效果：mica / tabbed / acrylic / solid
+  static const kBackdropEffect = 'appearance.backdrop_effect';
+
+  Future<AccentPreset> accentPreset() async =>
+      AccentPreset.fromId(await getString(kAccentPreset, AccentPreset.system.id));
+
+  Future<BackdropEffectPref> backdropEffect() async =>
+      BackdropEffectPref.fromId(
+        await getString(kBackdropEffect, BackdropEffectPref.mica.id),
+      );
+
   Future<ThemeModePref> themeMode() async {
     final s = await getString(kThemeMode, 'system');
     return ThemeModePref.values.firstWhere((e) => e.id == s,
@@ -181,3 +195,37 @@ class AccountStore {
     }
   }
 }
+
+enum AccentPreset {
+  system('system', '跟随系统'),
+  sakura('sakura', '绯樱'),
+  lavender('lavender', '薰衣草'),
+  azure('azure', 'Win11 天蓝');
+
+  final String id;
+  final String label;
+  const AccentPreset(this.id, this.label);
+
+  static AccentPreset fromId(String raw) => AccentPreset.values.firstWhere(
+        (e) => e.id == raw,
+        orElse: () => AccentPreset.system,
+      );
+}
+
+enum BackdropEffectPref {
+  mica('mica', 'Mica 云母'),
+  tabbed('tabbed', 'Tabbed 透通云母'),
+  acrylic('acrylic', 'Acrylic 亚克力'),
+  solid('solid', '纯色底面');
+
+  final String id;
+  final String label;
+  const BackdropEffectPref(this.id, this.label);
+
+  static BackdropEffectPref fromId(String raw) =>
+      BackdropEffectPref.values.firstWhere(
+        (e) => e.id == raw,
+        orElse: () => BackdropEffectPref.mica,
+      );
+}
+

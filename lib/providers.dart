@@ -1,7 +1,10 @@
 /// Riverpod 状态：主题、Tab、游戏列表（筛选/排序/搜索）、统计。
 library;
 
+import 'dart:ui' show Color;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:system_theme/system_theme.dart';
 
 import 'app_services.dart';
 import 'core/constants.dart';
@@ -24,6 +27,46 @@ class ThemeController extends StateNotifier<ThemeModePref> {
 
 final themeProvider = StateNotifierProvider<ThemeController, ThemeModePref>(
     (ref) => ThemeController());
+
+class AccentPresetController extends StateNotifier<AccentPreset> {
+  AccentPresetController() : super(AccentPreset.system) {
+    AppServices.I.settings.accentPreset().then((p) {
+      if (mounted) state = p;
+    });
+  }
+
+  Future<void> set(AccentPreset preset) async {
+    state = preset;
+    await AppServices.I.settings.setString(SettingsStore.kAccentPreset, preset.id);
+  }
+}
+
+final accentPresetProvider =
+    StateNotifierProvider<AccentPresetController, AccentPreset>(
+        (ref) => AccentPresetController());
+
+class BackdropEffectController extends StateNotifier<BackdropEffectPref> {
+  BackdropEffectController() : super(BackdropEffectPref.mica) {
+    AppServices.I.settings.backdropEffect().then((e) {
+      if (mounted) state = e;
+    });
+  }
+
+  Future<void> set(BackdropEffectPref effect) async {
+    state = effect;
+    await AppServices.I.settings
+        .setString(SettingsStore.kBackdropEffect, effect.id);
+  }
+}
+
+final backdropEffectProvider =
+    StateNotifierProvider<BackdropEffectController, BackdropEffectPref>(
+        (ref) => BackdropEffectController());
+
+/// 最新 Windows 系统强调色（由 main.dart 启动时及 SystemTheme.onChange 刷新）。
+final systemAccentColorProvider = StateProvider<Color>(
+  (ref) => SystemTheme.accentColor.accent,
+);
 
 final tabIndexProvider = StateProvider<int>((ref) => Tabs.home);
 

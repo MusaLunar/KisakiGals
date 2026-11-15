@@ -24,7 +24,8 @@ class Tabs {
   static const stats = 3;
   static const ai = 4;
   static const settings = 5;
+  static const add = 6;
 
   /// 页面总数（越界防御/自检用）。
-  static const count = 6;
+  static const count = 7;
 }
