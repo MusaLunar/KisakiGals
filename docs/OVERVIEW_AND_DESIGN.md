@@ -1,8 +1,8 @@
-# KisakiGals 项目功能概述与配色设计规范
+# KisakiGals 项目功能概述与设计规范
 
-> **项目定位**：Windows 桌面端 Galgame（视觉小说）本地收藏、游玩时长追踪与多源百科探索管理器  
-> **当前版本**：`v1.1.0`  
-> **技术栈**：Flutter 3.x (Windows Desktop) + Riverpod + SQLite (FFI) + Win32 / GDI+ / DWM Native C++
+> **项目定位**：Windows 桌面端 Galgame（视觉小说）本地收藏、游玩时长追踪、插件扩展与多源百科探索管理器  
+> **当前版本**：`v1.2.0`  
+> **技术栈**：Flutter 3.x (Windows Desktop · Fluent 2 / `fluent_ui`) + Riverpod + SQLite (FFI) + Win32 / GDI+ / DWM Native C++
 
 ---
 
@@ -12,75 +12,35 @@
 
 | 模块 | 对应源码 | 核心能力说明 |
 | :--- | :--- | :--- |
-| **🏠 主页（仪表盘）** | [`lib/ui/home/home_page.dart`](../lib/ui/home/home_page.dart) | • **卷首主推卡**：展示最近游玩的作品封面、游玩进度并提供一键启动/继续<br>• **时长速览矩阵**：等宽展示本周、本月与累计总游玩时长<br>• **动态时间线 & 为你推荐**：按时间轴回溯游玩历史，并基于库存特征展示推荐作品 |
-| **📚 游戏库** | [`lib/ui/library/library_page.dart`](../lib/ui/library/library_page.dart)<br>[`lib/ui/library/game_card_actions.dart`](../lib/ui/library/game_card_actions.dart) | • **双视图切换**：支持 `2:3` 封面网格与 `88px` 紧凑列表视图平滑切换<br>• **M3 右键菜单**：鼠标右侧弹出自定义 M3 Expressive 菜单，含 2:3 迷你封面头、5 态胶囊切换及快速入口<br>• **多维筛选与批量管理**：支持关键词（含繁简折算）、排序、状态、标签与多选批量操作 |
-| **🎮 游戏详情、编辑与游玩路径** | [`lib/ui/detail/game_detail_page.dart`](../lib/ui/detail/game_detail_page.dart)<br>[`lib/ui/detail/edit_sheet.dart`](../lib/ui/detail/edit_sheet.dart) | • **双栏连贯版面**：左栏呈现 `2:3` 封面、作品档案表与跨平台评分源；右栏呈现主刊头、操作行、游玩时长账本、近 30 天轨迹图与**游玩路径时间线**<br>• **游玩路径与笔记**：游追踪期间按热键（默认 `F12`）自动截取游戏窗口并保存至本地，支持随时补充图文笔记或手动导入图片<br>• **全字段信息编辑**：支持多源封面与背景挑拣、启动与存档配置，配备脏检查与右侧悬浮定位窗（[`floating_anchor_nav.dart`](../lib/ui/widgets/floating_anchor_nav.dart)） |
-| **🧭 探索、资源与全景百科** | [`lib/ui/discover/discover_page.dart`](../lib/ui/discover/discover_page.dart)<br>[`lib/ui/discover/game_explore_page.dart`](../lib/ui/discover/game_explore_page.dart) | • **探索榜单**：聚合浏览 VNDB / Bangumi 热门与高分作品榜单，支持年份、评分、标签筛选与一键入库<br>• **多源资源检索**：并发聚合鲲Galgame、GAL图书馆、量子ACG、真红小站等发布页并按相关度排序<br>• **全景游戏百科**：提供 **7 大工作区 Tab**（`百科资料`、`媒体画廊`、`动画`、`音乐`、`漫画`、`轻小说`、`资源下载`），涵盖发行版本规格、角色与声优立绘、制作人员职能分组、关联作品图谱及 LightBox 高清 CG 预览 |
-| **📊 游玩统计** | [`lib/ui/stats/stats_page.dart`](../lib/ui/stats/stats_page.dart) | • 分为 **信息 / 评分 / 总结** 三大视图，提供时段分布、星期分布、月度热力图、评分分布墙与作品标签词云 |
-| **🤖 AI 助手** | [`lib/ui/ai/ai_page.dart`](../lib/ui/ai/ai_page.dart) | • 支持接入任意 OpenAI 兼容接口，结合本地真实游玩记录生成个性化品鉴总结与新作推荐 |
-| **➕ 添加游戏与多源刮削** | [`lib/ui/add/add_game_page.dart`](../lib/ui/add/add_game_page.dart)<br>[`lib/scraping/metadata_fetcher.dart`](../lib/scraping/metadata_fetcher.dart) | • 支持拖拽 `.exe` 或游戏文件夹直接入库，或通过关键词跨源搜索<br>• 并发整合 **9 大数据源**（Bangumi、VNDB、月幕GAL、Hikarinagi、Steam、KunGal、TouchGal、DLsite、CnGal），同一作品自动合并多源字段与内置 VNDB 中文标签 |
+| **🏠 主页（仪表盘）** | [`lib/ui/home/home_page.dart`](../lib/ui/home/home_page.dart) | • **Spotlight 主推横幅**：展示最近游玩的作品封面、游玩进度与快速启动入口<br>• **KPI 数据矩阵**：等宽数字展示本周、本月与累计总游玩时长及库统计<br>• **货架与推荐**：最近游玩 & 待玩清单水平货架、动态时间线及标签驱动的探索推荐 |
+| **📚 游戏库** | [`lib/ui/library/library_page.dart`](../lib/ui/library/library_page.dart)<br>[`lib/ui/library/game_actions.dart`](../lib/ui/library/game_actions.dart) | • **与标题栏搜索统一**：`KisakiTitleBar` 搜索框在游戏库页直接驱动实时筛选，消除重复输入框<br>• **双视图与统一工具栏**：支持网格 / 列表无缝切换、状态与收藏快捷胶囊、`CommandBar` 与可折叠 `256px` `FilterRail` 筛选栏<br>• **Fluent `MenuFlyout` 右键菜单 & 批量管理**：支持启动/停止会话、状态切换、收藏、编辑、评分、存档备份与批量修改 |
+| **🎮 游戏详情与游玩路径** | [`lib/ui/detail/game_detail_page.dart`](../lib/ui/detail/game_detail_page.dart)<br>[`lib/ui/detail/edit_dialog.dart`](../lib/ui/detail/edit_dialog.dart) | • **沉浸式双栏布局**：左栏呈现封面、档案与多平台评分；右栏呈现时长账本、30 天轨迹、**游玩路径截图时间线**与简介<br>• **「…」更多菜单与 LE 插件开关**：安装并启用 `locale-emulator` 插件后，直接在详情页「…」菜单中按单部作品切换转区启动开关<br>• **高内聚弹窗**：编辑信息、0.1 步进评分、多源封面挑拣与存档备份全部采用 Fluent 2 对话框体系 |
+| **🧭 探索与全景百科** | [`lib/ui/discover/discover_page.dart`](../lib/ui/discover/discover_page.dart)<br>[`lib/ui/discover/game_explore_page.dart`](../lib/ui/discover/game_explore_page.dart) | • **与游戏库统一的探索视图**：共享 `CommandBar`、网格/列表切换与 `256px` 筛选栏；聚合浏览 VNDB / Bangumi 榜单或全网关键词搜索<br>• **7 大工作台全景百科**：覆盖`百科资料`、`媒体画廊（LightBox）`、`动画`、`音乐`、`漫画`、`轻小说`、`下载`；其中「下载」Tab 顶部直接置顶**站点发布页检索**，紧接官方商城与外部站点链接 |
+| **➕ 入库（添加游戏）** | [`lib/ui/add/add_game_page.dart`](../lib/ui/add/add_game_page.dart) | • **统一单一入口**：左侧栏「入库」与游戏库「添加游戏」/ 拖拽导入直达同一 `Tabs.add` 页面，支持 `.exe`/`.lnk`/文件夹自动识别与多源并发刮削合併 |
+| **📊 统计 & 🤖 AI 助手** | [`lib/ui/stats/stats_page.dart`](../lib/ui/stats/stats_page.dart)<br>[`lib/ui/ai/ai_page.dart`](../lib/ui/ai/ai_page.dart) | • 时段分布、星期分布、高分墙与标签词云；OpenAI 兼容接口支持后台流式生成总结与推荐 |
+| **⚙️ 设置中心与插件** | [`lib/ui/settings/settings_page.dart`](../lib/ui/settings/settings_page.dart) | • 重组为 **7 大内聚分区**（外观与显示 / 游戏与启动 / 游戏库与网络 / 账号与云同步 / AI 服务 / 存储与备份 / 插件与关于），配备双向定位目录与搜索高亮 |
 
 ---
 
-### 2. 系统服务与桌面工程特性
+## 二、 系统服务与插件扩展特性
 
-- **⏱️ 毫秒级进程监控、热键截屏与时长统计**（[`lib/services/playtime_tracker.dart`](../lib/services/playtime_tracker.dart)、[`lib/services/window_capture.dart`](../lib/services/window_capture.dart)）：
-  - 基于 `dart:ffi` 调用 Win32 `CreateToolhelp32Snapshot` 与 `GetForegroundWindow`，支持**仅前台有效计时**或**全程挂机计时**双模式；
-  - 游戏追踪期间支持全局热键（`F12` / `F11` / `F9` / `PrintScreen`）通过 `PrintWindow` / `BitBlt` 直接截取游戏窗口并用 Isolate PNG 编码落盘至游玩路径；
-  - 标题栏与详情页实时显示本局时长；支持配置「游戏退出后主程序自动恢复前台并获取焦点」。
-- **🌐 转区启动与存档自动守护**（[`lib/services/game_launcher.dart`](../lib/services/game_launcher.dart)、[`lib/services/save_backup.dart`](../lib/services/save_backup.dart)）：
-  - 集成 **Locale Emulator (`LEProc.exe`)** 转区启动日文原版游戏；
-  - 自动探测常见 Galgame 引擎存档目录，游戏关闭后自动执行原子化存档备份与轮转，恢复存档前自动生成保护快照。
-- **🔑 鲲Gal (NextMoe) OAuth 2.0 + 云同步**（[`lib/services/kungal_oauth.dart`](../lib/services/kungal_oauth.dart)、[`lib/services/cloud_sync.dart`](../lib/services/cloud_sync.dart)）：
-  - 内置标准 **RFC 7636 PKCE (`S256`)** 授权流与令牌自动刷新；支持同步 Bangumi、VNDB、Hikarinagi 与 NextMoe 的收藏状态及短评评分。
-- **🖥️ C++ 原生自绘托盘交互弹窗**（[`windows/runner/tray_popup.cpp`](../windows/runner/tray_popup.cpp)、[`windows/runner/main.cpp`](../windows/runner/main.cpp)）：
-  - 摒弃传统 Windows 原生灰底菜单，使用 GDI+ / DWM 离屏双缓冲自绘无边框 Material Design 3 圆角卡片菜单；
-  - 实时展示当前运行会话，并列出**最近游玩的 2 部游戏**（带 2:3 封面缩略图与累计时长），支持在托盘菜单直接一键启动游戏；
-  - 内置 Win32 命名互斥量（`Local\KisakiGals_SingleInstance_Mutex`），杜绝后台多开并自动唤醒已有主窗口。
-- **📦 便携优先与跨设备自动重定位**（[`lib/services/device.dart`](../lib/services/device.dart)）：
-  - 所有数据库、封面缓存、游玩路径截图与存档备份均以相对路径保存在程序同级 `data/` 目录；换电脑或移动硬盘盘符变更后自动扫描库根重连游戏与媒体资源。
-- **🔄 GitHub 自动检查更新**（[`lib/services/update_checker.dart`](../lib/services/update_checker.dart)）：
-  - 支持语义化比对 GitHub Releases 最新版本，展示更新日志并一键跳转下载。
+- **🧩 开放插件系统与官方插件市场**（[`lib/services/plugin_system.dart`](../lib/services/plugin_system.dart)、[`docs/PLUGIN_DEVELOPMENT.md`](PLUGIN_DEVELOPMENT.md)）：
+  - 支持从官方聚合市场（[`plugins/index.json`](../plugins/index.json)）浏览与通过多 GitHub 镜像加速下载安装，或导入本地 `.zip` 插件包；严格校验 Manifest v1 Schema、权限白名单、SHA-256 校验和与 Zip Slip 路径安全。
+  - 原内置 Locale Emulator 功能独立为 [`locale-emulator`](../plugins/locale-emulator) 插件（致谢 [`xupefei/Locale-Emulator`](https://github.com/xupefei/Locale-Emulator)），由用户在插件配置中指定 `LEProc.exe` 路径与缺失回退策略。
+- **⏱️ 毫秒级进程监控与热键截屏**（[`lib/services/playtime_tracker.dart`](../lib/services/playtime_tracker.dart)、[`lib/services/window_capture.dart`](../lib/services/window_capture.dart)）：
+  - 支持仅前台有效计时或进程存活计时；游戏追踪期间按全局热键自动截取游戏窗口并在后台 Isolate PNG 编码落盘。
+- **🖥️ Fluent 2 原生托盘右键交互窗**（[`windows/runner/tray_popup.cpp`](../windows/runner/tray_popup.cpp)）：
+  - GDI+ + DWM 圆角与 `DWMSBT_TRANSIENTWINDOW` 亚克力质感自绘弹出菜单，排版与密度严格对齐应用内 `MenuFlyout`（`32px` 行高、`16px` Segoe Fluent 图标、最近游玩直启与安全退出）。
+- **🔑 鲲Gal OAuth 2.0 & 检查更新**（[`lib/services/kungal_oauth.dart`](../lib/services/kungal_oauth.dart)、[`lib/services/update_checker.dart`](../lib/services/update_checker.dart)）：
+  - 标准 RFC 7636 PKCE 授权与语义化版本在线检查更新。
 
 ---
 
-## 二、 配色与视觉设计规范
+## 三、 Fluent 2 视觉与性能规范
 
-KisakiGals 的视觉系统定义在 [`lib/ui/theme.dart`](../lib/ui/theme.dart) 与 [`lib/ui/design.dart`](../lib/ui/design.dart) 中，采用 **Material Design 3 Tonal Color System**，围绕三枚高辨识度核心色板 **`#DA839C`（M3 Rose 柔瑰粉）**、**`#D0C0F5`（M3 Lavender 熏衣紫）** 与 **`#EDABA0`（M3 Peach 暖桃珊瑚）** 构建，兼顾明暗双模式可读性与柔和表达感。
+视觉系统统一定义于 [`lib/ui/fluent/fluent_theme.dart`](../lib/ui/fluent/fluent_theme.dart) 与 [`lib/ui/fluent/fluent_surfaces.dart`](../lib/ui/fluent/fluent_surfaces.dart)：
 
-### 1. 基底与表面层级色板（M3 Tonal Surfaces）
-
-| 角色名称 | 代码 Token | 浅色模式 (Light) | 深色模式 (Dark) | 用途与场景 |
-| :--- | :--- | :--- | :--- | :--- |
-| **导航导览壳层** | `KisakiColors.paperSunken` / `nightBg` | `#F6F1F5` | `#151215` | 左侧导航栏（`AppSidebar`）与顶部标题栏底色 |
-| **主画布底色** | `KisakiColors.paper` / `pageSurface` | `#FFFBFD` | `#151215`（主区域 tonal 表面） | 主内容区画布背景 |
-| **卡片表面** | `KisakiColors.paperElevated` / `nightCard` | `#FFFFFF` | `#241F24` | 游戏卡片、统计卡、弹窗与右键菜单底色 |
-| **次级内嵌容器** | `KisakiColors.paperContainer` / `nightContainer` | `#F0E9EE` | `#2E282E` | 搜索输入框填充、未激活胶囊、次级信息槽 |
-| **正文与次级墨色** | `KisakiColors.ink` / `inkMedium` / `nightInk` | 正文 `#1F1A1D`<br>次要 `#554A50` | 正文 `#F5EDF2`<br>次要 `#CBBFC6` | 标题、正文与辅助信息排印 |
-
----
-
-### 2. Material Design 3 核心三色板（#DA839C / #D0C0F5 / #EDABA0）
-
-| 色彩角色 | 语义定位 | 代码 Token | 主色基准 | 浅/深模式高对比衍生 |
-| :--- | :--- | :--- | :--- | :--- |
-| **Primary · Rose（柔瑰粉）** | **主交互、选中态与品牌标识** | `KisakiColors.m3Rose` / `roseInk(dark)` | `#DA839C` | 浅色文本/图标 `#9C3E5C` (`m3RoseDeep`)；深色 `#DA839C` |
-| **Secondary · Lavender（熏衣紫）** | **实时计时、轨迹图表与次级容器** | `KisakiColors.m3Lavender` / `temporalInk(dark)` | `#D0C0F5` | 浅色文本/图标 `#6B53B8` (`m3LavenderDeep`)；深色 `#D0C0F5` |
-| **Tertiary · Peach（暖桃珊瑚）** | **星级评分、荣誉与渐变高光** | `KisakiColors.m3Peach` / `ratingInk(dark)` | `#EDABA0` | 浅色文本/图标 `#9E5142` (`m3PeachDeep`)；深色 `#EDABA0` |
-| **系统状态色** | **成功 / 警告 / 危险** | `success` / `warning` / `danger` | — | 成功 `#2A7B56`（深色 `#7AD6A8`）、警告 `#A85B37`、危险 `#C93B4B` |
-
----
-
-### 3. 几何圆角、投影与动效特征（`Radii`、`Elev` & `Motion`）
-
-定义于 [`lib/ui/design.dart`](../lib/ui/design.dart)：
-
-1. **M3 阶梯圆角（`Radii`）**：`xs = 6px`、`sm = 10px`、`md = 14px`、`lg = 16px`、`xl = 24px`、`xxl = 28px`、`full = 999px`（胶囊组件）。
-2. **`1px` 表面描边（`Elev.border`）**：浅色 `#142A1B23` / 深色 `#1AFFFFFF`；高对比度模式自动提升不透明度。
-3. **柔化层级阴影（`Elev`）**：
-   - **静置卡片 (`Elev.card`)**：`Offset(0, 3)`，`blurRadius: 10`；
-   - **悬停抬升 (`Elev.cardHover`)**：`Offset(0, 8), blur: 20` 叠加 `outline` 微光晕；
-   - **浮层菜单 (`Elev.overlay`)**：`Offset(0, 10)`，`blurRadius: 26`。
-4. **性能与动效协同**：
-   - 侧边栏页缘激活胶囊支持流畅插值切换，主页工作区采用 `Offstage` + `TickerMode` + `RepaintBoundary` 懒加载保活机制；
-   - 按压组件 `FluidPressable` 按需延迟分配 `AnimationController`，列表 `StaggeredFadeIn` 限制首屏错峰上限，在保持弹簧物理质感的同时降低空闲开销。
+1. **窗口材质与兼容性适配**：支持 `Mica`、`Acrylic`、`Tabbed` 与 `Solid`；在不支持特定 DWM 材质的系统上自动优雅回退并维持清晰描边与可读性。
+2. **强调色与语义色**：支持跟随 Windows 系统强调色，或切换预设色板（`azure` / `sakura` / `violet` / `peach`），并按明暗模式自动校验高对比度文本前景色（`accentInk` / `dangerInk` / `favoriteInk`）。
+3. **内置思源黑体排印**：全应用打包分发 **Source Han Sans CN（思源黑体）** Regular / Medium / Bold，搭配 `tabularFigures` 等宽数字，消除跨设备字体缺失导致的布局偏差。
+4. **低性能设备流畅模式**：可在「设置 → 外观与显示」开启性能优化模式，全局关闭复杂动效、亚克力半透明层叠与实时模糊背景，确保低功耗与集成显卡设备流畅运行。

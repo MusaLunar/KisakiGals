@@ -253,12 +253,12 @@ void main() {
   });
 
   group('GitHub 更新检测与 KunGal OAuth PKCE', () {
-    test('AppInfo.version 为 1.1.0 且版本号比较正确', () {
-      expect(AppInfo.version, '1.1.0');
-      expect(GithubUpdateChecker.compareVersions('v1.1.0', '1.1.0'), 0);
-      expect(GithubUpdateChecker.compareVersions('1.2.0', '1.1.0'), 1);
-      expect(GithubUpdateChecker.compareVersions('1.0.1', '1.1.0'), -1);
-      expect(GithubUpdateChecker.compareVersions('1.1.0', '1.1.0-beta.1'), 1);
+    test('AppInfo.version 为 1.2.0 且版本号比较正确', () {
+      expect(AppInfo.version, '1.2.0');
+      expect(GithubUpdateChecker.compareVersions('v1.2.0', '1.2.0'), 0);
+      expect(GithubUpdateChecker.compareVersions('1.3.0', '1.2.0'), 1);
+      expect(GithubUpdateChecker.compareVersions('1.1.0', '1.2.0'), -1);
+      expect(GithubUpdateChecker.compareVersions('1.2.0', '1.2.0-beta.1'), 1);
     });
 
     test('KunOAuthService PKCE S256 生成符合 RFC 7636', () {

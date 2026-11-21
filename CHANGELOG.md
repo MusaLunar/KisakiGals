@@ -1,5 +1,40 @@
 # 更新说明
 
+## 1.2.0
+
+> 对比版本：1.1.0 ｜ **Fluent 2 (Win11) 全面重构、开放插件系统与 LE 转区插件化、统一浏览体验与性能模式**
+
+1.2.0 版本完成了全面向 Windows 11 **Fluent 2** 设计语言的架构升级，内置思源黑体（Source Han Sans CN），推出支持插件市场与本地 `.zip` 导入的扩展机制，并将 Locale Emulator 转区启动抽离为可按作品开关的独立插件，同时对游戏库、探索、入库与系统托盘交互进行了全方位统一与性能优化。
+
+### 🌟 新特性（Features）
+
+- **Fluent 2 (Windows 11) 设计体系与思源黑体**：
+  - 全量迁移至 `fluent_ui` 与 `NavigationView` 外壳，侧栏标签清晰展示文字，底部常驻「入库」「设置」「R18 模糊切换」「明暗主题切换」。
+  - `KisakiTitleBar` 无边框标题栏支持 `Mica` / `Acrylic` / `Tabbed` / `Solid` 窗口材质及系统兼容性自动降级与系统强调色跟随。
+  - 全应用内置 **Source Han Sans CN（思源黑体）** Regular / Medium / Bold 字体，避免部分设备上缺字或回退字体导致主页排版异常。
+- **开放插件系统与官方插件市场（含 LE 转区插件）**：
+  - 支持两种安装方式：**内置插件市场在线安装**（支持 GitHub 直连、`ghfast.top`、`gh-proxy.com`、`jsDelivr CDN` 与智能优选镜像，带 SHA-256 哈希核验）以及 **本地 `.zip` 插件包导入**（Manifest v1 校验、权限白名单、防 Zip Slip 安全解压）。
+  - 将原内置的 **Locale Emulator (`LEProc.exe`)** 转区启动重构为可选官方插件 `locale-emulator`（致谢原项目 [`xupefei/Locale-Emulator`](https://github.com/xupefei/Locale-Emulator)），并在游戏详情页右上角 **「…」更多菜单** 中提供按单部作品独立切换的 LE 转区开关；插件源码、打包制品与索引清单已随仓库 [`plugins/`](plugins/index.json) 同步发布。
+  - 配套发布规范文档 [`docs/PLUGIN_DEVELOPMENT.md`](docs/PLUGIN_DEVELOPMENT.md)（AI 技术规范）与 [`docs/VIBE_CODING_PLUGIN_GUIDE.md`](docs/VIBE_CODING_PLUGIN_GUIDE.md)（人类 Vibe Coding 指南）。
+- **低性能 / 流畅模式（Performance Mode）**：
+  - 设置页「外观与显示」新增性能优化开关，开启后禁用高开销毛玻璃合成、透明动态模糊与过渡动画；同步优化图片解码尺寸缓存、渐变噪点复用与游戏库卡片重绘隔离，大幅降低低配设备卡顿。
+
+### 🎨 界面、布局与交互统一（UI & UX Unification）
+
+- **托盘右键 `MenuFlyout` 风格重构与退出修复**：
+  - 将 C++ 原生托盘弹窗 [`windows/runner/tray_popup.cpp`](windows/runner/tray_popup.cpp) 统一重构为与应用内游戏右键菜单一致的紧凑型 Fluent 2 `MenuFlyout`（224px 宽、`32px` 菜单行、`4px` 圆角悬浮反馈、`1px` 分割线与危险红字退出项），并修复鼠标释放捕获顺序导致点击「退出 KisakiGals」失效的问题。
+- **消除重复搜索栏并统一游戏库 / 探索体验**：
+  - 移除游戏库内部重复搜索栏，改为标题栏全局搜索框直接与游戏库实时筛选双向同步（支持 `Ctrl+F` / `Ctrl+K` 聚焦、`Esc` 清空、回车锁定筛选）。
+  - 游戏库页与探索页统一采用一致的 `ScaffoldPage` 头部、`CommandBar`、网格/列表分段开关、第二行无框控制条（游戏库提供快速状态/收藏胶囊与排序，探索页提供搜索与数据源/排序）、可逐条关闭的活动筛选胶囊与 `256px` 右侧筛选栏。
+- **探索与资源下载定位梳理**：
+  - 取消探索页独立的「资源检索」顶部切换分类，保留纯正的多源百科榜单与全网搜索体验；在单部作品全景百科页 **「下载」** Tab 中将 **「站点发布页检索」** 置顶于「官方商城与外部站点」之前。
+- **入库入口统一**：
+  - 将游戏库「添加游戏」按钮、拖拽 `.exe`/文件夹导入与左侧栏「入库」Tab 完全统一至同一个 `AddGamePage` 标签视图，并支持预填搜索词与本地路径自动识别。
+- **设置中心重组**：
+  - 将设置项梳理归并为 7 大内聚分区：外观与显示、游戏与启动、游戏库与网络、账号与云同步、AI 服务、存储与备份、插件与关于。
+
+---
+
 ## 1.1.0
 
 > 对比版本：1.0.1 ｜ **全景探索百科、原生定制托盘、鲲Gal OAuth 与交互动效升级**
