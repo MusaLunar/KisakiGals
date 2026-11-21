@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "locale-emulator",
+  "name": "Locale Emulator 转区启动",
+  "version": "1.0.0",
+  "author": "xupefei / KisakiGals",
+  "description": "基于 Locale Emulator (LEProc.exe) 的日文及非 Unicode 游戏转区启动插件；可在游戏详情界面「…」菜单内按作品开启转区开关",
+  "homepage": "https://github.com/xupefei/Locale-Emulator",
+  "repository": "https://github.com/xupefei/Locale-Emulator",
+  "license": "LGPL-3.0",
+  "minAppVersion": "1.1.0",
+  "entry": "main.js",
+  "packageType": "zip",
+  "category": "启动与转区",
+  "tags": [
+    "Locale Emulator",
+    "LE",
+    "转区",
+    "日文",
+    "LEProc"
+  ],
+  "permissions": [
+    "process.launch",
+    "settings.storage",
+    "library.read",
+    "notifications"
+  ],
+  "settings": [
+    {
+      "key": "le_path",
+      "label": "LEProc.exe 路径",
+      "type": "string",
+      "default": "",
+      "description": "指向 Locale Emulator 安装目录中的 LEProc.exe（原项目：https://github.com/xupefei/Locale-Emulator）"
+    },
+    {
+      "key": "fallback_normal",
+      "label": "路径缺失时回退普通启动",
+      "type": "bool",
+      "default": true,
+      "description": "未配置有效 LEProc.exe 时提示并回退普通启动"
+    }
+  ],
+  "hooks": [
+    {
+      "event": "onGameLaunch",
+      "action": "log",
+      "message": "通过 Locale Emulator (LEProc.exe) 转区启动游戏 #{gameId}"
+    }
+  ]
+}

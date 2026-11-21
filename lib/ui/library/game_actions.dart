@@ -1,16 +1,16 @@
 /// 游戏卡片、列表条目与主页货架共用的 Fluent 2 操作与右键 Flyout 菜单。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_services.dart';
 import '../../core/constants.dart';
 import '../../data/models.dart';
-import '../../data/settings_store.dart';
-import '../../main.dart' show minimizeToTray;
 import '../../providers.dart';
 import '../../scraping/scraped_game.dart';
 import '../../services/game_explore_service.dart';
@@ -25,9 +25,31 @@ import '../fluent/fluent_dialogs.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 
 export '../fluent/fluent_surfaces.dart'
     show ensureFluentScope, ensureFluentTheme;
+
+/// 让 Flyout 蒙层同时响应左键与右键点击关闭（符合 Windows 原生右键菜单体验）。
+class _AnyButtonBarrierRecognizer extends OneSequenceGestureRecognizer {
+  final VoidCallback onDismiss;
+  _AnyButtonBarrierRecognizer(this.onDismiss);
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    resolve(GestureDisposition.accepted);
+    onDismiss();
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {}
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {}
+
+  @override
+  String get debugDescription => 'anyButtonBarrier';
+}
 
 /// 若全局服务尚未初始化（例如独立 Widget 测试），安全返回 null。
 AppServices? tryAppServices() {
@@ -139,80 +161,22 @@ Future<void> stopActiveGameSession(WidgetRef ref) async {
   tryAppServices()?.tracker.stopTracking(saveSession: true);
   ref.read(trackingGameProvider.notifier).state = null;
   bumpLibrary(ref);
-}
-
-/// 使用 Locale Emulator 转区启动（不覆盖游戏原有的持久 localeMode 设置）。
-Future<void> launchGameWithLocaleEmulator(Game game, WidgetRef ref) async {
-  if (game.id == null) return;
-  if (game.useLocaleEmulator) {
-    await GameLaunchService.launchAndTrack(game, ref);
-    return;
-  }
-  final services = tryAppServices();
-  if (services == null) {
-    showNotice('服务尚未就绪，无法启动游戏', error: true);
-    return;
-  }
-  if (services.tracker.refreshAndCheckActive()) {
-    final runningId = services.tracker.trackedGameId;
-    if (runningId == game.id) {
-      showNotice('「${game.displayName}」已在运行中，无需重复启动', error: true);
-    } else {
-      final runningGame =
-          runningId != null ? await services.repo.getGame(runningId) : null;
-      final title = runningGame?.displayName ?? '其他游戏';
-      showNotice('「$title」正在后台运行，请先关闭当前游戏或结束会话后再启动', error: true);
-    }
-    return;
-  }
-  if (game.exePath.isEmpty || !File(game.exePath).existsSync()) {
-    showNotice('未找到游戏可执行文件，请先在「编辑信息」中设置', error: true);
-    return;
-  }
-
-  final lePath = await services.settings.getString(SettingsStore.kLePath, '');
-  if (lePath.isEmpty || !File(lePath).existsSync()) {
-    showNotice('未配置 Locale Emulator 路径，请在设置中指定 LEProc.exe', error: true);
-    return;
-  }
-
-  final result = await GameLauncher.launch(
-    game.exePath,
-    directory: game.directory,
-    localeEmulatorPath: lePath,
-  );
-  if (!result.ok) {
-    showNotice(result.message.isEmpty ? '启动失败' : result.message, error: true);
-    return;
-  }
-  if (result.message.isNotEmpty) showNotice(result.message);
-
-  final mode = await services.settings.trackingMode();
-  services.tracker.startTracking(
-    gameId: game.id!,
-    exePath: game.exePath,
-    directory: game.directory,
-    mode: mode,
-  );
-  ref.read(trackingGameProvider.notifier).state = game.id!;
-  await services.settings.setString('runtime.last_game', '${game.id}');
-
-  final after = await services.settings.getString(SettingsStore.kAfterLaunch, 'none');
-  if (after == 'minimize') {
-    await minimizeToTray();
-  }
-
-  if (game.playStatus == PlayStatus.wish) {
-    game.playStatus = PlayStatus.playing;
-    await services.repo.updateGame(game);
-  }
-  bumpLibrary(ref);
+  showNotice('已结束游玩会话并保存记录');
 }
 
 Future<void> toggleGameFavorite(WidgetRef ref, Game game) async {
-  game.isFavorite = !game.isFavorite;
-  await tryAppServices()?.repo.updateGame(game);
-  bumpLibrary(ref);
+  final prev = game.isFavorite;
+  game.isFavorite = !prev;
+  try {
+    await tryAppServices()?.repo.updateGame(game);
+    bumpLibrary(ref);
+    showNotice(game.isFavorite
+        ? '已收藏「${game.displayName}」'
+        : '已取消收藏「${game.displayName}」');
+  } catch (e) {
+    game.isFavorite = prev;
+    showNotice('更新收藏状态失败：$e', error: true);
+  }
 }
 
 Future<void> updateGamePlayStatus(
@@ -221,9 +185,16 @@ Future<void> updateGamePlayStatus(
   PlayStatus status,
 ) async {
   if (game.playStatus == status) return;
+  final prev = game.playStatus;
   game.playStatus = status;
-  await tryAppServices()?.repo.updateGame(game);
-  bumpLibrary(ref);
+  try {
+    await tryAppServices()?.repo.updateGame(game);
+    bumpLibrary(ref);
+    showNotice('已将「${game.displayName}」状态设为「${status.label}」');
+  } catch (e) {
+    game.playStatus = prev;
+    showNotice('更新游玩状态失败：$e', error: true);
+  }
 }
 
 /// 单条移出库二次确认。
@@ -244,9 +215,9 @@ Future<bool> confirmDeleteGame(
   if (game.id != null) {
     await tryAppServices()?.repo.deleteGame(game.id!);
   }
-  if (context.mounted) {
+  try {
     bumpLibrary(ref);
-  }
+  } catch (_) {}
   showNotice('已移出「${game.displayName}」');
   return true;
 }
@@ -276,16 +247,35 @@ Future<void> showGameMenuFlyout(
 }) {
   final theme = FluentTheme.maybeOf(context);
   final isDark = theme?.brightness == Brightness.dark;
-  final dangerColor =
-      isDark ? const Color(0xFFFF99A4) : const Color(0xFFD13438);
-  final favColor = isDark ? const Color(0xFFF47299) : const Color(0xFFC4315B);
+  final dangerColor = theme?.dangerInk ??
+      (isDark ? const Color(0xFFFF99A4) : const Color(0xFFC42B1C));
+  final favColor = theme?.favoriteInk ??
+      (isDark ? const Color(0xFFFF7AA2) : const Color(0xFFC4315B));
   final isRunning =
       game.id != null && ref.read(trackingGameProvider) == game.id;
+  final hasExe = game.exePath.trim().isNotEmpty;
+  final hasDir = game.directory.trim().isNotEmpty || hasExe;
+  final hasId = game.id != null;
 
-  return controller.showFlyout<void>(
+  void defer(VoidCallback action) {
+    Future.microtask(() {
+      if (context.mounted) action();
+    });
+  }
+
+  late final _AnyButtonBarrierRecognizer barrierRecognizer;
+  barrierRecognizer = _AnyButtonBarrierRecognizer(() {
+    if (controller.isOpen) {
+      controller.close<void>();
+    }
+  });
+
+  return controller
+      .showFlyout<void>(
     position: position,
     barrierDismissible: true,
     dismissWithEsc: true,
+    barrierRecognizer: barrierRecognizer,
     builder: (flyoutCtx) => ensureFluentTheme(
       flyoutCtx,
       MenuFlyout(
@@ -297,37 +287,41 @@ Future<void> showGameMenuFlyout(
                   : FluentIcons.play_16_regular,
               size: 16,
             ),
-            text: Text(isRunning ? '停止会话' : '启动游戏'),
-            onPressed: () {
-              if (isRunning) {
-                stopActiveGameSession(ref);
-              } else {
-                GameLaunchService.launchAndTrack(game, ref);
-              }
-            },
-          ),
-          MenuFlyoutItem(
-            leading: const Icon(FluentIcons.translate_16_regular, size: 16),
-            text: const Text('LE 转区启动'),
-            onPressed: () => launchGameWithLocaleEmulator(game, ref),
+            text: Text(
+              isRunning ? '停止会话' : '启动游戏',
+              style: isRunning || hasExe
+                  ? const TextStyle(fontWeight: FontWeight.w600)
+                  : null,
+            ),
+            onPressed: (!isRunning && !hasExe)
+                ? null
+                : () {
+                    if (isRunning) {
+                      stopActiveGameSession(ref);
+                    } else {
+                      GameLaunchService.launchAndTrack(game, ref);
+                    }
+                  },
           ),
           const MenuFlyoutSeparator(),
-          if (allowDetail && game.id != null)
+          if (allowDetail && hasId)
             MenuFlyoutItem(
               leading: const Icon(FluentIcons.open_16_regular, size: 16),
               text: const Text('查看详情'),
-              onPressed: () => openGameDetail(
-                context,
-                game.id!,
-                initial: game,
-                ref: ref,
+              onPressed: () => defer(
+                () => openGameDetail(
+                  context,
+                  game.id!,
+                  initial: game,
+                  ref: ref,
+                ),
               ),
             ),
           MenuFlyoutItem(
             leading:
                 const Icon(FluentIcons.compass_northwest_16_regular, size: 16),
             text: const Text('探索百科'),
-            onPressed: () => openGameExploreForGame(context, game),
+            onPressed: () => defer(() => openGameExploreForGame(context, game)),
           ),
           MenuFlyoutSubItem(
             leading: const Icon(FluentIcons.bookmark_16_regular, size: 16),
@@ -357,45 +351,53 @@ Future<void> showGameMenuFlyout(
           MenuFlyoutItem(
             leading: const Icon(FluentIcons.edit_16_regular, size: 16),
             text: const Text('编辑信息'),
-            onPressed: onEdit ??
-                (game.id == null
-                    ? null
-                    : () => showEditGameDialog(context, ref, game)),
+            onPressed: onEdit != null
+                ? () => defer(onEdit)
+                : (hasId
+                    ? () => defer(() => showEditGameDialog(context, ref, game))
+                    : null),
           ),
           MenuFlyoutItem(
             leading: const Icon(FluentIcons.star_16_regular, size: 16),
             text: const Text('评分'),
-            onPressed: onRate ??
-                (game.id == null
-                    ? null
-                    : () => showRateGameDialog(context, ref, game)),
+            onPressed: onRate != null
+                ? () => defer(onRate)
+                : (hasId
+                    ? () => defer(() => showRateGameDialog(context, ref, game))
+                    : null),
           ),
           MenuFlyoutItem(
             leading: const Icon(FluentIcons.archive_16_regular, size: 16),
             text: const Text('存档备份'),
-            onPressed: () => showSaveBackupDialog(context, ref, game),
+            onPressed: hasId
+                ? () => defer(() => showSaveBackupDialog(context, ref, game))
+                : null,
           ),
           MenuFlyoutItem(
             leading: const Icon(FluentIcons.folder_open_16_regular, size: 16),
             text: const Text('打开目录'),
-            onPressed: (game.directory.isEmpty && game.exePath.isEmpty)
-                ? null
-                : () => openGameDir(game),
+            onPressed: hasDir ? () => openGameDir(game) : null,
           ),
           const MenuFlyoutSeparator(),
           MenuFlyoutItem(
             leading: Icon(
               FluentIcons.delete_16_regular,
               size: 16,
-              color: dangerColor,
+              color: hasId ? dangerColor : null,
             ),
-            text: Text('移出库', style: TextStyle(color: dangerColor)),
-            onPressed: () => confirmDeleteGame(context, ref, game),
+            text: Text(
+              '移出库',
+              style: hasId ? TextStyle(color: dangerColor) : null,
+            ),
+            onPressed: hasId
+                ? () => defer(() => confirmDeleteGame(context, ref, game))
+                : null,
           ),
         ],
       ),
     ),
-  );
+  )
+      .whenComplete(barrierRecognizer.dispose);
 }
 
 /// [showGameMenuFlyout] 的便捷别名。

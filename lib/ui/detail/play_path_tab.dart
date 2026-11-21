@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -14,11 +15,10 @@ import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 
-/// Fluent 2 Play Path timeline tab allowing screenshot import, F12 hotkey
-/// hint display, note authoring, inline node editing, lightbox preview, and
-/// deletion confirmation.
+/// Fluent 2 游玩路径时间线分页：支持截图导入、热键提示、笔记撰写、行内编辑、灯箱预览与删除确认。
 class PlayPathTab extends ConsumerStatefulWidget {
   const PlayPathTab({
     super.key,
@@ -71,11 +71,14 @@ class _PlayPathTabState extends ConsumerState<PlayPathTab> {
     } catch (_) {}
   }
 
+  bool get _hotkeyDisabled =>
+      _hotkey.toLowerCase() == 'disabled' || _hotkey == '无';
+
   String _hotkeyBannerText() {
-    if (_hotkey.toLowerCase() == 'disabled' || _hotkey == '无') {
+    if (_hotkeyDisabled) {
       return '全局自动截屏快捷键已关闭，仍可手动导入截图与笔记';
     }
-    return '游戏中按 $_hotkey 自动截屏保存至此处';
+    return '游戏中按下自动截屏并将画面归档至下方时间线';
   }
 
   String _resolveNodeImage(PlayPathNode node) {
@@ -100,27 +103,28 @@ class _PlayPathTabState extends ConsumerState<PlayPathTab> {
     }
     if (picked == null || picked.isEmpty || !mounted) return null;
 
+    // 延迟到提交节点时再复制到应用目录，避免用户取消或切页留下孤儿文件。
+    setState(() => _pendingImage = picked);
+    return picked;
+  }
+
+  Future<String> _materializePendingImage(String rawPath) async {
     final services = tryAppServices();
     final gameId = widget.game.id;
-    var finalPath = picked;
-    if (services != null && gameId != null && widget.onAddNode == null) {
-      try {
-        final ext = p.extension(picked).isEmpty ? '.png' : p.extension(picked);
-        final dir = Directory(p.join(services.paths.playPath, '$gameId'));
-        if (!dir.existsSync()) dir.createSync(recursive: true);
-        final dest = p.join(
-          dir.path,
-          'playpath_${DateTime.now().millisecondsSinceEpoch}$ext',
-        );
-        await File(picked).copy(dest);
-        finalPath = services.paths.toStored(dest);
-      } catch (_) {}
+    if (services == null || gameId == null) return rawPath;
+    try {
+      final ext = p.extension(rawPath).isEmpty ? '.png' : p.extension(rawPath);
+      final dir = Directory(p.join(services.paths.playPath, '$gameId'));
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final dest = p.join(
+        dir.path,
+        'playpath_${DateTime.now().millisecondsSinceEpoch}$ext',
+      );
+      await File(rawPath).copy(dest);
+      return services.paths.toStored(dest);
+    } catch (_) {
+      return rawPath;
     }
-
-    if (mounted) {
-      setState(() => _pendingImage = finalPath);
-    }
-    return finalPath;
   }
 
   Future<void> _submitNode() async {
@@ -140,11 +144,13 @@ class _PlayPathTabState extends ConsumerState<PlayPathTab> {
       if (widget.onAddNode != null) {
         await widget.onAddNode!(note, img);
       } else {
+        final storedImg =
+            (img != null && img.isNotEmpty) ? await _materializePendingImage(img) : '';
         final services = tryAppServices();
         if (services != null && gameId != null) {
           await services.repo.addPlayPathNode(
             gameId: gameId,
-            imagePath: img ?? '',
+            imagePath: storedImg,
             note: note ?? '',
           );
         }
@@ -171,33 +177,54 @@ class _PlayPathTabState extends ConsumerState<PlayPathTab> {
 
   Future<void> _editNode(PlayPathNode node) async {
     final editCtrl = TextEditingController(text: node.note);
+    final hasImage = _resolveNodeImage(node).isNotEmpty;
     String? savedText;
     try {
       savedText = await showDialog<String>(
         context: context,
         barrierDismissible: true,
-        builder: (ctx) => ContentDialog(
-          constraints: const BoxConstraints(maxWidth: 460),
-          title: const Text('编辑游玩节点'),
-          content: InfoLabel(
-            label: '节点笔记',
-            child: TextBox(
-              controller: editCtrl,
-              minLines: 3,
-              maxLines: 6,
-              placeholder: '填写路线分支或通关备忘…',
+        builder: (ctx) => CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+              final text = editCtrl.text.trim();
+              if (!hasImage && text.isEmpty) {
+                showNotice('纯文本节点内容不能为空', error: true);
+                return;
+              }
+              Navigator.of(ctx).pop(editCtrl.text);
+            },
+          },
+          child: ContentDialog(
+            constraints: const BoxConstraints(maxWidth: 460),
+            title: const Text('编辑游玩节点'),
+            content: InfoLabel(
+              label: '节点笔记（Ctrl+Enter 保存）',
+              child: TextBox(
+                controller: editCtrl,
+                autofocus: true,
+                minLines: 3,
+                maxLines: 6,
+                placeholder: '填写路线分支或通关备忘…',
+              ),
             ),
+            actions: [
+              Button(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final text = editCtrl.text.trim();
+                  if (!hasImage && text.isEmpty) {
+                    showNotice('纯文本节点内容不能为空', error: true);
+                    return;
+                  }
+                  Navigator.of(ctx).pop(editCtrl.text);
+                },
+                child: const Text('保存'),
+              ),
+            ],
           ),
-          actions: [
-            Button(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(editCtrl.text),
-              child: const Text('保存'),
-            ),
-          ],
         ),
       );
     } finally {
@@ -271,7 +298,7 @@ class _PlayPathTabState extends ConsumerState<PlayPathTab> {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final res = theme.resources;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final accent = theme.accentInk;
     final disableAnim = fluentAnimationsDisabled(context);
     final gameId = widget.game.id;
 
@@ -299,107 +326,168 @@ class _PlayPathTabState extends ConsumerState<PlayPathTab> {
                   style: theme.typography.body?.copyWith(fontSize: 13),
                 ),
               ),
-              const FluentBadge(
-                text: '自动归档',
-                icon: FluentIcons.keyboard_16_regular,
-              ),
+              if (!_hotkeyDisabled) ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: theme.surfaceCard,
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: theme.surfaceStroke),
+                  ),
+                  child: Text(
+                    _hotkey,
+                    style: theme.typography.caption?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: accent,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const FluentBadge(
+                  text: '自动归档',
+                  icon: FluentIcons.keyboard_16_regular,
+                ),
+              ],
             ],
           ),
         ),
         const SizedBox(height: 12),
         FluentSurfaceCard(
           padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextBox(
-                controller: _noteCtrl,
-                placeholder: '记录当前路线分支、攻略线索或实时感想…',
-                minLines: 2,
-                maxLines: 4,
-              ),
-              if (_pendingImage != null && _pendingImage!.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: res.cardBackgroundFillColorDefault,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: res.cardStrokeColorDefault),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(FluentIcons.image_16_regular, size: 15),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          p.basename(_pendingImage!),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.caption,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          FluentIcons.dismiss_16_regular,
-                          size: 14,
-                        ),
-                        onPressed: () => setState(() => _pendingImage = null),
-                      ),
-                    ],
-                  ),
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.enter, control: true):
+                  _submitNode,
+            },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextBox(
+                  controller: _noteCtrl,
+                  placeholder: '记录当前路线分支、攻略线索或实时感想…（Ctrl+Enter 快速添加）',
+                  minLines: 2,
+                  maxLines: 4,
                 ),
-              ],
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Button(
-                    onPressed: _submitting ? null : _pickImage,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
+                if (_pendingImage != null && _pendingImage!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: res.cardBackgroundFillColorDefault,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: res.cardStrokeColorDefault),
+                    ),
+                    child: Row(
                       children: [
-                        Icon(FluentIcons.camera_16_regular, size: 15),
-                        SizedBox(width: 6),
-                        Text('导入截图'),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: Image.file(
+                            File(_pendingImage!),
+                            width: 48,
+                            height: 36,
+                            fit: BoxFit.cover,
+                            cacheWidth: 96,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              FluentIcons.image_16_regular,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            p.basename(_pendingImage!),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.caption,
+                          ),
+                        ),
+                        Tooltip(
+                          message: '移除待添加截图',
+                          child: IconButton(
+                            icon: const Icon(
+                              FluentIcons.dismiss_16_regular,
+                              size: 14,
+                            ),
+                            onPressed: () =>
+                                setState(() => _pendingImage = null),
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: _submitting ? null : _submitNode,
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: ProgressRing(strokeWidth: 2),
-                          )
-                        : const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(FluentIcons.add_16_regular, size: 15),
-                              SizedBox(width: 6),
-                              Text('添加节点'),
-                            ],
-                          ),
-                  ),
                 ],
-              ),
-            ],
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Button(
+                      onPressed: _submitting ? null : _pickImage,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(FluentIcons.camera_16_regular, size: 15),
+                          SizedBox(width: 6),
+                          Text('导入截图'),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _noteCtrl,
+                      builder: (context, noteVal, _) {
+                        final hasInput = noteVal.text.trim().isNotEmpty ||
+                            (_pendingImage != null &&
+                                _pendingImage!.isNotEmpty);
+                        return FilledButton(
+                          onPressed:
+                              (_submitting || !hasInput) ? null : _submitNode,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: _submitting
+                                ? const [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: ProgressRing(strokeWidth: 2),
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text('提交中…'),
+                                  ]
+                                : const [
+                                    Icon(FluentIcons.add_16_regular, size: 15),
+                                    SizedBox(width: 6),
+                                    Text('添加节点'),
+                                  ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 16),
         nodesAsync.when(
           loading: () => const Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
-            child: Center(child: ProgressRing()),
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: FluentCardSkeleton(height: 120),
           ),
-          error: (e, _) => FluentEmptyState(
-            icon: FluentIcons.timeline_24_regular,
+          error: (_, __) => FluentEmptyState(
+            icon: FluentIcons.error_circle_24_regular,
             title: '加载游玩路径失败',
-            message: e.toString(),
+            message: '读取本地节点记录时出错',
+            action: gameId == null
+                ? null
+                : Button(
+                    onPressed: () => ref.invalidate(playPathProvider(gameId)),
+                    child: const Text('重试'),
+                  ),
           ),
           data: (nodes) {
             if (nodes.isEmpty) {
@@ -450,52 +538,61 @@ class _TimelineNodeRow extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
+  bool get _imageReady {
+    if (resolvedImage.isEmpty) return false;
+    if (resolvedImage.startsWith('http://') ||
+        resolvedImage.startsWith('https://')) {
+      return true;
+    }
+    return File(resolvedImage).existsSync();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final res = theme.resources;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final accent = theme.accentInk;
     final hasImage = resolvedImage.isNotEmpty;
+    final canPreview = _imageReady;
     final hasNote = node.note.trim().isNotEmpty;
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              width: 24,
-              child: Column(
-                children: [
-                  const SizedBox(height: 16),
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isFirst
-                          ? accent
-                          : res.cardBackgroundFillColorDefault,
-                      border: Border.all(
-                        color: isFirst ? accent : theme.inactiveColor,
-                        width: 2,
-                      ),
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 24,
+            child: Column(
+              children: [
+                const SizedBox(height: 18),
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color:
+                        isFirst ? accent : res.cardBackgroundFillColorDefault,
+                    border: Border.all(
+                      color: isFirst ? accent : theme.textTertiary,
+                      width: 2,
                     ),
                   ),
-                  if (!isLast)
-                    Expanded(
-                      child: Container(
-                        width: 1.5,
-                        margin: const EdgeInsets.only(top: 6),
-                        color: res.cardStrokeColorDefault,
-                      ),
+                ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 1.5,
+                      margin: const EdgeInsets.only(top: 6),
+                      color: res.cardStrokeColorDefault,
                     ),
-                ],
-              ),
+                  ),
+              ],
             ),
-            const SizedBox(width: 10),
-            Expanded(
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
               child: FluentSurfaceCard(
                 padding: const EdgeInsets.all(14),
                 child: Column(
@@ -506,13 +603,13 @@ class _TimelineNodeRow extends StatelessWidget {
                         Icon(
                           FluentIcons.clock_16_regular,
                           size: 13,
-                          color: theme.inactiveColor,
+                          color: theme.textSecondary,
                         ),
                         const SizedBox(width: 6),
                         Text(
                           fmtDateTime(node.createdAt),
                           style: theme.typography.caption?.copyWith(
-                            color: theme.inactiveColor,
+                            color: theme.textSecondary,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
@@ -524,49 +621,77 @@ class _TimelineNodeRow extends StatelessWidget {
                           ),
                         ],
                         const Spacer(),
-                        IconButton(
-                          key: ValueKey('playpath-edit-${node.id}'),
-                          icon: const Icon(
-                            FluentIcons.edit_16_regular,
-                            size: 14,
+                        Tooltip(
+                          message: '编辑节点笔记',
+                          child: IconButton(
+                            key: ValueKey('playpath-edit-${node.id}'),
+                            icon: const Icon(
+                              FluentIcons.edit_16_regular,
+                              size: 14,
+                            ),
+                            onPressed: onEdit,
                           ),
-                          onPressed: onEdit,
                         ),
-                        IconButton(
-                          key: ValueKey('playpath-delete-${node.id}'),
-                          icon: Icon(
-                            FluentIcons.delete_16_regular,
-                            size: 14,
-                            color: Colors.red,
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: '删除此节点',
+                          child: IconButton(
+                            key: ValueKey('playpath-delete-${node.id}'),
+                            icon: Icon(
+                              FluentIcons.delete_16_regular,
+                              size: 14,
+                              color: theme.dangerInk,
+                            ),
+                            onPressed: onDelete,
                           ),
-                          onPressed: onDelete,
                         ),
                       ],
                     ),
                     if (hasImage) ...[
                       const SizedBox(height: 10),
-                      GestureDetector(
-                        key: ValueKey('playpath-thumb-${node.id}'),
-                        onTap: () => showFluentLightboxDialog(
-                          context,
-                          pathOrUrl: resolvedImage,
-                          title: gameTitle,
-                          caption: node.note,
-                        ),
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: _PlayPathThumbImage(
-                              resolvedImage: resolvedImage,
-                            ),
-                          ),
-                        ),
-                      ),
+                      canPreview
+                          ? Tooltip(
+                              message: '点击查看大图',
+                              child: Semantics(
+                                button: true,
+                                label: '查看游玩截图大图',
+                                child: HoverButton(
+                                  key: ValueKey('playpath-thumb-${node.id}'),
+                                  cursor: SystemMouseCursors.click,
+                                  onPressed: () => showFluentLightboxDialog(
+                                    context,
+                                    pathOrUrl: resolvedImage,
+                                    title: gameTitle,
+                                    caption: node.note,
+                                  ),
+                                  builder: (context, states) => FocusBorder(
+                                    focused: states.isFocused,
+                                    renderOutside: false,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: states.isHovered
+                                              ? accent.withValues(alpha: 0.7)
+                                              : Colors.transparent,
+                                        ),
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: _PlayPathThumbImage(
+                                          resolvedImage: resolvedImage,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : _PlayPathThumbImage(resolvedImage: resolvedImage),
                     ],
                     if (hasNote) ...[
                       SizedBox(height: hasImage ? 10 : 8),
-                      Text(
+                      SelectableText(
                         node.note,
                         style: theme.typography.body?.copyWith(height: 1.5),
                       ),
@@ -575,8 +700,8 @@ class _TimelineNodeRow extends StatelessWidget {
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -617,11 +742,11 @@ class _PlayPathThumbImage extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(FluentIcons.image_24_regular, color: theme.inactiveColor),
+            Icon(FluentIcons.image_24_regular, color: theme.textTertiary),
             const SizedBox(width: 8),
             Text(
               '截图文件未找到',
-              style: TextStyle(color: theme.inactiveColor, fontSize: 12),
+              style: TextStyle(color: theme.textSecondary, fontSize: 12),
             ),
           ],
         ),
@@ -632,12 +757,13 @@ class _PlayPathThumbImage extends StatelessWidget {
       width: 280,
       height: 160,
       fit: BoxFit.cover,
+      cacheWidth: 560,
       errorBuilder: (_, __, ___) => Container(
         width: 280,
         height: 120,
         alignment: Alignment.center,
         color: res.cardBackgroundFillColorDefault,
-        child: Icon(FluentIcons.image_24_regular, color: theme.inactiveColor),
+        child: Icon(FluentIcons.image_24_regular, color: theme.textTertiary),
       ),
     );
   }

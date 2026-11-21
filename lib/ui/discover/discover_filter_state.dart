@@ -92,7 +92,7 @@ class DiscoverFilter {
   final int? yearFrom;
   final int? yearTo;
 
-  /// 是否只看非 R18（默认 true：默认不显示 R18）。
+  /// 是否只看非 R18（默认 false：默认包含 R18，开启后仅显示全年龄）。
   final bool onlySfw;
 
   /// VNDB 标签 id 列表（默认空）。多标签之间是「与」关系，
@@ -121,13 +121,13 @@ class DiscoverFilter {
   /// 是否有生效的筛选条件。
   ///
   /// 来源与排序算「浏览方式」而不是筛选（它们始终体现在 [summary] 里），
-  /// 因此这里只看评分/年份/标签/R18 四项——决定页面上「已筛选」标记亮不亮。
+  /// 因此这里只看评分/年份/标签/全年龄四项——决定页面上「已筛选」标记亮不亮。
   /// 关键词也不算（它有自己的徽标与清除入口，页面上单独显示）。
   bool get hasActiveFilters =>
       minRating > 0 ||
       yearFrom != null ||
       yearTo != null ||
-      !onlySfw ||
+      onlySfw ||
       tagIds.isNotEmpty;
 
   /// 是否处于关键词搜索（而不是榜单浏览）。
@@ -147,7 +147,7 @@ class DiscoverFilter {
           ? '标签：${DiscoverTags.label(tagIds.first)}'
           : '标签 ×${tagIds.length}');
     }
-    if (!onlySfw) parts.add('含 R18');
+    if (onlySfw) parts.add('仅全年龄');
     if (parts.length == 1) parts.add('未筛选');
     return parts.join(' · ');
   }
@@ -229,7 +229,7 @@ class DiscoverFilter {
   /// 「框里是 A、列表是榜单」的错位。清关键词有它自己的入口（搜索框的
   /// 清空按钮、关键词徽标）。
   DiscoverFilter cleared() => DiscoverFilter(
-      source: source, sort: sort, onlySfw: true, keyword: keyword);
+      source: source, sort: sort, onlySfw: false, keyword: keyword);
 
   /// 清空关键词，回到榜单浏览（其余条件保持）。
   DiscoverFilter browse() => copyWith(keyword: '');
@@ -268,14 +268,4 @@ class DiscoverFilter {
   /// 8.0 → "8"，8.5 → "8.5"（评分摘要不要出现无意义的小数位）。
   static String _trim(double v) =>
       v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
-}
-
-/// 探索页顶栏视图模式。
-enum DiscoverMode {
-  aggregate('发现聚合', '多源榜单浏览与作品百科搜索'),
-  resource('资源检索', '全网资源站流式检索与站点发布页外链');
-
-  final String label;
-  final String description;
-  const DiscoverMode(this.label, this.description);
 }

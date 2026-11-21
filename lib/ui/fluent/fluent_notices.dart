@@ -10,7 +10,14 @@ class AppNotice {
   final int id;
   final String message;
   final bool error;
-  const AppNotice({required this.id, required this.message, this.error = false});
+  final InfoBarSeverity severity;
+  const AppNotice({
+    required this.id,
+    required this.message,
+    this.error = false,
+    InfoBarSeverity? severity,
+  }) : severity =
+            severity ?? (error ? InfoBarSeverity.error : InfoBarSeverity.info);
 }
 
 class NoticeCenter extends ChangeNotifier {
@@ -23,9 +30,22 @@ class NoticeCenter extends ChangeNotifier {
 
   List<AppNotice> get items => List.unmodifiable(_items);
 
-  void show(String message, {bool error = false, Duration? duration}) {
+  void show(
+    String message, {
+    bool error = false,
+    InfoBarSeverity? severity,
+    Duration? duration,
+  }) {
     final id = _nextId++;
-    _items.add(AppNotice(id: id, message: message, error: error));
+    final effectiveError = error || severity == InfoBarSeverity.error;
+    _items.add(
+      AppNotice(
+        id: id,
+        message: message,
+        error: effectiveError,
+        severity: severity,
+      ),
+    );
     while (_items.length > 3) {
       final oldest = _items.first;
       _timers.remove(oldest.id)?.cancel();
@@ -55,8 +75,18 @@ class NoticeCenter extends ChangeNotifier {
   }
 }
 
-void showNotice(String message, {bool error = false, Duration? duration}) =>
-    NoticeCenter.instance.show(message, error: error, duration: duration);
+void showNotice(
+  String message, {
+  bool error = false,
+  InfoBarSeverity? severity,
+  Duration? duration,
+}) =>
+    NoticeCenter.instance.show(
+      message,
+      error: error,
+      severity: severity,
+      duration: duration,
+    );
 
 class FluentNoticeHost extends StatelessWidget {
   const FluentNoticeHost({super.key});
@@ -106,7 +136,7 @@ class _NoticeOverlayLayerState extends State<_NoticeOverlayLayer> {
       alignment: Alignment.topRight,
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.only(top: 54, right: 16),
+          padding: const EdgeInsets.only(top: 56, right: 16),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 400),
             child: Column(
@@ -139,12 +169,32 @@ class _NoticeInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bar = InfoBar(
-      title: Text(notice.error ? '操作提示' : '通知'),
-      content: Text(notice.message),
-      severity: notice.error ? InfoBarSeverity.error : InfoBarSeverity.info,
-      isLong: notice.message.length > 34,
-      onClose: () => NoticeCenter.instance.dismiss(notice.id),
+    final isDark = FluentTheme.of(context).brightness == Brightness.dark;
+    final titleText = switch (notice.severity) {
+      InfoBarSeverity.error => '操作错误',
+      InfoBarSeverity.warning => '注意',
+      InfoBarSeverity.success => '已完成',
+      InfoBarSeverity.info => '通知',
+    };
+
+    final bar = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.36 : 0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: InfoBar(
+        title: Text(titleText),
+        content: Text(notice.message),
+        severity: notice.severity,
+        isLong: notice.message.length > 34,
+        onClose: () => NoticeCenter.instance.dismiss(notice.id),
+      ),
     );
     if (disableAnim) return bar;
     return bar

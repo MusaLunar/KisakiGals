@@ -27,6 +27,7 @@ class FlutterWindow : public Win32Window {
 
  private:
   void SetupTrayPopupChannel();
+  void SetupWindowEnvChannel();
 
   // The project to run.
   flutter::DartProject project_;
@@ -36,6 +37,8 @@ class FlutterWindow : public Win32Window {
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       tray_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      env_channel_;
   std::unique_ptr<KisakiTrayPopup> tray_popup_;
 };
 

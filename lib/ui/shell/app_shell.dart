@@ -1,4 +1,4 @@
-/// 应用外壳：Fluent 2 NavigationView + TitleBar（全局搜索与运行中徽章）+ 保活标签栈.
+/// 应用外壳：Fluent 2 NavigationView + 扩展 SearchBox TitleBar + 保活标签栈.
 library;
 
 import 'dart:async';
@@ -8,7 +8,6 @@ import 'dart:ui' show ImageByteFormat;
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -23,9 +22,11 @@ import '../add/add_game_page.dart';
 import '../ai/ai_page.dart';
 import '../detail/game_detail_page.dart';
 import '../discover/discover_page.dart';
+import '../fluent/fluent_chrome.dart';
 import '../fluent/fluent_icons.dart';
-import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_notices.dart';
+import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../home/home_page.dart';
 import '../library/game_actions.dart';
 import '../library/library_page.dart';
@@ -68,6 +69,8 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   StreamSubscription<PlaySessionEnd>? _sessionSub;
   StreamSubscription<PlayPathCaptureEvent>? _captureSub;
   final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  Timer? _libSearchTimer;
   bool _isMaximized = false;
 
   @override
@@ -164,11 +167,41 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   }
 
   bool _onKey(KeyEvent e) {
-    if (e is KeyDownEvent &&
-        e.logicalKey == LogicalKeyboardKey.f10 &&
-        shotBoundaryKey.currentContext != null) {
-      _capture();
-      return true;
+    if (e is KeyDownEvent) {
+      if (e.logicalKey == LogicalKeyboardKey.f10 &&
+          shotBoundaryKey.currentContext != null) {
+        _capture();
+        return true;
+      }
+      final isFocusSearchKey = e.logicalKey == LogicalKeyboardKey.keyK ||
+          (e.logicalKey == LogicalKeyboardKey.keyF &&
+              ref.read(tabIndexProvider) == Tabs.library);
+      if (isFocusSearchKey &&
+          HardwareKeyboard.instance.isControlPressed &&
+          _searchFocusNode.canRequestFocus) {
+        _searchFocusNode.requestFocus();
+        if (_searchCtrl.text.isNotEmpty) {
+          _searchCtrl.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: _searchCtrl.text.length,
+          );
+        }
+        return true;
+      }
+      if (e.logicalKey == LogicalKeyboardKey.escape &&
+          _searchFocusNode.hasFocus) {
+        if (_searchCtrl.text.isNotEmpty) {
+          _searchCtrl.clear();
+          if (ref.read(tabIndexProvider) == Tabs.library) {
+            _libSearchTimer?.cancel();
+            ref.read(libraryFilterProvider).query = '';
+            ref.read(libraryVersionProvider.notifier).state++;
+          }
+          return true;
+        }
+        _searchFocusNode.unfocus();
+        return true;
+      }
     }
     return false;
   }
@@ -198,9 +231,11 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       windowManager.removeListener(this);
     }
     HardwareKeyboard.instance.removeHandler(_onKey);
+    _libSearchTimer?.cancel();
     _sessionSub?.cancel();
     _captureSub?.cancel();
     _searchCtrl.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -265,12 +300,76 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       ),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _searchCtrl.clear();
+      if (!mounted) return;
+      if (ref.read(tabIndexProvider) == Tabs.library) {
+        _syncSearchCtrlText(ref.read(libraryFilterProvider).query);
+      } else {
+        _searchCtrl.clear();
+      }
     });
+  }
+
+  void _syncSearchCtrlText(String target) {
+    if (_searchCtrl.value.composing.isValid || _searchCtrl.text == target) {
+      return;
+    }
+    _searchCtrl.value = TextEditingValue(
+      text: target,
+      selection: TextSelection.collapsed(offset: target.length),
+    );
+  }
+
+  void _handleTitleSearchChanged(String text, TextChangedReason reason) {
+    if (ref.read(tabIndexProvider) != Tabs.library) return;
+    if (reason == TextChangedReason.suggestionChosen) return;
+    final trimmed = text.trim();
+    final filter = ref.read(libraryFilterProvider);
+    if (filter.query == trimmed) return;
+    filter.query = trimmed;
+    _libSearchTimer?.cancel();
+    if (trimmed.isEmpty || reason == TextChangedReason.cleared) {
+      ref.read(libraryVersionProvider.notifier).state++;
+    } else {
+      _libSearchTimer = Timer(const Duration(milliseconds: 180), () {
+        if (mounted) ref.read(libraryVersionProvider.notifier).state++;
+      });
+    }
+  }
+
+  void _jumpToLibraryQuery(String query) {
+    final q = query.trim();
+    final onLibrary = ref.read(tabIndexProvider) == Tabs.library;
+    if (!onLibrary && q.isEmpty) return;
+    _libSearchTimer?.cancel();
+    ref.read(libraryFilterProvider).query = q;
+    ref.read(libraryVersionProvider.notifier).state++;
+    if (!onLibrary) {
+      ref.read(tabIndexProvider.notifier).state = Tabs.library;
+      _syncSearchCtrlText(q);
+    }
+    _searchFocusNode.unfocus();
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(tabIndexProvider, (prev, next) {
+      if (next == Tabs.library) {
+        _syncSearchCtrlText(ref.read(libraryFilterProvider).query);
+      } else if (prev == Tabs.library) {
+        _libSearchTimer?.cancel();
+        _syncSearchCtrlText('');
+      }
+    });
+    ref.listen<int>(libraryVersionProvider, (_, __) {
+      if (ref.read(tabIndexProvider) != Tabs.library) return;
+      final q = ref.read(libraryFilterProvider).query;
+      if (q.isEmpty && _searchCtrl.text.isNotEmpty) {
+        _syncSearchCtrlText('');
+      } else if (!_searchFocusNode.hasFocus && _searchCtrl.text.trim() != q) {
+        _syncSearchCtrlText(q);
+      }
+    });
+
     final tab = ref.watch(tabIndexProvider);
     final nsfwMode = ref.watch(nsfwModeProvider);
     final isBlurred = nsfwMode == 'blur';
@@ -281,22 +380,27 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       ThemeModePref.system =>
         FluentTheme.of(context).brightness == Brightness.dark,
     };
-    final games = ref.watch(gamesProvider).valueOrNull ?? const <Game>[];
+    final games = ref.watch(allGamesProvider).valueOrNull ??
+        ref.watch(gamesProvider).valueOrNull ??
+        const <Game>[];
     final trackingId = ref.watch(trackingGameProvider);
     final canPop = Navigator.maybeOf(context)?.canPop() ?? false;
     final fluent = FluentTheme.of(context);
 
     return NavigationView(
-      titleBar: TitleBar(
-        isBackButtonVisible: true,
+      titleBar: KisakiTitleBar(
         backButton: canPop
-            ? IconButton(
-                icon: const Icon(FluentIcons.arrow_left_16_regular, size: 16),
-                onPressed: () => Navigator.maybeOf(context)?.maybePop(),
+            ? Tooltip(
+                message: '返回上一页',
+                child: IconButton(
+                  icon:
+                      const Icon(FluentIcons.arrow_left_16_regular, size: 16),
+                  onPressed: () => Navigator.maybeOf(context)?.maybePop(),
+                ),
               )
             : Padding(
                 padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
-                child: _KisakiEmblem(accent: fluent.accentColor),
+                child: _KisakiEmblem(accent: fluent.accentInk),
               ),
         title: DragToMoveArea(
           child: Text(
@@ -305,27 +409,33 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
           ),
         ),
         content: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: _GameQuickSearchBox(
-              controller: _searchCtrl,
-              games: games,
-              onSelected: _openGameDetail,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 180, maxWidth: 460),
+              child: _GameQuickSearchBox(
+                controller: _searchCtrl,
+                focusNode: _searchFocusNode,
+                games: games,
+                isLibraryActive: tab == Tabs.library,
+                onChanged: _handleTitleSearchChanged,
+                onSelected: _openGameDetail,
+                onFallbackSubmit: _jumpToLibraryQuery,
+              ),
             ),
           ),
         ),
         endHeader: trackingId != null
-            ? Flexible(
-                child: _ActiveTrackingPill(
-                  gameId: trackingId,
-                  games: games,
-                ),
+            ? _ActiveTrackingPill(
+                gameId: trackingId,
+                games: games,
               )
             : null,
-        captionControls: _WindowCaptionButtons(
+        captionControls: WindowCaptionButtons(
           enabled: widget.enableWindowHooks,
           isMaximized: _isMaximized,
           onToggleMaximize: _toggleMaximize,
+          height: 48,
         ),
         onDragStarted:
             widget.enableWindowHooks ? windowManager.startDragging : null,
@@ -333,7 +443,8 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       ),
       pane: NavigationPane(
         displayMode: PaneDisplayMode.auto,
-        size: const NavigationPaneSize(openWidth: 210),
+        size: const NavigationPaneSize(openWidth: 236),
+        expandedModeThresholdWidth: 920,
         selected: AppShell.tabToPaneIndex(tab),
         onChanged: (paneIndex) {
           ref.read(tabIndexProvider.notifier).state =
@@ -451,6 +562,94 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   }
 }
 
+/// Windows 11 原生比例 TitleBar：保证居中搜索栏拥有 360–460px 的充足空间，
+/// 避免默认 `TitleBar` 均分三栏把搜索栏压扁。
+class KisakiTitleBar extends TitleBar {
+  const KisakiTitleBar({
+    super.key,
+    super.backButton,
+    super.title,
+    super.content,
+    super.endHeader,
+    super.captionControls,
+    super.onDragStarted,
+    super.onDoubleTap,
+  }) : super(height: 48, isBackButtonVisible: true);
+
+  @override
+  Widget build(BuildContext context) {
+    assert(debugCheckHasFluentTheme(context));
+    final theme = FluentTheme.of(context);
+    final view = NavigationView.dataOf(context);
+    final isPaneToggleButtonVisible =
+        view.toggleButtonPosition == PaneToggleButtonPosition.titleBar;
+
+    return SafeArea(
+      bottom: false,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onPanStart: (_) => onDragStarted?.call(),
+        onDoubleTap: onDoubleTap,
+        child: SizedBox(
+          height: 48 + MediaQuery.of(context).padding.top,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 2,
+                child: Row(
+                  children: [
+                    if (backButton != null) backButton!,
+                    if (isPaneToggleButtonVisible &&
+                        view.pane?.toggleButton != null)
+                      view.pane!.toggleButton!,
+                    if (title != null)
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsetsDirectional.only(
+                            start: 4,
+                            end: 8,
+                          ),
+                          child: DefaultTextStyle.merge(
+                            style: theme.typography.bodyStrong?.copyWith(
+                              color: theme.textPrimary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            child: title!,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (content != null)
+                Expanded(
+                  flex: 4,
+                  child: content!,
+                ),
+              Expanded(
+                flex: 3,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    const SizedBox(width: 8),
+                    if (endHeader != null) Flexible(child: endHeader!),
+                    if (captionControls != null) ...[
+                      if (endHeader != null) const SizedBox(width: 6),
+                      captionControls!,
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _KisakiEmblem extends StatelessWidget {
   final Color accent;
   const _KisakiEmblem({required this.accent});
@@ -474,50 +673,304 @@ class _KisakiEmblem extends StatelessWidget {
   }
 }
 
-class _GameQuickSearchBox extends StatelessWidget {
+class _GameQuickSearchBox extends StatefulWidget {
   final TextEditingController controller;
+  final FocusNode focusNode;
   final List<Game> games;
+  final bool isLibraryActive;
+  final void Function(String text, TextChangedReason reason)? onChanged;
   final ValueChanged<Game> onSelected;
+  final ValueChanged<String> onFallbackSubmit;
 
   const _GameQuickSearchBox({
     required this.controller,
+    required this.focusNode,
     required this.games,
+    this.isLibraryActive = false,
+    this.onChanged,
     required this.onSelected,
+    required this.onFallbackSubmit,
   });
 
   @override
+  State<_GameQuickSearchBox> createState() => _GameQuickSearchBoxState();
+}
+
+class _GameQuickSearchBoxState extends State<_GameQuickSearchBox> {
+  bool _selectedViaSuggestion = false;
+
+  static bool _matches(Game g, String q) {
+    return g.displayName.toLowerCase().contains(q) ||
+        g.name.toLowerCase().contains(q) ||
+        g.nameCn.toLowerCase().contains(q) ||
+        g.developer.toLowerCase().contains(q) ||
+        g.aliases.any((a) => a.toLowerCase().contains(q));
+  }
+
+  List<Game> _filterGames(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return const [];
+    return widget.games.where((g) => _matches(g, q)).take(20).toList();
+  }
+
+  void _handleEnterFallback() {
+    _selectedViaSuggestion = false;
+    Future.microtask(() {
+      if (!mounted || _selectedViaSuggestion) return;
+      final raw = widget.controller.text.trim();
+      if (widget.isLibraryActive) {
+        widget.onFallbackSubmit(raw);
+        return;
+      }
+      if (raw.isEmpty) return;
+      final hits = _filterGames(raw);
+      if (hits.isNotEmpty) {
+        widget.onSelected(hits.first);
+      } else {
+        widget.onFallbackSubmit(raw);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AutoSuggestBox<Game>(
-      controller: controller,
-      placeholder: '搜索库中作品、原名或开发商...',
-      leadingIcon: const Padding(
-        padding: EdgeInsetsDirectional.only(start: 8),
-        child: Icon(FluentIcons.search_16_regular, size: 14),
-      ),
-      items: [
-        for (final g in games)
-          AutoSuggestBoxItem<Game>(
-            value: g,
-            label: g.displayName,
+    final theme = FluentTheme.of(context);
+    final res = theme.resources;
+    final accent = theme.accentInk;
+    final radius = BorderRadius.circular(6);
+
+    return ListenableBuilder(
+      listenable: Listenable.merge([widget.controller, widget.focusNode]),
+      builder: (context, _) {
+        final hasText = widget.controller.text.isNotEmpty;
+        final focused = widget.focusNode.hasFocus;
+
+        return Focus(
+          skipTraversal: true,
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent &&
+                event.logicalKey == LogicalKeyboardKey.enter) {
+              _handleEnterFallback();
+            }
+            return KeyEventResult.ignored;
+          },
+          child: SizedBox(
+            height: 34,
+            child: AutoSuggestBox<Game>(
+              controller: widget.controller,
+              focusNode: widget.focusNode,
+              onChanged: widget.onChanged,
+              placeholder: widget.isLibraryActive
+                  ? '筛选当前游戏库：名称 / 别名 / 开发商...'
+                  : '搜索库中作品、原名或开发商...',
+              style: theme.typography.body?.copyWith(fontSize: 13),
+              placeholderStyle: theme.typography.body?.copyWith(
+                fontSize: 13,
+                color: theme.textSecondary,
+              ),
+              decoration: WidgetStateProperty.resolveWith((states) {
+                final fill = (states.isFocused || states.isPressed)
+                    ? res.controlFillColorInputActive
+                    : states.isHovered
+                        ? res.controlFillColorSecondary
+                        : res.controlFillColorDefault;
+                return BoxDecoration(
+                  color: fill,
+                  borderRadius: radius,
+                  border: Border.all(
+                    color: states.isFocused
+                        ? accent.withValues(alpha: 0.45)
+                        : res.controlStrokeColorDefault,
+                  ),
+                );
+              }),
+              foregroundDecoration: WidgetStateProperty.resolveWith((states) {
+                if (states.isFocused) {
+                  return BoxDecoration(
+                    borderRadius: radius,
+                    border: Border(
+                      bottom: BorderSide(color: accent, width: 2),
+                    ),
+                  );
+                }
+                return BoxDecoration(
+                  borderRadius: radius,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: res.controlStrongStrokeColorDefault
+                          .withValues(alpha: 0.5),
+                      width: 1,
+                    ),
+                  ),
+                );
+              }),
+              leadingIcon: Padding(
+                padding: const EdgeInsetsDirectional.only(start: 10, end: 2),
+                child: Icon(
+                  FluentIcons.search_16_regular,
+                  size: 14,
+                  color: focused ? accent : theme.textSecondary,
+                ),
+              ),
+              trailingIcon: (!hasText && !focused)
+                  ? Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.surfaceCardSecondary,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: theme.surfaceStroke),
+                        ),
+                        child: Text(
+                          widget.isLibraryActive ? 'Ctrl+F' : 'Ctrl+K',
+                          style: theme.typography.caption?.copyWith(
+                            fontSize: 10.5,
+                            color: theme.textTertiary,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                    )
+                  : null,
+              noResultsFoundBuilder: (ctx) {
+                final t = FluentTheme.of(ctx);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        FluentIcons.search_16_regular,
+                        size: 16,
+                        color: t.textTertiary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '未找到匹配作品，按 Enter 在游戏库中检索',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: t.typography.caption?.copyWith(
+                            color: t.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              items: [
+                for (final g in widget.games)
+                  AutoSuggestBoxItem<Game>(
+                    value: g,
+                    label: g.displayName,
+                    child: _QuickSearchSuggestionRow(game: g),
+                  ),
+              ],
+              sorter: (text, items) {
+                final q = text.trim().toLowerCase();
+                if (q.isEmpty) return const [];
+                return items
+                    .where((item) {
+                      final g = item.value;
+                      return g != null && _matches(g, q);
+                    })
+                    .take(20)
+                    .toList();
+              },
+              onSelected: (item) {
+                final game = item.value;
+                if (game != null) {
+                  _selectedViaSuggestion = true;
+                  widget.onSelected(game);
+                }
+              },
+            ),
           ),
-      ],
-      sorter: (text, items) {
-        final q = text.trim().toLowerCase();
-        if (q.isEmpty) return const [];
-        return items.where((item) {
-          final g = item.value;
-          if (g == null) return false;
-          return g.displayName.toLowerCase().contains(q) ||
-              g.name.toLowerCase().contains(q) ||
-              g.nameCn.toLowerCase().contains(q) ||
-              g.developer.toLowerCase().contains(q) ||
-              g.aliases.any((a) => a.toLowerCase().contains(q));
-        }).take(20).toList();
+        );
       },
-      onSelected: (item) {
-        final game = item.value;
-        if (game != null) onSelected(game);
-      },
+    );
+  }
+}
+
+/// 控制在 38px 高度内，严格契合 `AutoSuggestBox` 固定 42px tile 高度。
+class _QuickSearchSuggestionRow extends StatelessWidget {
+  final Game game;
+
+  const _QuickSearchSuggestionRow({required this.game});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final subtitleParts = <String>[
+      if (game.developer.trim().isNotEmpty) game.developer.trim(),
+      if (game.nameCn.trim().isNotEmpty &&
+          game.name.trim().isNotEmpty &&
+          game.name.trim() != game.nameCn.trim())
+        game.name.trim(),
+    ];
+    final subtitle = subtitleParts.join(' · ');
+
+    return SizedBox(
+      height: 38,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            FluentCoverImage(
+              pathOrUrl: game.coverPath,
+              nsfw: game.nsfw,
+              width: 22,
+              height: 30,
+              radius: 3,
+              allowRevealOnHover: false,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    game.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.bodyStrong?.copyWith(
+                      fontSize: 12.5,
+                      height: 1.15,
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty)
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.caption?.copyWith(
+                        fontSize: 10.5,
+                        height: 1.1,
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              game.playStatus.label,
+              style: theme.typography.caption?.copyWith(
+                fontSize: 11,
+                color: theme.textTertiary,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -596,169 +1049,95 @@ class _ActiveTrackingPillState extends ConsumerState<_ActiveTrackingPill> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor;
+    final accent = theme.accentInk;
     final game = _cachedGame;
     final title = game?.displayName ?? '正在游玩';
 
     return HoverButton(
       key: const ValueKey('active_tracking_pill'),
+      cursor: game?.id == null ? MouseCursor.defer : SystemMouseCursors.click,
       onPressed: game?.id == null
           ? null
           : () {
               Navigator.of(context).push(
                 FluentPageRoute<void>(
-                  builder: (_) => GameDetailPage(gameId: game!.id!, initial: game),
+                  builder: (_) =>
+                      GameDetailPage(gameId: game!.id!, initial: game),
                 ),
               );
             },
       builder: (context, states) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: states.isHovered ? 0.18 : 0.12),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: accent.withValues(alpha: 0.35),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: accent,
-                  shape: BoxShape.circle,
-                ),
+        return FocusBorder(
+          focused: states.isFocused,
+          renderOutside: false,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: states.isHovered ? 0.18 : 0.12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: accent.withValues(alpha: 0.38),
               ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 140),
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.typography.caption?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: theme.resources.textFillColorPrimary,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 140),
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.caption?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: theme.textPrimary,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              if (_seconds > 0) ...[
-                const SizedBox(width: 6),
-                Text(
-                  _formatElapsed(_seconds),
-                  style: theme.typography.caption?.copyWith(
-                    color: accent,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                if (_seconds > 0) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    _formatElapsed(_seconds),
+                    style: theme.typography.caption?.copyWith(
+                      color: accent,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 4),
+                Tooltip(
+                  message: '停止当前游玩计时',
+                  child: Semantics(
+                    label: '停止当前游玩计时',
+                    button: true,
+                    child: IconButton(
+                      key: const ValueKey('active_tracking_stop'),
+                      icon: Icon(
+                        FluentIcons.stop_16_filled,
+                        size: 12,
+                        color: accent,
+                      ),
+                      onPressed: () => stopActiveGameSession(ref),
+                    ),
                   ),
                 ),
               ],
-              const SizedBox(width: 4),
-              IconButton(
-                key: const ValueKey('active_tracking_stop'),
-                icon: Icon(
-                  FluentIcons.stop_16_filled,
-                  size: 12,
-                  color: accent,
-                ),
-                onPressed: () => stopActiveGameSession(ref),
-              ),
-            ],
+            ),
           ),
         );
       },
-    );
-  }
-}
-
-class _WindowCaptionButtons extends StatelessWidget {
-  final bool enabled;
-  final bool isMaximized;
-  final VoidCallback onToggleMaximize;
-
-  const _WindowCaptionButtons({
-    required this.enabled,
-    required this.isMaximized,
-    required this.onToggleMaximize,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _CaptionButton(
-          icon: FluentIcons.subtract_16_regular,
-          tooltip: '最小化',
-          onPressed: enabled ? windowManager.minimize : null,
-        ),
-        _CaptionButton(
-          icon: isMaximized
-              ? FluentIcons.square_multiple_16_regular
-              : FluentIcons.maximize_16_regular,
-          tooltip: isMaximized ? '还原' : '最大化',
-          onPressed: enabled ? onToggleMaximize : null,
-        ),
-        _CaptionButton(
-          icon: FluentIcons.dismiss_16_regular,
-          tooltip: '关闭',
-          isClose: true,
-          onPressed: enabled ? windowManager.close : null,
-        ),
-      ],
-    );
-  }
-}
-
-class _CaptionButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final bool isClose;
-  final VoidCallback? onPressed;
-
-  const _CaptionButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-    this.isClose = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final idleFg = theme.resources.textFillColorSecondary;
-    final hoverFg = isClose ? Colors.white : theme.resources.textFillColorPrimary;
-    final hoverBg = isClose
-        ? const Color(0xFFC42B1C)
-        : (isDark ? const Color(0x14FFFFFF) : const Color(0x0F000000));
-
-    return Tooltip(
-      message: tooltip,
-      child: HoverButton(
-        onPressed: onPressed,
-        builder: (context, states) {
-          final active = states.isHovered || states.isPressed;
-          return AnimatedContainer(
-            duration: FluentMotion.fast,
-            curve: FluentMotion.enterCurve,
-            width: 44,
-            height: 40,
-            alignment: Alignment.center,
-            color: active ? hoverBg : Colors.transparent,
-            child: Icon(
-              icon,
-              size: 14,
-              color: active ? hoverFg : idleFg,
-            ),
-          );
-        },
-      ),
     );
   }
 }
@@ -812,8 +1191,6 @@ class _LazyKeepAliveTabStackState extends State<_LazyKeepAliveTabStack> {
 
   @override
   Widget build(BuildContext context) {
-    final disableAnimations = fluentAnimationsDisabled(context);
-
     return Stack(
       fit: StackFit.expand,
       children: List.generate(Tabs.count, (index) {
@@ -821,29 +1198,11 @@ class _LazyKeepAliveTabStackState extends State<_LazyKeepAliveTabStack> {
           return const SizedBox.shrink();
         }
         final isCurrent = index == widget.currentTab;
-        Widget child = _tabChild(index);
-        if (!disableAnimations) {
-          child = child
-              .animate(
-                target: isCurrent ? 1.0 : 0.0,
-                autoPlay: false,
-              )
-              .fadeIn(
-                duration: FluentMotion.standard,
-                curve: FluentMotion.enterCurve,
-              )
-              .moveY(
-                begin: 8,
-                end: 0,
-                duration: FluentMotion.standard,
-                curve: FluentMotion.enterCurve,
-              );
-        }
         return Offstage(
           offstage: !isCurrent,
           child: TickerMode(
             enabled: isCurrent,
-            child: child,
+            child: _tabChild(index),
           ),
         );
       }),

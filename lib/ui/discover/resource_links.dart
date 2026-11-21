@@ -18,6 +18,7 @@ import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 import 'discover_state.dart' show discoverLibraryKey;
 
@@ -548,7 +549,7 @@ class _ResourceLinkSectionState extends ConsumerState<ResourceLinkSection> {
               Icon(
                 FluentIcons.arrow_download_20_regular,
                 size: 16,
-                color: theme.accentColor,
+                color: theme.accentInk,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -594,7 +595,7 @@ class _ResourceLinkSectionState extends ConsumerState<ResourceLinkSection> {
           Text(
             '仅跳转到资源站发布页，不提供直链解析或站内下载。',
             style: theme.typography.caption?.copyWith(
-              color: theme.resources.textFillColorSecondary,
+              color: theme.textSecondary,
             ),
           ),
         ],
@@ -662,13 +663,14 @@ class _ResourceLinkSectionState extends ConsumerState<ResourceLinkSection> {
     final emptyGroups = state.groups
         .where((g) => g.error == null && g.items.isEmpty)
         .toList();
+    final disableAnim = fluentAnimationsDisabled(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < okGroups.length; i++) ...[
           _SourceResultGroup(group: okGroups[i])
-              .fluentEntrance(index: i),
+              .fluentEntrance(index: i, disable: disableAnim),
           const SizedBox(height: 10),
         ],
         if (state.failures.isNotEmpty) ...[
@@ -681,9 +683,7 @@ class _ResourceLinkSectionState extends ConsumerState<ResourceLinkSection> {
           Text(
             '无命中站点：${emptyGroups.map((g) => g.site).join('、')}',
             style: FluentTheme.of(context).typography.caption?.copyWith(
-                  color: FluentTheme.of(context)
-                      .resources
-                      .textFillColorSecondary,
+                  color: FluentTheme.of(context).textSecondary,
                 ),
           ),
       ],
@@ -758,7 +758,17 @@ class _ResourceSearchPaneState extends ConsumerState<ResourceSearchPane> {
     super.dispose();
   }
 
+  void _stopSearch() {
+    _sub?.cancel();
+    _sub = null;
+    _gen++;
+    if (mounted) {
+      setState(() => _searching = false);
+    }
+  }
+
   void _startSearch([String? raw]) {
+    if (_searching) return;
     final kw = (raw ?? _ctrl.text).trim();
     if (kw.isEmpty) {
       showNotice('请输入游戏名称或关键字');
@@ -838,21 +848,42 @@ class _ResourceSearchPaneState extends ConsumerState<ResourceSearchPane> {
                 Row(
                   children: [
                     Expanded(
-                      child: TextBox(
+                      child: FluentSearchBox(
                         controller: _ctrl,
+                        compact: true,
                         placeholder: '输入作品中文名 / 日文原名 / 别名进行资源站检索…',
-                        prefix: const Padding(
-                          padding: EdgeInsets.only(left: 10),
-                          child: Icon(FluentIcons.search_16_regular, size: 15),
-                        ),
-                        onSubmitted: (_) => _startSearch(),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) {
+                          if (!_searching) _startSearch();
+                        },
+                        onCleared: () {
+                          _ctrl.clear();
+                          setState(() {});
+                        },
                       ),
                     ),
                     const SizedBox(width: 10),
-                    FilledButton(
-                      onPressed: _searching ? null : () => _startSearch(),
-                      child: const Text('检索'),
-                    ),
+                    if (_searching)
+                      Button(
+                        onPressed: _stopSearch,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              FluentIcons.stop_16_regular,
+                              size: 14,
+                              color: theme.dangerInk,
+                            ),
+                            const SizedBox(width: 6),
+                            const Text('停止检索'),
+                          ],
+                        ),
+                      )
+                    else
+                      FilledButton(
+                        onPressed: () => _startSearch(),
+                        child: const Text('检索'),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -873,24 +904,21 @@ class _ResourceSearchPaneState extends ConsumerState<ResourceSearchPane> {
                             ? '正在检索「$_activeKeyword」($_completed/$_total)…'
                             : '关键词「$_activeKeyword」共 $totalLinks 条外链',
                         style: theme.typography.caption?.copyWith(
-                          color: theme.resources.textFillColorSecondary,
+                          color: theme.textSecondary,
                         ),
                       ),
                   ],
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  '仅跳转到资源站发布页，不提供直链解析或站内下载。',
+                  style: theme.typography.caption?.copyWith(
+                    color: theme.textSecondary,
+                  ),
+                ),
                 if (_searching) ...[
                   const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: ProgressRing(strokeWidth: 2),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(child: ProgressBar(value: progressValue)),
-                    ],
-                  ),
+                  ProgressBar(value: progressValue),
                 ],
               ],
             ),
@@ -908,6 +936,7 @@ class _ResourceSearchPaneState extends ConsumerState<ResourceSearchPane> {
     BuildContext context,
     List<ResourceSourceResult> filtered,
   ) {
+    final theme = FluentTheme.of(context);
     if (_activeKeyword.isEmpty && _groups.isEmpty) {
       return const FluentEmptyState(
         icon: FluentIcons.search_24_regular,
@@ -927,7 +956,15 @@ class _ResourceSearchPaneState extends ConsumerState<ResourceSearchPane> {
         ),
       );
     }
-    if (filtered.isEmpty) {
+
+    final nonEmpty = filtered
+        .where((g) => g.error != null || g.items.isNotEmpty)
+        .toList();
+    final emptyGroups = filtered
+        .where((g) => g.error == null && g.items.isEmpty)
+        .toList();
+
+    if (nonEmpty.isEmpty && !_searching) {
       return FluentEmptyState(
         icon: FluentIcons.search_24_regular,
         title: '未找到匹配的资源发布页',
@@ -942,15 +979,27 @@ class _ResourceSearchPaneState extends ConsumerState<ResourceSearchPane> {
       );
     }
 
+    final itemCount = nonEmpty.length + (emptyGroups.isNotEmpty ? 1 : 0);
     return ListView.separated(
-      itemCount: filtered.length,
+      itemCount: itemCount,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final group = filtered[index];
-        if (group.error != null) {
-          return _FailureRow(group: group).fluentEntrance(index: index);
+        if (index >= nonEmpty.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              '无命中站点：${emptyGroups.map((g) => g.site).join('、')}',
+              style: theme.typography.caption?.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+          );
         }
-        return _SourceResultGroup(group: group).fluentEntrance(index: index);
+        final group = nonEmpty[index];
+        if (group.error != null) {
+          return _FailureRow(group: group);
+        }
+        return _SourceResultGroup(group: group);
       },
     );
   }
@@ -973,7 +1022,7 @@ class _SourceResultGroup extends StatelessWidget {
               Icon(
                 FluentIcons.globe_16_regular,
                 size: 16,
-                color: theme.accentColor,
+                color: theme.accentInk,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -985,8 +1034,8 @@ class _SourceResultGroup extends StatelessWidget {
                   for (final tag in group.tags) FluentBadge(text: tag),
                   FluentBadge(
                     text: '${group.items.length} 条',
-                    foreground: theme.accentColor,
-                    background: theme.accentColor.withValues(alpha: 0.12),
+                    foreground: theme.accentInk,
+                    background: theme.accentTint,
                   ),
                 ],
               ),
@@ -997,7 +1046,7 @@ class _SourceResultGroup extends StatelessWidget {
             Text(
               '该站点暂无匹配条目',
               style: theme.typography.caption?.copyWith(
-                color: theme.resources.textFillColorSecondary,
+                color: theme.textSecondary,
               ),
             ),
           ] else ...[
@@ -1021,54 +1070,69 @@ class _ResourceLinkRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final host = Uri.tryParse(item.url)?.host ?? item.url;
-    return FluentSurfaceCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      backgroundColor: theme.resources.subtleFillColorSecondary,
-      onTap: () => openExternalExploreUrl(item.url),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.title,
-                  style: theme.typography.body,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (host.isNotEmpty)
-                      Text(
-                        host,
-                        style: theme.typography.caption?.copyWith(
-                          color: theme.resources.textFillColorSecondary,
-                        ),
-                      ),
-                    for (final tag in item.tags) FluentBadge(text: tag),
-                  ],
-                ),
-              ],
+    return Semantics(
+      button: true,
+      label: '${item.title} 打开链接',
+      child: HoverButton(
+        onPressed: () => openExternalExploreUrl(item.url),
+        builder: (context, states) => FocusBorder(
+          focused: states.isFocused,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: states.isHovered
+                  ? theme.subtleHover
+                  : theme.surfaceCardSecondary,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: theme.dividerHairline),
             ),
-          ),
-          const SizedBox(width: 10),
-          Button(
-            onPressed: () => openExternalExploreUrl(item.url),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(FluentIcons.open_16_regular, size: 14),
-                SizedBox(width: 6),
-                Text('打开链接'),
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.title,
+                        style: theme.typography.body,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (host.isNotEmpty)
+                            Text(
+                              host,
+                              style: theme.typography.caption?.copyWith(
+                                color: theme.textSecondary,
+                              ),
+                            ),
+                          for (final tag in item.tags) FluentBadge(text: tag),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Button(
+                  onPressed: () => openExternalExploreUrl(item.url),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.open_16_regular, size: 14),
+                      SizedBox(width: 6),
+                      Text('打开链接'),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1088,7 +1152,7 @@ class _FailureRow extends StatelessWidget {
           Icon(
             FluentIcons.warning_16_regular,
             size: 16,
-            color: Colors.warningPrimaryColor,
+            color: theme.warningInk,
           ),
           const SizedBox(width: 8),
           Text('${group.site}：', style: theme.typography.bodyStrong),
@@ -1096,7 +1160,7 @@ class _FailureRow extends StatelessWidget {
             child: Text(
               group.error ?? '请求未成功',
               style: theme.typography.caption?.copyWith(
-                color: theme.resources.textFillColorSecondary,
+                color: theme.textSecondary,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -1129,36 +1193,43 @@ class _FilterPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    return HoverButton(
-      onPressed: onTap,
-      builder: (context, states) {
-        final bg = selected
-            ? theme.accentColor.withValues(alpha: 0.16)
-            : states.isHovered
-                ? theme.resources.subtleFillColorSecondary
-                : theme.resources.controlFillColorDefault;
-        final border = selected
-            ? theme.accentColor.withValues(alpha: 0.55)
-            : theme.resources.cardStrokeColorDefault;
-        return AnimatedContainer(
-          duration: FluentMotion.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: border),
-          ),
-          child: Text(
-            label,
-            style: theme.typography.caption?.copyWith(
-              color: selected
-                  ? theme.accentColor
-                  : theme.resources.textFillColorPrimary,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    final disableAnim = fluentAnimationsDisabled(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: HoverButton(
+        onPressed: onTap,
+        builder: (context, states) {
+          final bg = selected
+              ? theme.accentTint
+              : states.isHovered
+                  ? theme.subtleHover
+                  : theme.surfaceCardSecondary;
+          final border = selected
+              ? theme.accentInk.withValues(alpha: 0.55)
+              : theme.surfaceStroke;
+          return FocusBorder(
+            focused: states.isFocused,
+            child: AnimatedContainer(
+              duration: disableAnim ? Duration.zero : FluentMotion.fast,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: border),
+              ),
+              child: Text(
+                label,
+                style: theme.typography.caption?.copyWith(
+                  color: selected ? theme.accentInk : theme.textPrimary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

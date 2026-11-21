@@ -60,7 +60,22 @@ class PlaytimeTracker {
   /// 运行时更新全局截图热键配置（设置页修改时立即生效）。
   void reloadCaptureHotkey(String hotkeyName) {
     _captureHotkeyName = hotkeyName;
+    _syncHotkeyTimer();
+  }
+
+  void _syncHotkeyTimer() {
+    _hotkeyTimer?.cancel();
+    _hotkeyTimer = null;
     _hotkeyWasDown = false;
+    if (_gameId == null ||
+        !Platform.isWindows ||
+        _captureHotkeyName == 'disabled') {
+      return;
+    }
+    _hotkeyTimer = Timer.periodic(
+      const Duration(milliseconds: 150),
+      (_) => _pollCaptureHotkey(),
+    );
   }
 
   Future<void> _loadHotkeySetting() async {
@@ -69,7 +84,10 @@ class PlaytimeTracker {
         SettingsStore.kScreenshotHotkey,
         'F12',
       );
-      _captureHotkeyName = saved;
+      if (_captureHotkeyName != saved) {
+        _captureHotkeyName = saved;
+        _syncHotkeyTimer();
+      }
     } catch (_) {}
   }
 
@@ -132,14 +150,8 @@ class PlaytimeTracker {
     unawaited(_scanDirectoryExesAsync(directory, epoch));
     unawaited(_loadHotkeySetting());
 
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
-    if (Platform.isWindows) {
-      _hotkeyWasDown = false;
-      _hotkeyTimer = Timer.periodic(
-        const Duration(milliseconds: 100),
-        (_) => _pollCaptureHotkey(),
-      );
-    }
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+    _syncHotkeyTimer();
   }
 
   void _pollCaptureHotkey() {
@@ -278,13 +290,13 @@ class PlaytimeTracker {
       final counting = _mode == TimeTrackingMode.elapsed ||
           matched.contains(foregroundPid());
       if (counting) {
-        _countedSeconds++;
+        _countedSeconds += 2;
       }
     } else {
       _lastMatchedPids = {};
       _misses++;
-      // 进程消失 ≥3 秒 → 会话结束（尚未出现进程时给 60s 启动宽限）
-      if (_sawProcess && _misses >= 3) {
+      // 进程消失 ≥4 秒（2 次轮询） → 会话结束（尚未出现进程时给 60s 启动宽限）
+      if (_sawProcess && _misses >= 2) {
         stopTracking(saveSession: true);
       } else if (!_sawProcess &&
           _startedAt != null &&

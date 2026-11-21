@@ -13,6 +13,7 @@ import 'package:kisakigals/ui/detail/play_path_tab.dart';
 import 'package:kisakigals/ui/detail/rate_dialog.dart';
 import 'package:kisakigals/ui/fluent/fluent_notices.dart';
 import 'package:kisakigals/ui/fluent/fluent_theme.dart';
+import 'package:kisakigals/ui/library/game_actions.dart';
 import 'package:kisakigals/ui/shell/tabs.dart';
 
 Widget _fluentHost({
@@ -467,11 +468,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('edit-nsfw-switch')));
     await tester.pumpAndSettle();
 
-    final leSwitchFinder = find.byKey(const ValueKey('edit-le-switch'));
-    await tester.ensureVisible(leSwitchFinder);
-    await tester.pumpAndSettle();
-    await tester.tap(leSwitchFinder);
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('edit-le-switch')), findsNothing);
 
     // Anchor jump to 视觉封面
     await tester.tap(find.byKey(const ValueKey('edit-anchor-media')));
@@ -484,64 +481,137 @@ void main() {
     expect(savedGame?.nameCn, '编辑后中文名');
     expect(savedGame?.aliases, ['别名甲', '别名乙']);
     expect(savedGame?.nsfw, isTrue);
-    expect(savedGame?.localeMode, 'japanese');
-    expect(savedGame?.useLocaleEmulator, isTrue);
+    expect(savedGame?.localeMode, 'none');
+    expect(savedGame?.useLocaleEmulator, isFalse);
     expect(libVersion, 1);
     NoticeCenter.instance.clear();
   });
 
   testWidgets(
-      'showEditGameDialog normalizes legacy "le" localeMode to canonical "japanese"',
+      'GameDetailPage three-dots menu toggles LE region launch switch',
       (tester) async {
-    final game = Game(
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final g = Game(
       id: 34,
-      name: 'LegacyLeVN',
-      localeMode: 'le',
+      name: 'LeToggleVN',
+      nameCn: '转区开关测试',
+      localeMode: 'none',
     );
-    Game? savedGame;
 
     await tester.pumpWidget(
       _fluentHost(
-        child: Consumer(
-          builder: (context, ref, _) {
-            return ScaffoldPage(
-              content: Center(
-                child: FilledButton(
-                  onPressed: () async {
-                    await showEditGameDialog(
-                      context,
-                      ref,
-                      game,
-                      loadSources: (_) async => const [],
-                      loadTags: (_) async => const [],
-                      onSave: (g) async {
-                        savedGame = g;
-                      },
-                    );
-                  },
-                  child: const Text('打开编辑'),
+        overrides: [
+          gameProvider(34).overrideWith((ref) async => g),
+          gameSourcesProvider(34).overrideWith((ref) async => const []),
+          gameTagsProvider(34).overrideWith((ref) async => const []),
+          playPathProvider(34).overrideWith((ref) async => const []),
+        ],
+        child: const GameDetailPage(gameId: 34),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 主工具栏不再平铺 LE 转区启动按钮
+    expect(find.text('LE 转区启动'), findsNothing);
+
+    // 点击详情页「...」三点溢出菜单
+    final moreBtn = find
+        .descendant(
+          of: find.byType(CommandBar),
+          matching: find.byIcon(WindowsIcons.more),
+        )
+        .hitTestable();
+    await tester.tap(moreBtn.last);
+    await tester.pumpAndSettle();
+
+    final toggleItem = find.byKey(const ValueKey('detail_le_toggle_item'));
+    expect(toggleItem, findsOneWidget);
+    final switchWidget = tester.widget<ToggleSwitch>(
+      find.byKey(const ValueKey('detail_le_toggle_switch')),
+    );
+    expect(switchWidget.checked, isFalse);
+
+    // 点击菜单内开关条目启用 LE 转区
+    await tester.tap(toggleItem);
+    await tester.pumpAndSettle();
+    expect(g.localeMode, 'japanese');
+    expect(g.useLocaleEmulator, isTrue);
+    final switchWidgetOn = tester.widget<ToggleSwitch>(
+      find.byKey(const ValueKey('detail_le_toggle_switch')),
+    );
+    expect(switchWidgetOn.checked, isTrue);
+
+    // 再次点击开关条目关闭 LE 转区
+    await tester.tap(toggleItem);
+    await tester.pumpAndSettle();
+    expect(g.localeMode, 'none');
+    expect(g.useLocaleEmulator, isFalse);
+    final switchWidgetOff = tester.widget<ToggleSwitch>(
+      find.byKey(const ValueKey('detail_le_toggle_switch')),
+    );
+    expect(switchWidgetOff.checked, isFalse);
+
+    // 点击遮罩关闭三点菜单
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('detail_le_toggle_item')), findsNothing);
+    NoticeCenter.instance.clear();
+  });
+
+  testWidgets(
+      'GameDetailPage status RadioMenuFlyoutItem closes flyout without popping page route',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final g = Game(
+      id: 77,
+      name: 'StatusTestVN',
+      nameCn: '状态菜单测试作品',
+      playStatus: PlayStatus.playing,
+    );
+
+    await tester.pumpWidget(
+      _fluentHost(
+        overrides: [
+          gameProvider(77).overrideWith((ref) async => g),
+          gameSourcesProvider(77).overrideWith((ref) async => const []),
+          gameTagsProvider(77).overrideWith((ref) async => const []),
+          playPathProvider(77).overrideWith((ref) async => const []),
+        ],
+        child: Builder(
+          builder: (context) => ScaffoldPage(
+            content: Center(
+              child: FilledButton(
+                onPressed: () => pushFluentPage(
+                  context,
+                  (_) => const GameDetailPage(gameId: 77),
                 ),
+                child: const Text('打开详情页'),
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
-
-    await tester.tap(find.text('打开编辑'));
     await tester.pumpAndSettle();
 
-    final leSwitchFinder = find.byKey(const ValueKey('edit-le-switch'));
-    await tester.ensureVisible(leSwitchFinder);
+    await tester.tap(find.text('打开详情页'));
     await tester.pumpAndSettle();
-    final leSwitch = tester.widget<ToggleSwitch>(leSwitchFinder);
-    expect(leSwitch.checked, isTrue);
+    expect(find.byType(GameDetailPage), findsOneWidget);
 
-    await tester.tap(find.text('保存修改'));
+    await tester.tap(find.text('在玩').first);
+    await tester.pumpAndSettle();
+    expect(find.byType(MenuFlyout), findsOneWidget);
+
+    await tester.tap(find.text('玩过').last);
     await tester.pumpAndSettle();
 
-    expect(savedGame?.localeMode, 'japanese');
-    expect(savedGame?.useLocaleEmulator, isTrue);
+    // Flyout closes cleanly, while GameDetailPage remains mounted on Navigator stack.
+    expect(find.byType(MenuFlyout), findsNothing);
+    expect(find.byType(GameDetailPage), findsOneWidget);
     NoticeCenter.instance.clear();
   });
 }

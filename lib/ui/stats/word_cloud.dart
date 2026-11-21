@@ -8,11 +8,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models.dart';
 import '../../providers.dart';
+import '../fluent/fluent_motion.dart';
+import '../fluent/fluent_theme.dart';
 
 /// 兼容旧名引用。
 typedef TagWordCloud = FluentTagWordCloud;
 
-/// 交互式标签词云组件：基于 Fluent 主题强调色透明梯度与螺旋重心排列。
+/// 交互式标签词云组件：基于 Fluent 主题高对比色阶与螺旋重心排列。
 class FluentTagWordCloud extends ConsumerWidget {
   final List<TagItem> tags;
   final ValueChanged<TagItem>? onTagTap;
@@ -27,12 +29,8 @@ class FluentTagWordCloud extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (tags.isEmpty) return const SizedBox.shrink();
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
-    final accentAlt =
-        isDark ? theme.accentColor.lighter : theme.accentColor.darker;
-    final neutralTint =
-        theme.typography.body?.color ?? (isDark ? Colors.white : Colors.black);
+    final accent = theme.accentInk;
+    final blended = Color.lerp(accent, theme.textPrimary, 0.35) ?? accent;
 
     final sorted = [...tags]..sort((a, b) => b.weight.compareTo(a.weight));
     final maxW = sorted.first.weight;
@@ -51,8 +49,8 @@ class FluentTagWordCloud extends ConsumerWidget {
 
     final palette = [
       accent,
-      accentAlt,
-      Color.lerp(accent, neutralTint, 0.25) ?? accent,
+      theme.textPrimary,
+      blended,
     ];
 
     return Center(
@@ -88,9 +86,9 @@ class FluentTagWordCloud extends ConsumerWidget {
     required List<Color> palette,
   }) {
     final norm = ((tag.weight - minW) / range).clamp(0.0, 1.0);
-    final fontSize = 12.0 + math.sqrt(norm) * 19.0;
+    final fontSize = 12.0 + math.sqrt(norm) * 10.0;
     final baseColor = palette[index % palette.length];
-    final alpha = (0.56 + norm * 0.44).clamp(0.45, 1.0);
+    final alpha = (0.85 + norm * 0.15).clamp(0.85, 1.0);
     final fontWeight = norm > 0.66
         ? FontWeight.w700
         : norm > 0.33
@@ -113,7 +111,7 @@ class FluentTagWordCloud extends ConsumerWidget {
   }
 }
 
-class _WordCloudTag extends StatefulWidget {
+class _WordCloudTag extends StatelessWidget {
   final TagItem tag;
   final double fontSize;
   final FontWeight fontWeight;
@@ -129,56 +127,51 @@ class _WordCloudTag extends StatefulWidget {
   });
 
   @override
-  State<_WordCloudTag> createState() => _WordCloudTagState();
-}
-
-class _WordCloudTagState extends State<_WordCloudTag> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
-    final weightLabel = widget.tag.weight >= 10
-        ? widget.tag.weight.toStringAsFixed(0)
-        : widget.tag.weight.toStringAsFixed(1);
+    final disableAnim = fluentAnimationsDisabled(context);
+    final weightLabel = tag.weight >= 10
+        ? tag.weight.toStringAsFixed(0)
+        : tag.weight.toStringAsFixed(1);
 
     return Tooltip(
-      message: '${widget.tag.name} · 权重 $weightLabel（点击筛选游戏库）',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: _hovered
-                  ? accent.withValues(alpha: isDark ? 0.20 : 0.12)
-                  : accent.withValues(alpha: isDark ? 0.06 : 0.04),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: _hovered
-                    ? accent.withValues(alpha: 0.55)
-                    : Colors.transparent,
-                width: 1,
+      message: '${tag.name} · 权重 $weightLabel（点击筛选游戏库）',
+      child: Semantics(
+        button: true,
+        label: '${tag.name} 权重 $weightLabel',
+        child: HoverButton(
+          onPressed: onTap,
+          builder: (context, states) {
+            final hovered = states.isHovered;
+            return FocusBorder(
+              focused: states.isFocused,
+              child: AnimatedContainer(
+                duration: disableAnim ? Duration.zero : FluentMotion.fast,
+                curve: FluentMotion.enterCurve,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: hovered ? theme.accentTint : theme.surfaceCardSecondary,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: hovered
+                        ? theme.accentInk.withValues(alpha: 0.55)
+                        : theme.dividerHairline,
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  tag.name,
+                  style: (theme.typography.body ?? const TextStyle()).copyWith(
+                    fontSize: fontSize,
+                    height: 1.15,
+                    fontWeight: fontWeight,
+                    color: color,
+                  ),
+                ),
               ),
-            ),
-            child: Text(
-              widget.tag.name,
-              style: (theme.typography.body ?? const TextStyle()).copyWith(
-                fontSize: widget.fontSize,
-                height: 1.15,
-                fontWeight: widget.fontWeight,
-                color: widget.color,
-              ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );

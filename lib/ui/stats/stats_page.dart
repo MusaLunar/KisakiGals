@@ -14,6 +14,7 @@ import '../../providers.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 import 'word_cloud.dart';
 
@@ -58,9 +59,9 @@ class _StatsPageState extends ConsumerState<StatsPage> {
     );
 
     return ScaffoldPage(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+      padding: EdgeInsets.zero,
       header: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+        padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
         child: Wrap(
           spacing: 12,
           runSpacing: 10,
@@ -70,29 +71,33 @@ class _StatsPageState extends ConsumerState<StatsPage> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('游玩统计', style: theme.typography.titleLarge),
+                Text('游玩统计', style: theme.typography.title),
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
                   style: theme.typography.caption?.copyWith(
-                    color: theme.inactiveColor,
+                    color: theme.textSecondary,
                   ),
                 ),
               ],
             ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                for (var i = 0; i < StatsPeriod.values.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 6),
-                  ToggleButton(
-                    checked: _period == StatsPeriod.values[i],
-                    onChanged: (_) =>
-                        setState(() => _period = StatsPeriod.values[i]),
-                    child: Text(StatsPeriod.values[i].label),
-                  ),
-                ],
-                const SizedBox(width: 10),
+                FluentSegmentedControl<StatsPeriod>(
+                  compact: true,
+                  selected: _period,
+                  onChanged: (next) => setState(() => _period = next),
+                  items: [
+                    for (final p in StatsPeriod.values)
+                      FluentSegmentItem<StatsPeriod>(
+                        value: p,
+                        label: p.label,
+                      ),
+                  ],
+                ),
                 Button(
                   onPressed: () {
                     ref.invalidate(statsProvider(_period));
@@ -116,13 +121,16 @@ class _StatsPageState extends ConsumerState<StatsPage> {
       content: statsAsync.when(
         skipLoadingOnReload: true,
         loading: () => const Center(child: ProgressRing()),
-        error: (e, _) => FluentEmptyState(
-          icon: FluentIcons.error_circle_24_regular,
-          title: '统计加载失败',
-          message: '$e',
-          action: FilledButton(
-            onPressed: () => ref.invalidate(statsProvider(_period)),
-            child: const Text('重试'),
+        error: (e, _) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: FluentEmptyState(
+            icon: FluentIcons.error_circle_24_regular,
+            title: '统计加载失败',
+            message: '$e',
+            action: FilledButton(
+              onPressed: () => ref.invalidate(statsProvider(_period)),
+              child: const Text('重试'),
+            ),
           ),
         ),
         data: (stats) => _buildContent(
@@ -146,7 +154,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
 
     return SingleChildScrollView(
       controller: _scrollCtrl,
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -318,7 +326,6 @@ class _StatsKpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
     return FluentSurfaceCard(
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -326,7 +333,7 @@ class _StatsKpiCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 17, color: accent),
+              Icon(icon, size: 17, color: theme.accentInk),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -334,7 +341,7 @@ class _StatsKpiCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.caption?.copyWith(
-                    color: theme.inactiveColor,
+                    color: theme.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -356,7 +363,7 @@ class _StatsKpiCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.typography.caption?.copyWith(
-              color: theme.inactiveColor,
+              color: theme.textSecondary,
             ),
           ),
         ],
@@ -390,7 +397,7 @@ class _ChartCard extends StatelessWidget {
             Text(
               subtitle!,
               style: theme.typography.caption?.copyWith(
-                color: theme.inactiveColor,
+                color: theme.textSecondary,
               ),
             ),
           ],
@@ -402,6 +409,29 @@ class _ChartCard extends StatelessWidget {
   }
 }
 
+String _fmtAxisSeconds(int seconds) {
+  if (seconds <= 0) return '0';
+  final hours = seconds / 3600.0;
+  if (hours >= 1.0) {
+    return hours >= 10
+        ? '${hours.round()}h'
+        : '${hours.toStringAsFixed(1)}h';
+  }
+  final mins = (seconds / 60).round();
+  return '${math.max(1, mins)}m';
+}
+
+String _fmtAxisMinutes(double minutes) {
+  if (minutes <= 0) return '0';
+  if (minutes >= 60) {
+    final hours = minutes / 60.0;
+    return hours >= 10
+        ? '${hours.round()}h'
+        : '${hours.toStringAsFixed(1)}h';
+  }
+  return '${minutes.round()}m';
+}
+
 class _HourlyBarChart extends StatelessWidget {
   final List<int> byHour;
 
@@ -410,13 +440,13 @@ class _HourlyBarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
-    final gridColor = theme.resources.cardStrokeColorDefault;
+    final accent = theme.accentInk;
+    final gridColor = theme.surfaceStroke;
     final captionStyle = (theme.typography.caption ?? const TextStyle())
-        .copyWith(color: theme.inactiveColor);
+        .copyWith(color: theme.textTertiary);
     final tooltipTextStyle = (theme.typography.caption ?? const TextStyle())
         .copyWith(
-      color: theme.typography.bodyStrong?.color ?? theme.inactiveColor,
+      color: theme.textPrimary,
       fontWeight: FontWeight.w600,
     );
 
@@ -435,11 +465,26 @@ class _HourlyBarChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: interval,
           getDrawingHorizontalLine: (_) =>
-              FlLine(color: gridColor, strokeWidth: 0.8),
+              FlLine(color: gridColor, strokeWidth: 0.9),
         ),
         titlesData: FlTitlesData(
-          leftTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              interval: interval,
+              getTitlesWidget: (v, meta) {
+                if (v > meta.max * 0.98 && maxVal > 0) {
+                  return const SizedBox.shrink();
+                }
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 6,
+                  child: Text(_fmtAxisSeconds(v.round()), style: captionStyle),
+                );
+              },
+            ),
+          ),
           rightTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           topTitles:
@@ -466,7 +511,7 @@ class _HourlyBarChart extends StatelessWidget {
                   toY: (h < byHour.length ? byHour[h] : 0).toDouble(),
                   width: 8,
                   borderRadius: BorderRadius.circular(3),
-                  color: accent.withValues(alpha: 0.82),
+                  color: accent.withValues(alpha: 0.85),
                 ),
               ],
             ),
@@ -474,8 +519,8 @@ class _HourlyBarChart extends StatelessWidget {
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
             tooltipRoundedRadius: 6,
-            tooltipBorder: BorderSide(color: gridColor),
-            getTooltipColor: (_) => theme.cardColor,
+            tooltipBorder: BorderSide(color: theme.surfaceStroke),
+            getTooltipColor: (_) => theme.surfaceCard,
             tooltipPadding:
                 const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
@@ -499,15 +544,13 @@ class _WeekdayBarChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final barColor =
-        isDark ? theme.accentColor.light : theme.accentColor.dark;
-    final gridColor = theme.resources.cardStrokeColorDefault;
+    final barColor = theme.accentInk;
+    final gridColor = theme.surfaceStroke;
     final captionStyle = (theme.typography.caption ?? const TextStyle())
-        .copyWith(color: theme.inactiveColor);
+        .copyWith(color: theme.textTertiary);
     final tooltipTextStyle = (theme.typography.caption ?? const TextStyle())
         .copyWith(
-      color: theme.typography.bodyStrong?.color ?? theme.inactiveColor,
+      color: theme.textPrimary,
       fontWeight: FontWeight.w600,
     );
 
@@ -526,11 +569,26 @@ class _WeekdayBarChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: interval,
           getDrawingHorizontalLine: (_) =>
-              FlLine(color: gridColor, strokeWidth: 0.8),
+              FlLine(color: gridColor, strokeWidth: 0.9),
         ),
         titlesData: FlTitlesData(
-          leftTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              interval: interval,
+              getTitlesWidget: (v, meta) {
+                if (v > meta.max * 0.98 && maxVal > 0) {
+                  return const SizedBox.shrink();
+                }
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 6,
+                  child: Text(_fmtAxisSeconds(v.round()), style: captionStyle),
+                );
+              },
+            ),
+          ),
           rightTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           topTitles:
@@ -562,8 +620,8 @@ class _WeekdayBarChart extends StatelessWidget {
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
             tooltipRoundedRadius: 6,
-            tooltipBorder: BorderSide(color: gridColor),
-            getTooltipColor: (_) => theme.cardColor,
+            tooltipBorder: BorderSide(color: theme.surfaceStroke),
+            getTooltipColor: (_) => theme.surfaceCard,
             tooltipPadding:
                 const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             getTooltipItem: (group, gi, rod, ri) => BarTooltipItem(
@@ -585,13 +643,13 @@ class _DailyTrendChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
-    final gridColor = theme.resources.cardStrokeColorDefault;
+    final accent = theme.accentInk;
+    final gridColor = theme.surfaceStroke;
     final captionStyle = (theme.typography.caption ?? const TextStyle())
-        .copyWith(color: theme.inactiveColor);
+        .copyWith(color: theme.textTertiary);
     final tooltipTextStyle = (theme.typography.caption ?? const TextStyle())
         .copyWith(
-      color: theme.typography.bodyStrong?.color ?? theme.inactiveColor,
+      color: theme.textPrimary,
       fontWeight: FontWeight.w600,
     );
 
@@ -632,12 +690,27 @@ class _DailyTrendChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: yInterval,
           getDrawingHorizontalLine: (_) =>
-              FlLine(color: gridColor, strokeWidth: 0.8),
+              FlLine(color: gridColor, strokeWidth: 0.9),
         ),
         borderData: FlBorderData(show: false),
         titlesData: FlTitlesData(
-          leftTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              interval: yInterval,
+              getTitlesWidget: (v, meta) {
+                if (v > meta.max * 0.98 && maxMinutes > 0) {
+                  return const SizedBox.shrink();
+                }
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 6,
+                  child: Text(_fmtAxisMinutes(v), style: captionStyle),
+                );
+              },
+            ),
+          ),
           rightTitles:
               const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           topTitles:
@@ -646,16 +719,20 @@ class _DailyTrendChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 22,
-              interval: 1,
-              getTitlesWidget: (v, _) {
-                final idx = v.toInt();
-                if (idx < 0 || idx >= recent.length || idx % xStep != 0) {
+              interval: xStep.toDouble(),
+              getTitlesWidget: (v, meta) {
+                final idx = v.round();
+                if (idx < 0 || idx >= recent.length) {
                   return const SizedBox.shrink();
                 }
                 final label = recent[idx].date.length >= 10
                     ? recent[idx].date.substring(5)
                     : recent[idx].date;
-                return Text(label, style: captionStyle);
+                return SideTitleWidget(
+                  axisSide: meta.axisSide,
+                  space: 4,
+                  child: Text(label, style: captionStyle),
+                );
               },
             ),
           ),
@@ -663,8 +740,8 @@ class _DailyTrendChart extends StatelessWidget {
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
             tooltipRoundedRadius: 6,
-            tooltipBorder: BorderSide(color: gridColor),
-            getTooltipColor: (_) => theme.cardColor,
+            tooltipBorder: BorderSide(color: theme.surfaceStroke),
+            getTooltipColor: (_) => theme.surfaceCard,
             getTooltipItems: (touched) {
               return touched.map((spot) {
                 final idx = spot.x.round().clamp(0, recent.length - 1);
@@ -716,8 +793,8 @@ class _HeatmapCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final isDark = theme.isDark;
+    final accent = theme.accentInk;
     final emptyCellColor = isDark
         ? Colors.white.withValues(alpha: 0.08)
         : Colors.black.withValues(alpha: 0.06);
@@ -765,35 +842,74 @@ class _HeatmapCard extends StatelessWidget {
       return accent.withValues(alpha: alpha);
     }
 
+    final monthLabels = List<String>.filled(weeks, '');
+    var prevMonth = -1;
+    for (var wk = 0; wk < weeks; wk++) {
+      final weekStart = DateTime(first.year, first.month, first.day + wk * 7);
+      if (weekStart.month != prevMonth) {
+        monthLabels[wk] = '${weekStart.month}月';
+        prevMonth = weekStart.month;
+      }
+    }
+    if (weeks >= 2 &&
+        monthLabels[0].isNotEmpty &&
+        monthLabels[1].isNotEmpty) {
+      monthLabels[0] = '';
+    }
+
     final grid = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            children: [
+              const SizedBox(width: 24),
+              for (var wk = 0; wk < weeks; wk++) ...[
+                if (wk > 0) const SizedBox(width: _gap),
+                SizedBox(
+                  width: _cell,
+                  child: Text(
+                    monthLabels[wk],
+                    softWrap: false,
+                    overflow: TextOverflow.visible,
+                    style: theme.typography.caption?.copyWith(
+                      fontSize: 10,
+                      color: theme.textTertiary,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Column(
-                children: [
-                  for (var w = 0; w < 7; w++)
-                    Padding(
-                      padding: EdgeInsets.only(bottom: w == 6 ? 0 : _gap),
-                      child: SizedBox(
-                        height: _cell,
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            _weekdays[w],
-                            style: theme.typography.caption?.copyWith(
-                              fontSize: 11,
-                              height: 1.0,
-                              color: theme.inactiveColor,
+              SizedBox(
+                width: 16,
+                child: Column(
+                  children: [
+                    for (var w = 0; w < 7; w++)
+                      Padding(
+                        padding: EdgeInsets.only(bottom: w == 6 ? 0 : _gap),
+                        child: SizedBox(
+                          height: _cell,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              _weekdays[w],
+                              style: theme.typography.caption?.copyWith(
+                                fontSize: 11,
+                                height: 1.0,
+                                color: theme.textSecondary,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(width: 8),
               for (var wk = 0; wk < weeks; wk++) ...[
@@ -823,7 +939,7 @@ class _HeatmapCard extends StatelessWidget {
               Text(
                 '少',
                 style: theme.typography.caption?.copyWith(
-                  color: theme.inactiveColor,
+                  color: theme.textSecondary,
                 ),
               ),
               const SizedBox(width: 6),
@@ -845,7 +961,7 @@ class _HeatmapCard extends StatelessWidget {
               Text(
                 '多',
                 style: theme.typography.caption?.copyWith(
-                  color: theme.inactiveColor,
+                  color: theme.textSecondary,
                 ),
               ),
             ],
@@ -915,14 +1031,24 @@ class _HeatmapCard extends StatelessWidget {
       return const SizedBox(width: _cell, height: _cell);
     }
     final seconds = byDate[fmtDate(date)] ?? 0;
-    return Tooltip(
-      message:
-          '${fmtDate(date)} · ${seconds <= 0 ? '未游玩' : fmtDuration(seconds)}',
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(3),
-        child: ColoredBox(
-          color: colorFor(seconds),
-          child: const SizedBox(width: _cell, height: _cell),
+    final tip =
+        '${fmtDate(date)} · ${seconds <= 0 ? '未游玩' : fmtDuration(seconds)}';
+    return Semantics(
+      label: tip,
+      child: Tooltip(
+        message: tip,
+        child: HoverButton(
+          onPressed: () {},
+          builder: (context, states) => FocusBorder(
+            focused: states.isFocused,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: ColoredBox(
+                color: colorFor(seconds),
+                child: const SizedBox(width: _cell, height: _cell),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -943,7 +1069,7 @@ class _FactItem extends StatelessWidget {
       children: [
         Text(
           label,
-          style: theme.typography.caption?.copyWith(color: theme.inactiveColor),
+          style: theme.typography.caption?.copyWith(color: theme.textSecondary),
         ),
         const SizedBox(height: 2),
         Text(value, style: theme.typography.bodyStrong),
@@ -1109,58 +1235,86 @@ class _TopGameRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final accent = theme.accentInk;
     final ratio = maxSeconds <= 0
         ? 0.0
         : (game.seconds / maxSeconds * 100).clamp(0.0, 100.0);
 
-    return FluentSurfaceCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      onTap: onTap,
-      child: Row(
-        children: [
-          Container(
-            width: 26,
-            height: 26,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: rank <= 3
-                  ? accent.withValues(alpha: 0.16)
-                  : Colors.transparent,
-            ),
-            child: Text(
-              '$rank',
-              style: theme.typography.caption?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: rank <= 3 ? accent : theme.inactiveColor,
-              ),
-            ),
+    final rowContent = Row(
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: rank <= 3 ? theme.accentTint : Colors.transparent,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  game.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.typography.bodyStrong,
-                ),
-                const SizedBox(height: 6),
-                ProgressBar(value: ratio),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            fmtDuration(game.seconds),
+          child: Text(
+            '$rank',
             style: theme.typography.caption?.copyWith(
-              color: theme.inactiveColor,
+              fontWeight: FontWeight.w700,
+              color: rank <= 3 ? accent : theme.textSecondary,
             ),
           ),
-        ],
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                game.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.typography.bodyStrong,
+              ),
+              const SizedBox(height: 6),
+              ProgressBar(value: ratio),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          fmtDuration(game.seconds),
+          style: theme.typography.caption?.copyWith(
+            color: theme.textSecondary,
+          ),
+        ),
+      ],
+    );
+
+    if (onTap == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: theme.surfaceCardSecondary,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.dividerHairline),
+        ),
+        child: rowContent,
+      );
+    }
+
+    return Semantics(
+      button: true,
+      label: '打开 ${game.name} 详情',
+      child: HoverButton(
+        onPressed: onTap,
+        builder: (context, states) => FocusBorder(
+          focused: states.isFocused,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: states.isHovered
+                  ? theme.subtleHover
+                  : theme.surfaceCardSecondary,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: theme.dividerHairline),
+            ),
+            child: rowContent,
+          ),
+        ),
       ),
     );
   }
@@ -1266,53 +1420,83 @@ class _RatedGameTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    return FluentSurfaceCard(
-      padding: const EdgeInsets.all(10),
-      onTap: onTap,
-      child: Row(
-        children: [
-          FluentCoverImage(
-            pathOrUrl: game.coverPath,
-            nsfw: game.nsfw,
-            width: 56,
-            height: 82,
-            radius: 5,
-            allowRevealOnHover: false,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
+    final content = Row(
+      children: [
+        FluentCoverImage(
+          pathOrUrl: game.coverPath,
+          nsfw: game.nsfw,
+          width: 56,
+          height: 82,
+          radius: 5,
+          allowRevealOnHover: false,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                game.displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.typography.bodyStrong,
+              ),
+              const SizedBox(height: 4),
+              FluentR18ScoreRow(
+                nsfw: game.nsfw,
+                scoreText: game.userRating.toStringAsFixed(1),
+                voteText: '${(game.userRating / 2).toStringAsFixed(1)}/5 星',
+              ),
+              if (game.userReview.isNotEmpty) ...[
+                const SizedBox(height: 3),
                 Text(
-                  game.displayName,
+                  game.userReview,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.typography.bodyStrong,
-                ),
-                const SizedBox(height: 4),
-                FluentR18ScoreRow(
-                  nsfw: game.nsfw,
-                  scoreText: game.userRating.toStringAsFixed(1),
-                  voteText: '${game.userRating ~/ 2}/5 星',
-                ),
-                if (game.userReview.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    game.userReview,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.typography.caption?.copyWith(
-                      color: theme.inactiveColor,
-                    ),
+                  style: theme.typography.caption?.copyWith(
+                    color: theme.textSecondary,
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
-        ],
+        ),
+      ],
+    );
+
+    if (onTap == null) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: theme.surfaceCardSecondary,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.dividerHairline),
+        ),
+        child: content,
+      );
+    }
+
+    return Semantics(
+      button: true,
+      label: '打开 ${game.displayName} 详情',
+      child: HoverButton(
+        onPressed: onTap,
+        builder: (context, states) => FocusBorder(
+          focused: states.isFocused,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: states.isHovered
+                  ? theme.subtleHover
+                  : theme.surfaceCardSecondary,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: theme.dividerHairline),
+            ),
+            child: content,
+          ),
+        ),
       ),
     );
   }
@@ -1336,8 +1520,7 @@ String _buildSummary(StatsPeriod period, AggStats s, List<TagItem> tags) {
   final topTags = tags.take(4).map((t) => t.name).toList();
   final topGame = s.topGames.isEmpty ? '' : s.topGames.first.name;
   final durText = fmtDuration(s.totalSeconds);
-  final avg = fmtDuration(
-      s.avgPerActiveDay ~/ (s.sessionCount == 0 ? 1 : s.sessionCount));
+  final avg = _avgPerSession(s);
   final tagText =
       topTags.isEmpty ? '' : '，最吸引你的关键词是「${topTags.join('」「')}」';
   final gameText = topGame.isEmpty ? '' : '，投入最多的作品是《$topGame》';

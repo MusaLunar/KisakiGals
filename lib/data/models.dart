@@ -307,6 +307,7 @@ class ActivityItem {
   final String coverPath;
   final DateTime at;
   final String detail;
+  final bool nsfw;
   ActivityItem({
     required this.type,
     required this.gameId,
@@ -314,6 +315,7 @@ class ActivityItem {
     required this.coverPath,
     required this.at,
     this.detail = '',
+    this.nsfw = false,
   });
 }
 

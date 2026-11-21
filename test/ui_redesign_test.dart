@@ -87,6 +87,12 @@ class _FakeAiController extends StateNotifier<AiState> implements AiController {
   Future<void> generateSummary() async {}
 
   @override
+  void cancelSummary() {}
+
+  @override
+  void cancelRecommendations() {}
+
+  @override
   Future<String> gatherPlayData() async => '';
 }
 

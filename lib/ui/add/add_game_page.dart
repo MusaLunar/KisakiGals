@@ -16,10 +16,12 @@ import '../../providers.dart';
 import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../../services/game_launcher.dart';
+import '../fluent/fluent_dialogs.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 import '../widgets/image_picker_dialog.dart';
 
@@ -80,7 +82,10 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
   bool _draggingOver = false;
   bool _searching = false;
   bool _hasSearched = false;
+  bool _sourcesExpanded = false;
   bool _addingCustom = false;
+  String? _searchError;
+  String? _customNameError;
   String? _addingGroupKey;
   String _exeDir = '';
   List<ScrapeHitGroup> _groups = const [];
@@ -107,6 +112,35 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
           if (mounted) _startSearch();
         });
       }
+    }
+    final pending = ref.read(pendingAddGameProvider);
+    if (pending != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _consumePendingRequest(pending);
+      });
+    }
+  }
+
+  void _consumePendingRequest(PendingAddGameRequest req) {
+    if (ref.read(pendingAddGameProvider) == req) {
+      ref.read(pendingAddGameProvider.notifier).state = null;
+    }
+    final dropPath = req.dropPath?.trim() ?? '';
+    if (dropPath.isNotEmpty) {
+      _applyLocalPaths([dropPath], notify: false);
+    }
+    final query = req.query.trim();
+    if (query.isNotEmpty) {
+      _nameController.text = query;
+      if (_customName.text.trim().isEmpty) {
+        _customName.text = query;
+      }
+    }
+    if (mounted) {
+      setState(() => _mode = _AddMode.scrape);
+    }
+    if (query.isNotEmpty && (widget.onSearch != null || tryAppServices() != null)) {
+      _startSearch();
     }
   }
 
@@ -273,6 +307,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     setState(() {
       _searching = true;
       _hasSearched = true;
+      _searchError = null;
     });
 
     try {
@@ -284,12 +319,14 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       setState(() {
         _groups = groups;
         _searching = false;
+        _searchError = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _groups = const [];
         _searching = false;
+        _searchError = '$e';
       });
       showNotice('刮削搜索失败：$e', error: true);
     }
@@ -491,8 +528,12 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
     if (_addingCustom) return;
     final name = _customName.text.trim();
     if (name.isEmpty) {
+      setState(() => _customNameError = '请填写游戏名称');
       showNotice('请填写游戏名称', error: true);
       return;
+    }
+    if (_customNameError != null) {
+      setState(() => _customNameError = null);
     }
 
     setState(() => _addingCustom = true);
@@ -549,6 +590,13 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<PendingAddGameRequest?>(pendingAddGameProvider, (prev, next) {
+      if (next != null) {
+        Future.microtask(() {
+          if (mounted) _consumePendingRequest(next);
+        });
+      }
+    });
     return ensureFluentScope(
       context,
       Builder(builder: _buildScaffold),
@@ -570,7 +618,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
       child: Stack(
         children: [
           ScaffoldPage(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+            padding: EdgeInsets.zero,
             header: Padding(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
               child: Row(
@@ -593,55 +641,44 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('添加游戏', style: theme.typography.titleLarge),
+                        Text('添加游戏', style: theme.typography.title),
                         const SizedBox(height: 2),
                         Text(
                           '拖拽 .exe / .lnk / 游戏目录导入，或搜索多平台元信息一键入库',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.typography.caption?.copyWith(
-                            color: theme.inactiveColor,
+                            color: theme.textSecondary,
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 12),
-                  ToggleButton(
-                    checked: _mode == _AddMode.scrape,
-                    onChanged: busy
-                        ? null
-                        : (_) => setState(() => _mode = _AddMode.scrape),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.search_16_regular, size: 15),
-                        SizedBox(width: 6),
-                        Text('搜刮入库'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  ToggleButton(
-                    checked: _mode == _AddMode.custom,
-                    onChanged: busy
-                        ? null
-                        : (_) => setState(() => _mode = _AddMode.custom),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.edit_16_regular, size: 15),
-                        SizedBox(width: 6),
-                        Text('自定义添加'),
-                      ],
-                    ),
+                  FluentSegmentedControl<_AddMode>(
+                    selected: _mode,
+                    onChanged: (next) {
+                      if (!busy) setState(() => _mode = next);
+                    },
+                    items: const [
+                      FluentSegmentItem<_AddMode>(
+                        value: _AddMode.scrape,
+                        label: '搜刮入库',
+                        icon: FluentIcons.search_16_regular,
+                      ),
+                      FluentSegmentItem<_AddMode>(
+                        value: _AddMode.custom,
+                        label: '自定义添加',
+                        icon: FluentIcons.edit_16_regular,
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
             content: SingleChildScrollView(
               controller: _scrollCtrl,
-              padding: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
               child: _mode == _AddMode.scrape
                   ? _buildScrapeWorkspace(context)
                   : _buildCustomWorkspace(context),
@@ -723,8 +760,6 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
 
   Widget _buildLocalImportCard(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
-    final isDark = theme.brightness == Brightness.dark;
     final hasLocal = _exeController.text.trim().isNotEmpty || _exeDir.isNotEmpty;
 
     return FluentSurfaceCard(
@@ -740,46 +775,68 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                 ? FluentStatusPill.label(
                     label: '已关联',
                     icon: FluentIcons.checkmark_circle_16_filled,
-                    color: isDark
-                        ? const Color(0xFF6CCB5F)
-                        : const Color(0xFF107C10),
+                    color: theme.successInk,
                   )
                 : const FluentBadge(text: '可选'),
           ),
           const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: isDark ? 0.08 : 0.05),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: accent.withValues(alpha: 0.25),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(FluentIcons.folder_add_24_regular, size: 28, color: accent),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '拖入 .exe / .lnk / 游戏文件夹到窗口',
-                        style: theme.typography.bodyStrong,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '自动识别启动程序并提取游戏名用于刮削',
-                        style: theme.typography.caption?.copyWith(
-                          color: theme.inactiveColor,
+          Semantics(
+            button: true,
+            label: '选择或拖入本地游戏启动文件',
+            child: Tooltip(
+              message: '点击选择 .exe / .lnk 启动程序，或直接拖拽到窗口',
+              child: HoverButton(
+                onPressed: _pickExe,
+                builder: (context, states) => FocusBorder(
+                  focused: states.isFocused,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: states.isHovered
+                          ? theme.accentTint
+                          : theme.accentTint.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: theme.accentInk.withValues(
+                          alpha: states.isHovered ? 0.55 : 0.30,
                         ),
                       ),
-                    ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          FluentIcons.folder_add_24_regular,
+                          size: 28,
+                          color: theme.accentInk,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '点击选择或拖入 .exe / .lnk / 游戏目录',
+                                style: theme.typography.bodyStrong,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '自动识别启动程序并提取游戏名用于刮削',
+                                style: theme.typography.caption?.copyWith(
+                                  color: theme.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -830,6 +887,9 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
 
   Widget _buildOnlineScrapeCard(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final disableAnim = fluentAnimationsDisabled(context);
+    final totalSources = _filterableSources.length;
+
     return FluentSurfaceCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -844,12 +904,18 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
           Row(
             children: [
               Expanded(
-                child: TextBox(
+                child: FluentSearchBox(
                   key: const ValueKey('add-search-box'),
                   controller: _nameController,
+                  compact: true,
                   enabled: !_searching,
                   placeholder: '输入游戏名（例：ATRI -My Dear Moments-）',
+                  onChanged: (_) => setState(() {}),
                   onSubmitted: (_) => _startSearch(),
+                  onCleared: () {
+                    _nameController.clear();
+                    setState(() {});
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -879,14 +945,55 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Text(
-                '数据源',
-                style: theme.typography.caption?.copyWith(
-                  color: theme.inactiveColor,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  toggled: _sourcesExpanded,
+                  label: '展开或收起数据源选择',
+                  child: HoverButton(
+                    onPressed: () =>
+                        setState(() => _sourcesExpanded = !_sourcesExpanded),
+                    builder: (context, states) => FocusBorder(
+                      focused: states.isFocused,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: states.isHovered
+                              ? theme.subtleHover
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _sourcesExpanded
+                                  ? FluentIcons.chevron_down_16_regular
+                                  : FluentIcons.chevron_right_16_regular,
+                              size: 13,
+                              color: theme.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                '数据源（已选 ${_selectedSources.length}/$totalSources）',
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.typography.caption?.copyWith(
+                                  color: theme.textSecondary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              const Spacer(),
               HyperlinkButton(
                 onPressed: _searching
                     ? null
@@ -909,31 +1016,63 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final entry in _filterableSources)
-                ToggleButton(
-                  checked: _selectedSources.contains(entry.key),
-                  onChanged: _searching
-                      ? null
-                      : (v) => _toggleSource(entry.key, v),
-                  child: Text(
-                    entry.value,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
+          if (disableAnim)
+            (_sourcesExpanded
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final entry in _filterableSources)
+                          ToggleButton(
+                            checked: _selectedSources.contains(entry.key),
+                            onChanged: _searching
+                                ? null
+                                : (v) => _toggleSource(entry.key, v),
+                            child: Text(
+                              entry.value,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                      ],
+                    ),
+                  )
+                : const SizedBox.shrink())
+          else
+            AnimatedSize(
+              duration: FluentMotion.fast,
+              curve: FluentMotion.enterCurve,
+              alignment: Alignment.topLeft,
+              child: _sourcesExpanded
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final entry in _filterableSources)
+                            ToggleButton(
+                              checked: _selectedSources.contains(entry.key),
+                              onChanged: _searching
+                                  ? null
+                                  : (v) => _toggleSource(entry.key, v),
+                              child: Text(
+                                entry.value,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
         ],
       ),
     );
   }
 
   Widget _buildResultsSection(BuildContext context, bool disableAnim) {
-    final theme = FluentTheme.of(context);
     if (_searching) {
       return FluentSurfaceCard(
         padding: const EdgeInsets.all(20),
@@ -954,15 +1093,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
             const SizedBox(height: 14),
             for (var i = 0; i < 2; i++) ...[
               if (i > 0) const SizedBox(height: 10),
-              Container(
-                height: 68,
-                decoration: BoxDecoration(
-                  color: theme.brightness == Brightness.dark
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.black.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ).fluentShimmer(disable: disableAnim),
+              const FluentCardSkeleton(height: 68),
             ],
           ],
         ),
@@ -976,6 +1107,31 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
           icon: FluentIcons.search_24_regular,
           title: '输入关键词开始搜刮',
           message: '支持按中文名、原名或别名跨平台检索；也可先在左侧关联本地游戏文件',
+        ),
+      );
+    }
+
+    if (_searchError != null) {
+      return FluentSurfaceCard(
+        padding: const EdgeInsets.all(16),
+        child: FluentEmptyState(
+          icon: FluentIcons.error_circle_24_regular,
+          title: '元信息搜索失败',
+          message: _searchError!,
+          action: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton(
+                onPressed: _startSearch,
+                child: const Text('重试搜索'),
+              ),
+              Button(
+                onPressed: () => setState(() => _mode = _AddMode.custom),
+                child: const Text('切换到自定义添加'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -1036,47 +1192,55 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: _pickCustomCover,
-                      child: hasCover
-                          ? FluentCoverImage(
-                              pathOrUrl: coverPath,
-                              width: 132,
-                              height: 186,
-                              radius: 6,
-                            )
-                          : Container(
-                              width: 132,
-                              height: 186,
-                              decoration: BoxDecoration(
-                                color: theme.brightness == Brightness.dark
-                                    ? Colors.white.withValues(alpha: 0.05)
-                                    : Colors.black.withValues(alpha: 0.04),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: theme.resources.cardStrokeColorDefault,
-                                ),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    FluentIcons.image_24_regular,
-                                    size: 32,
-                                    color: theme.inactiveColor,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    '选择封面',
-                                    style: theme.typography.caption?.copyWith(
-                                      color: theme.inactiveColor,
+                  Semantics(
+                    button: true,
+                    label: '选择游戏封面图',
+                    child: Tooltip(
+                      message: '点击选择本地封面图',
+                      child: HoverButton(
+                        onPressed: _pickCustomCover,
+                        builder: (context, states) => FocusBorder(
+                          focused: states.isFocused,
+                          child: hasCover
+                              ? FluentCoverImage(
+                                  pathOrUrl: coverPath,
+                                  width: 132,
+                                  height: 186,
+                                  radius: 6,
+                                )
+                              : Container(
+                                  width: 132,
+                                  height: 186,
+                                  decoration: BoxDecoration(
+                                    color: states.isHovered
+                                        ? theme.subtleHover
+                                        : theme.surfaceCardSecondary,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: theme.surfaceStroke,
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        FluentIcons.image_24_regular,
+                                        size: 32,
+                                        color: theme.textSecondary,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '选择封面',
+                                        style: theme.typography.caption
+                                            ?.copyWith(
+                                          color: theme.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 18),
@@ -1089,8 +1253,22 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                           child: TextBox(
                             controller: _customName,
                             placeholder: '输入作品名称',
+                            onChanged: (_) {
+                              if (_customNameError != null) {
+                                setState(() => _customNameError = null);
+                              }
+                            },
                           ),
                         ),
+                        if (_customNameError != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _customNameError!,
+                            style: theme.typography.caption?.copyWith(
+                              color: theme.dangerInk,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         InfoLabel(
                           label: '开发商 / 社团',
@@ -1174,7 +1352,7 @@ class _AddGamePageState extends ConsumerState<AddGamePage> {
                   child: Text(
                     '自定义添加不会联网刮削，仅登记你填写的作品信息。',
                     style: theme.typography.caption?.copyWith(
-                      color: theme.inactiveColor,
+                      color: theme.textSecondary,
                     ),
                   ),
                 ),
@@ -1231,7 +1409,6 @@ class _ScrapeResultExpander extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final g = group.merged;
     final scoreText = g.rating > 0 ? g.rating.toStringAsFixed(1) : null;
     final voteText = g.voteCount > 0 ? '${g.voteCount} 票' : null;
@@ -1268,6 +1445,28 @@ class _ScrapeResultExpander extends StatelessWidget {
           ),
         ],
       ),
+      trailing: added
+          ? FluentStatusPill.label(
+              label: '已入库',
+              icon: FluentIcons.checkmark_circle_16_filled,
+              color: theme.successInk,
+            )
+          : Tooltip(
+              message: '快速入库',
+              child: IconButton(
+                icon: addingThis
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: ProgressRing(strokeWidth: 2),
+                      )
+                    : const Icon(
+                        FluentIcons.arrow_download_20_regular,
+                        size: 16,
+                      ),
+                onPressed: busy ? null : onQuickAdd,
+              ),
+            ),
       content: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1289,7 +1488,7 @@ class _ScrapeResultExpander extends StatelessWidget {
                     child: Text(
                       '原名：${g.name}',
                       style: theme.typography.caption?.copyWith(
-                        color: theme.inactiveColor,
+                        color: theme.textSecondary,
                       ),
                     ),
                   ),
@@ -1302,7 +1501,7 @@ class _ScrapeResultExpander extends StatelessWidget {
                         if (g.releaseDate.isNotEmpty) '发售：${g.releaseDate}',
                       ].join(' · '),
                       style: theme.typography.caption?.copyWith(
-                        color: theme.inactiveColor,
+                        color: theme.textSecondary,
                       ),
                     ),
                   ),
@@ -1335,9 +1534,7 @@ class _ScrapeResultExpander extends StatelessWidget {
                       FluentStatusPill.label(
                         label: '已入库',
                         icon: FluentIcons.checkmark_circle_16_filled,
-                        color: isDark
-                            ? const Color(0xFF6CCB5F)
-                            : const Color(0xFF107C10),
+                        color: theme.successInk,
                       )
                     else ...[
                       Button(
@@ -1423,6 +1620,7 @@ class _ScrapeConfirmDialogState extends State<_ScrapeConfirmDialog> {
   late final TextEditingController _coverCtrl;
   late final TextEditingController _bgCtrl;
   final Map<String, TextEditingController> _sourceIdCtrls = {};
+  String? _nameError;
 
   @override
   void initState() {
@@ -1493,12 +1691,34 @@ class _ScrapeConfirmDialogState extends State<_ScrapeConfirmDialog> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                FluentCoverImage(
-                  pathOrUrl: _coverCtrl.text.trim(),
-                  nsfw: lead.nsfw,
-                  width: 96,
-                  height: 136,
-                  radius: 6,
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _coverCtrl,
+                  builder: (context, val, _) {
+                    final coverPath = val.text.trim();
+                    return Tooltip(
+                      message: coverPath.isNotEmpty ? '点击查看大图' : '暂无封面预览',
+                      child: HoverButton(
+                        onPressed: coverPath.isEmpty
+                            ? null
+                            : () => showFluentLightboxDialog(
+                                  context,
+                                  pathOrUrl: coverPath,
+                                  title: '封面预览',
+                                  caption: lead.displayName,
+                                ),
+                        builder: (context, states) => FocusBorder(
+                          focused: states.isFocused,
+                          child: FluentCoverImage(
+                            pathOrUrl: coverPath,
+                            nsfw: lead.nsfw,
+                            width: 96,
+                            height: 136,
+                            radius: 6,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -1507,13 +1727,36 @@ class _ScrapeConfirmDialogState extends State<_ScrapeConfirmDialog> {
                     children: [
                       InfoLabel(
                         label: '中文名称',
-                        child: TextBox(controller: _nameCnCtrl),
+                        child: TextBox(
+                          controller: _nameCnCtrl,
+                          onChanged: (_) {
+                            if (_nameError != null) {
+                              setState(() => _nameError = null);
+                            }
+                          },
+                        ),
                       ),
                       const SizedBox(height: 10),
                       InfoLabel(
                         label: '原始名称',
-                        child: TextBox(controller: _nameCtrl),
+                        child: TextBox(
+                          controller: _nameCtrl,
+                          onChanged: (_) {
+                            if (_nameError != null) {
+                              setState(() => _nameError = null);
+                            }
+                          },
+                        ),
                       ),
+                      if (_nameError != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _nameError!,
+                          style: theme.typography.caption?.copyWith(
+                            color: theme.dangerInk,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1549,7 +1792,7 @@ class _ScrapeConfirmDialogState extends State<_ScrapeConfirmDialog> {
               Text(
                 '关联程序：${widget.exePath}',
                 style: theme.typography.caption?.copyWith(
-                  color: theme.inactiveColor,
+                  color: theme.textSecondary,
                 ),
               ),
             ],
@@ -1582,19 +1825,27 @@ class _ScrapeConfirmDialogState extends State<_ScrapeConfirmDialog> {
           child: const Text('取消'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(
-            context,
-            _ScrapedCustomizeResult(
-              nameCn: _nameCnCtrl.text.trim(),
-              name: _nameCtrl.text.trim(),
-              coverPick: _coverCtrl.text.trim(),
-              bgPick: _bgCtrl.text.trim(),
-              sourceIds: {
-                for (final e in _sourceIdCtrls.entries)
-                  e.key: e.value.text.trim(),
-              },
-            ),
-          ),
+          onPressed: () {
+            final nameCn = _nameCnCtrl.text.trim();
+            final name = _nameCtrl.text.trim();
+            if (nameCn.isEmpty && name.isEmpty) {
+              setState(() => _nameError = '中文名称和原始名称至少填写一项');
+              return;
+            }
+            Navigator.pop(
+              context,
+              _ScrapedCustomizeResult(
+                nameCn: nameCn,
+                name: name,
+                coverPick: _coverCtrl.text.trim(),
+                bgPick: _bgCtrl.text.trim(),
+                sourceIds: {
+                  for (final e in _sourceIdCtrls.entries)
+                    e.key: e.value.text.trim(),
+                },
+              ),
+            );
+          },
           child: const Text('确认入库'),
         ),
       ],

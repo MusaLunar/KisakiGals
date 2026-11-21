@@ -1,4 +1,4 @@
-/// Fluent 2 游戏库网格卡片：2:3 封面 + 悬停 Acrylic 快捷操作条 + 右键 Flyout 菜单。
+/// Fluent 2 游戏库网格卡片：统一封面纵横比 + 键盘聚焦/无障碍语义 + Acrylic 悬停快捷操作条 + 右键 Flyout 菜单。
 library;
 
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
@@ -11,6 +11,7 @@ import '../../services/game_launch_service.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import 'game_actions.dart';
 
 class FluentGameCard extends ConsumerStatefulWidget {
@@ -42,10 +43,11 @@ class FluentGameCard extends ConsumerStatefulWidget {
 class _FluentGameCardState extends ConsumerState<FluentGameCard> {
   final FlyoutController _flyoutCtrl = FlyoutController();
   final GlobalKey _moreBtnKey = GlobalKey();
-  bool _hovered = false;
+  final ValueNotifier<bool> _hoveredNotifier = ValueNotifier<bool>(false);
 
   @override
   void dispose() {
+    _hoveredNotifier.dispose();
     _flyoutCtrl.dispose();
     super.dispose();
   }
@@ -87,10 +89,12 @@ class _FluentGameCardState extends ConsumerState<FluentGameCard> {
   Widget build(BuildContext context) {
     final game = widget.game;
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
-    final isRunning =
-        game.id != null && ref.watch(trackingGameProvider) == game.id;
+    final isDark = theme.isDark;
+    final accent = theme.accentInk;
+    final disableAnim = fluentAnimationsDisabled(context);
+    final isRunning = ref.watch(
+      trackingGameProvider.select((id) => game.id != null && id == game.id),
+    );
     final picked = widget.selectionMode && widget.selected;
 
     final rating = game.userRating > 0
@@ -99,78 +103,91 @@ class _FluentGameCardState extends ConsumerState<FluentGameCard> {
             ? widget.bestPlatformRating
             : null);
 
-    final baseBg =
-        isDark ? const Color(0xD82C2C2C) : const Color(0xEBFFFFFF);
-    final hoverBg =
-        isDark ? const Color(0xE8353535) : const Color(0xFFFFFFFF);
-    final cardBg = picked
-        ? Color.alphaBlend(accent.withValues(alpha: isDark ? 0.24 : 0.12), baseBg)
-        : (_hovered ? hoverBg : baseBg);
+    // 预构建并隔离封面节点，避免悬停/焦点态切换触发整卡重绘封面像素
+    final coverWidget = RepaintBoundary(
+      child: FluentCoverImage(
+        pathOrUrl: game.coverPath,
+        nsfw: game.nsfw,
+        radius: 0,
+        width: double.infinity,
+        height: double.infinity,
+        maxDecodeWidth: 440,
+      ),
+    );
 
-    final borderColor = picked || isRunning
-        ? accent
-        : (_hovered
-            ? accent.withValues(alpha: 0.72)
-            : (isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.07)));
-
-    final showActionStrip = (_hovered || isRunning) && !widget.selectionMode;
-
-    Widget buildCoverArea() => ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              RepaintBoundary(
-                child: AnimatedScale(
-                  scale: _hovered ? 1.035 : 1.0,
-                  duration: FluentMotion.fast,
-                  curve: FluentMotion.enterCurve,
-                  child: FluentCoverImage(
-                    pathOrUrl: game.coverPath,
-                    nsfw: game.nsfw,
-                    radius: 6,
-                    width: double.infinity,
-                    height: double.infinity,
+    Widget buildCoverArea({required bool statesHovered, required bool isFocused}) {
+      return ValueListenableBuilder<bool>(
+        valueListenable: _hoveredNotifier,
+        child: coverWidget,
+        builder: (context, pointerHovered, staticCover) {
+          final isHovered = pointerHovered || statesHovered;
+          final activeHighlight = isHovered || isFocused;
+          final showActionStrip =
+              (activeHighlight || isRunning) && !widget.selectionMode;
+          final showFavChip =
+              widget.selectionMode || game.isFavorite || activeHighlight;
+          final resolvedCover = staticCover ?? coverWidget;
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (disableAnim)
+                  resolvedCover
+                else
+                  AnimatedScale(
+                    scale: isHovered ? 1.03 : 1.0,
+                    duration: FluentMotion.fast,
+                    curve: FluentMotion.enterCurve,
+                    child: resolvedCover,
                   ),
-                ),
-              ),
-              if (isRunning)
-                Positioned(
-                  left: 6,
-                  top: 6,
-                  child: FluentBadge(
-                    icon: FluentIcons.play_16_filled,
-                    text: '游戏中',
-                    foreground: Colors.white,
-                    background: accent.withValues(alpha: 0.92),
+                if (isRunning)
+                  Positioned(
+                    left: 6,
+                    top: 6,
+                    child: FluentBadge(
+                      icon: FluentIcons.play_16_filled,
+                      text: '游戏中',
+                      foreground: theme.onAccentInk,
+                      background: accent.withValues(alpha: 0.94),
+                    ),
                   ),
-                ),
-              Positioned(
-                right: 6,
-                top: 6,
-                child: widget.selectionMode
-                    ? Checkbox(
+                if (widget.selectionMode)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xBB1F1F1F)
+                            : const Color(0xD8FFFFFF),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: picked ? accent : theme.surfaceStroke,
+                        ),
+                      ),
+                      child: Checkbox(
                         checked: picked,
                         onChanged: (v) =>
                             widget.onSelectionChanged?.call(v == true),
-                      )
-                    : _CardFavoriteChip(
-                        favorite: game.isFavorite,
-                        onTap: () => toggleGameFavorite(ref, game),
                       ),
-              ),
-              Positioned(
-                left: 6,
-                right: 6,
-                bottom: 6,
-                child: IgnorePointer(
-                  ignoring: !showActionStrip,
-                  child: AnimatedOpacity(
-                    opacity: showActionStrip ? 1.0 : 0.0,
-                    duration: FluentMotion.fast,
-                    curve: FluentMotion.enterCurve,
+                    ),
+                  )
+                else if (showFavChip)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: _CardFavoriteChip(
+                      favorite: game.isFavorite,
+                      onTap: () => toggleGameFavorite(ref, game),
+                    ),
+                  ),
+                if (showActionStrip)
+                  Positioned(
+                    left: 6,
+                    right: 6,
+                    bottom: 6,
                     child: FluentAcrylicPanel(
                       radius: 6,
                       padding: const EdgeInsets.symmetric(
@@ -200,6 +217,7 @@ class _FluentGameCardState extends ConsumerState<FluentGameCard> {
                             key: _moreBtnKey,
                             icon: FluentIcons.more_horizontal_16_regular,
                             label: '更多',
+                            tooltip: '更多操作 (右键)',
                             onTap: () =>
                                 _openContextMenu(_moreAnchorPosition()),
                           ),
@@ -207,11 +225,12 @@ class _FluentGameCardState extends ConsumerState<FluentGameCard> {
                       ),
                     ),
                   ),
-                ),
-              ),
-            ],
-          ),
-        );
+              ],
+            ),
+          );
+        },
+      );
+    }
 
     final metaSection = <Widget>[
       const SizedBox(height: 8),
@@ -226,7 +245,7 @@ class _FluentGameCardState extends ConsumerState<FluentGameCard> {
         _secondaryText(game),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: theme.typography.caption?.copyWith(color: theme.inactiveColor),
+        style: theme.typography.caption?.copyWith(color: theme.textSecondary),
       ),
       const SizedBox(height: 6),
       FluentR18ScoreRow(
@@ -240,58 +259,94 @@ class _FluentGameCardState extends ConsumerState<FluentGameCard> {
 
     return FlyoutTarget(
       controller: _flyoutCtrl,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: _handleTap,
-          onSecondaryTapUp: (details) =>
-              _openContextMenu(details.globalPosition),
-          child: AnimatedContainer(
-            duration: FluentMotion.fast,
-            curve: FluentMotion.enterCurve,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: borderColor,
-                width: (picked || isRunning) ? 1.5 : 1.0,
-              ),
-              boxShadow: _hovered
-                  ? [
-                      BoxShadow(
-                        color:
-                            Colors.black.withValues(alpha: isDark ? 0.28 : 0.09),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.hasBoundedHeight) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(child: buildCoverArea()),
-                      ...metaSection,
-                    ],
-                  );
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AspectRatio(aspectRatio: 2 / 3, child: buildCoverArea()),
-                    ...metaSection,
-                  ],
-                );
-              },
-            ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onSecondaryTapUp: (details) => _openContextMenu(details.globalPosition),
+        child: Semantics(
+          button: true,
+          selected: picked,
+          label: '${game.displayName}，${game.playStatus.label}',
+          child: HoverButton(
+            cursor: SystemMouseCursors.click,
+            onPressed: _handleTap,
+            onPointerEnter: (_) => _hoveredNotifier.value = true,
+            onPointerExit: (_) => _hoveredNotifier.value = false,
+            builder: (context, states) {
+              final coverWidgetBuilt = buildCoverArea(
+                statesHovered: states.isHovered,
+                isFocused: states.isFocused,
+              );
+              final baseBg =
+                  isDark ? const Color(0xD82C2C2C) : const Color(0xEBFFFFFF);
+              final hoverBg =
+                  isDark ? const Color(0xE8353535) : const Color(0xFFFFFFFF);
+              final cardBg = picked
+                  ? Color.alphaBlend(
+                      accent.withValues(alpha: isDark ? 0.22 : 0.12),
+                      baseBg,
+                    )
+                  : states.isPressed
+                      ? Color.alphaBlend(theme.subtlePressed, baseBg)
+                      : (states.isHovered ? hoverBg : baseBg);
+
+              final borderColor = (picked || isRunning)
+                  ? accent
+                  : (states.isHovered
+                      ? accent.withValues(alpha: 0.72)
+                      : theme.surfaceStroke);
+
+              return FocusBorder(
+                focused: states.isFocused,
+                renderOutside: false,
+                child: AnimatedContainer(
+                  duration: disableAnim ? Duration.zero : FluentMotion.fast,
+                  curve: FluentMotion.enterCurve,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: borderColor,
+                      width: 1,
+                    ),
+                    boxShadow: (states.isHovered || isRunning)
+                        ? [
+                            BoxShadow(
+                              color: Colors.black
+                                  .withValues(alpha: isDark ? 0.28 : 0.09),
+                              blurRadius: 14,
+                              offset: const Offset(0, 5),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      if (constraints.hasBoundedHeight) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: coverWidgetBuilt),
+                            ...metaSection,
+                          ],
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AspectRatio(
+                            aspectRatio: 2 / 3,
+                            child: coverWidgetBuilt,
+                          ),
+                          ...metaSection,
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -299,8 +354,10 @@ class _FluentGameCardState extends ConsumerState<FluentGameCard> {
   }
 
   static String _secondaryText(Game g) {
-    if (g.developer.isNotEmpty) return g.developer;
-    if (g.totalSeconds > 0) return fmtDuration(g.totalSeconds);
+    final parts = <String>[];
+    if (g.developer.isNotEmpty) parts.add(g.developer);
+    if (g.totalSeconds > 0) parts.add(fmtDuration(g.totalSeconds));
+    if (parts.isNotEmpty) return parts.join(' · ');
     if (g.lastPlayedAt != null) return '上次 ${fmtRelativeShort(g.lastPlayedAt!)}';
     return '尚未游玩';
   }
@@ -314,36 +371,58 @@ class _CardFavoriteChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
     return Tooltip(
       message: favorite ? '取消收藏' : '收藏',
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 26,
-          height: 26,
-          decoration: BoxDecoration(
-            color: const Color(0xAA1F1F1F),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
-          ),
-          alignment: Alignment.center,
-          child: Icon(
-            favorite
-                ? FluentIcons.heart_16_filled
-                : FluentIcons.heart_16_regular,
-            size: 13,
-            color: favorite ? const Color(0xFFFF7AA2) : Colors.white,
-          ),
+      child: Semantics(
+        button: true,
+        selected: favorite,
+        label: favorite ? '取消收藏' : '收藏',
+        child: HoverButton(
+          cursor: SystemMouseCursors.click,
+          onPressed: onTap,
+          builder: (context, states) {
+            final bg = states.isPressed
+                ? const Color(0xCC2C2C2C)
+                : states.isHovered
+                    ? const Color(0xCC222222)
+                    : const Color(0xAA1F1F1F);
+            return FocusBorder(
+              focused: states.isFocused,
+              renderOutside: false,
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: bg,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white
+                        .withValues(alpha: states.isHovered ? 0.42 : 0.22),
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  favorite
+                      ? FluentIcons.heart_16_filled
+                      : FluentIcons.heart_16_regular,
+                  size: 14,
+                  color: favorite ? theme.favoriteInk : Colors.white,
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _StripButton extends StatefulWidget {
+class _StripButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color? accent;
+  final String? tooltip;
   final VoidCallback onTap;
 
   const _StripButton({
@@ -352,58 +431,60 @@ class _StripButton extends StatefulWidget {
     required this.label,
     required this.onTap,
     this.accent,
+    this.tooltip,
   });
-
-  @override
-  State<_StripButton> createState() => _StripButtonState();
-}
-
-class _StripButtonState extends State<_StripButton> {
-  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final fg = widget.accent ??
-        (isDark ? Colors.white : const Color(0xFF1F1F1F));
-    final hoverBg = isDark
-        ? Colors.white.withValues(alpha: 0.12)
-        : Colors.black.withValues(alpha: 0.08);
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          decoration: BoxDecoration(
-            color: _hovered ? hoverBg : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(widget.icon, size: 13, color: fg),
-                const SizedBox(width: 4),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: fg,
+    final btn = Semantics(
+      button: true,
+      label: label,
+      child: HoverButton(
+        cursor: SystemMouseCursors.click,
+        onPressed: onTap,
+        builder: (context, states) {
+          final fg = accent ?? theme.textPrimary;
+          final bg = states.isPressed
+              ? theme.subtlePressed
+              : states.isHovered
+                  ? theme.subtleHover
+                  : Colors.transparent;
+          return FocusBorder(
+            focused: states.isFocused,
+            renderOutside: false,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 13, color: fg),
+                  const SizedBox(width: 4),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: fg,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
+    if (tooltip != null && tooltip!.isNotEmpty) {
+      return Tooltip(message: tooltip!, child: btn);
+    }
+    return btn;
   }
 }

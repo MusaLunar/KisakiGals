@@ -4,9 +4,8 @@
 /// 媒体画廊与跨媒体衍生（动画 / 音乐 / 漫画 / 轻小说）以及站点发布页下载外链。
 library;
 
-import 'dart:ui' show ImageFilter;
-
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models.dart';
@@ -14,11 +13,13 @@ import '../../providers.dart';
 import '../../scraping/apply.dart';
 import '../../scraping/scraped_game.dart';
 import '../../services/game_explore_service.dart';
+import '../fluent/fluent_chrome.dart';
 import '../fluent/fluent_dialogs.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 import 'discover_state.dart';
 import 'resource_links.dart';
@@ -28,7 +29,7 @@ enum ExplorePageTab {
   overview('百科资料', FluentIcons.info_16_regular),
   media('媒体', FluentIcons.image_16_regular),
   anime('动画', FluentIcons.play_circle_16_regular),
-  music('音乐', FluentIcons.sparkle_16_regular),
+  music('音乐', FluentIcons.music_note_2_16_regular),
   manga('漫画', FluentIcons.document_16_regular),
   novel('轻小说', FluentIcons.bookmark_16_regular),
   download('下载', FluentIcons.arrow_download_20_regular);
@@ -219,7 +220,9 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
     if (target == null) return;
     Scrollable.ensureVisible(
       target,
-      duration: FluentMotion.standard,
+      duration: fluentAnimationsDisabled(context)
+          ? Duration.zero
+          : FluentMotion.standard,
       curve: FluentMotion.enterCurve,
       alignment: 0.05,
     );
@@ -246,95 +249,101 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
     return ensureFluentScope(
       context,
       Builder(
-        builder: (ctx) => ScaffoldPage(
-          padding: EdgeInsets.zero,
-          header: _buildTopHeader(ctx),
-          content: _buildBody(ctx, libIndex),
-        ),
+        builder: (ctx) {
+          void handleBack() {
+            if (FocusManager.instance.primaryFocus?.context?.widget
+                is EditableText) {
+              return;
+            }
+            if (Navigator.of(ctx).canPop()) {
+              Navigator.of(ctx).maybePop();
+            }
+          }
+
+          return Shortcuts(
+            shortcuts: <ShortcutActivator, Intent>{
+              const SingleActivator(LogicalKeyboardKey.escape):
+                  VoidCallbackIntent(handleBack),
+              const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+                  VoidCallbackIntent(handleBack),
+            },
+            child: Actions(
+              actions: <Type, Action<Intent>>{
+                VoidCallbackIntent: CallbackAction<VoidCallbackIntent>(
+                  onInvoke: (intent) {
+                    intent.callback();
+                    return null;
+                  },
+                ),
+              },
+              child: Focus(
+                autofocus: true,
+                child: ScaffoldPage(
+                  padding: EdgeInsets.zero,
+                  header: _buildTopHeader(ctx),
+                  content: _buildBody(ctx, libIndex),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
 
   Widget _buildTopHeader(BuildContext context) {
-    final theme = FluentTheme.of(context);
     final detail = _detail;
     final title = detail?.title ?? widget.seedGame.displayName;
     final canPop = Navigator.of(context).canPop();
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      decoration: BoxDecoration(
-        color: theme.micaBackgroundColor,
-        border: Border(
-          bottom: BorderSide(color: theme.resources.dividerStrokeColorDefault),
-        ),
-      ),
-      child: Row(
-        children: [
-          if (canPop) ...[
-            Tooltip(
-              message: '返回上一页',
-              child: IconButton(
-                icon: const Icon(FluentIcons.chevron_left_16_regular, size: 16),
-                onPressed: () => Navigator.of(context).maybePop(),
-              ),
-            ),
-            const SizedBox(width: 6),
-          ],
-          Expanded(
-            child: BreadcrumbBar<String>(
-              items: [
-                const BreadcrumbItem<String>(
-                  label: Text('探索'),
-                  value: 'explore',
-                ),
-                BreadcrumbItem<String>(
-                  label: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  value: 'current',
-                ),
-              ],
-              onItemPressed: (item) {
-                if (item.value == 'explore' && canPop) {
-                  Navigator.of(context).maybePop();
-                }
-              },
-            ),
+    return FluentSubpageTitleBar(
+      onBack: () {
+        if (canPop) {
+          Navigator.of(context).maybePop();
+        }
+      },
+      breadcrumb: BreadcrumbBar<String>(
+        items: [
+          const BreadcrumbItem<String>(
+            label: Text('探索'),
+            value: 'explore',
           ),
-          if (detail != null) ...[
-            const SizedBox(width: 8),
-            Wrap(
-              spacing: 6,
-              children: [
-                if (detail.nextmoeId.isNotEmpty)
-                  FluentBadge(text: 'NextMoe ${detail.nextmoeId}'),
-                if (detail.bangumiId.isNotEmpty)
-                  FluentBadge(text: 'BGM ${detail.bangumiId}'),
-                if (detail.vndbId.isNotEmpty)
-                  FluentBadge(text: 'VNDB ${detail.vndbId}'),
-              ],
+          BreadcrumbItem<String>(
+            label: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-          ],
-          const SizedBox(width: 8),
-          if (widget.localGameId != null) ...[
-            Button(
-              onPressed: () => openGameDetail(context, widget.localGameId!),
-              child: const Text('库内详情'),
-            ),
-            const SizedBox(width: 8),
-          ],
-          Tooltip(
-            message: '刷新百科数据',
-            child: IconButton(
-              icon: const Icon(FluentIcons.arrow_clockwise_16_regular, size: 16),
-              onPressed: _loading ? null : () => _load(forceRefresh: true),
-            ),
+            value: 'current',
           ),
         ],
+        onItemPressed: (item) {
+          if (item.value == 'explore' && canPop) {
+            Navigator.of(context).maybePop();
+          }
+        },
       ),
+      trailing: [
+        if (detail != null)
+          Wrap(
+            spacing: 6,
+            children: [
+              if (detail.nextmoeId.isNotEmpty)
+                FluentBadge(text: 'NextMoe ${detail.nextmoeId}'),
+              if (detail.bangumiId.isNotEmpty)
+                FluentBadge(text: 'BGM ${detail.bangumiId}'),
+              if (detail.vndbId.isNotEmpty)
+                FluentBadge(text: 'VNDB ${detail.vndbId}'),
+            ],
+          ),
+        Tooltip(
+          message: '刷新百科数据',
+          child: IconButton(
+            icon: const Icon(FluentIcons.arrow_clockwise_16_regular, size: 16),
+            onPressed: _loading ? null : () => _load(forceRefresh: true),
+          ),
+        ),
+      ],
     );
   }
 
@@ -372,17 +381,18 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
     final localId = widget.localGameId ?? matchedLocal?.id;
     final inLibrary = localId != null;
 
+    final disableAnim = fluentAnimationsDisabled(context);
     return ListView(
       controller: _scroll,
       padding: const EdgeInsets.fromLTRB(24, 18, 24, 32),
       children: [
         _buildHeroStage(context, detail, inLibrary: inLibrary, localId: localId)
-            .fluentEntrance(index: 0),
+            .fluentEntrance(index: 0, disable: disableAnim),
         const SizedBox(height: 16),
         _buildTabStrip(context, detail),
         const SizedBox(height: 16),
         AnimatedSwitcher(
-          duration: FluentMotion.standard,
+          duration: disableAnim ? Duration.zero : FluentMotion.standard,
           switchInCurve: FluentMotion.enterCurve,
           child: KeyedSubtree(
             key: ValueKey<ExplorePageTab>(_activeTab),
@@ -400,7 +410,8 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
     required int? localId,
   }) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = theme.isDark;
+    final disableAnim = fluentAnimationsDisabled(context);
     final bgMedia = detail.bannerUrl.isNotEmpty
         ? detail.bannerUrl
         : (detail.coverUrl.isNotEmpty ? detail.coverUrl : detail.seedGame.coverUrl);
@@ -425,243 +436,262 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    theme.accentColor.withValues(alpha: isDark ? 0.22 : 0.12),
-                    theme.resources.cardBackgroundFillColorDefault,
-                  ],
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.surfaceCard,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: theme.surfaceStroke),
+        ),
+        child: Stack(
+          children: [
+            if (bgMedia.isNotEmpty)
+              Positioned.fill(
+                child: Opacity(
+                  opacity: isDark ? 0.16 : 0.10,
+                  child: FluentCoverImage(
+                    pathOrUrl: bgMedia,
+                    nsfw: detail.nsfw,
+                    allowRevealOnHover: false,
+                    radius: 0,
+                  ),
                 ),
               ),
-              child: bgMedia.isNotEmpty
-                  ? Opacity(
-                      opacity: isDark ? 0.25 : 0.16,
-                      child: ImageFiltered(
-                        imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                        child: FluentCoverImage(
-                          pathOrUrl: bgMedia,
-                          nsfw: false,
-                          allowRevealOnHover: false,
-                          radius: 0,
-                        ),
-                      ),
-                    )
-                  : null,
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      theme.accentTint,
+                      theme.surfaceCard.withValues(alpha: isDark ? 0.88 : 0.92),
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ),
-          FluentAcrylicPanel(
-            padding: const EdgeInsets.all(20),
-            radius: 10,
-            luminosityAlpha: isDark ? 0.78 : 0.84,
-            tintAlpha: isDark ? 0.72 : 0.80,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final wide = constraints.maxWidth >= 620;
-                final coverWidget = GestureDetector(
-                  onTap: () => showFluentLightboxDialog(
-                    context,
-                    pathOrUrl: coverMedia,
-                    title: '图片预览',
-                    caption: detail.title,
-                  ),
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: FluentCoverImage(
-                      pathOrUrl: coverMedia,
-                      nsfw: detail.nsfw,
-                      width: wide ? 160 : 120,
-                      height: wide ? 236 : 178,
-                      radius: 8,
-                    ),
-                  ),
-                );
-
-                final infoColumn = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      detail.title,
-                      style: theme.typography.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (detail.originalTitle.isNotEmpty &&
-                        detail.originalTitle != detail.title) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        detail.originalTitle,
-                        style: theme.typography.subtitle?.copyWith(
-                          fontSize: 14,
-                          color: theme.resources.textFillColorSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    if (detail.aliases.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '别名：${detail.aliases.take(4).join(' / ')}',
-                        style: theme.typography.caption?.copyWith(
-                          color: theme.resources.textFillColorSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    FluentR18ScoreRow(
-                      nsfw: detail.nsfw,
-                      scoreText: scoreText,
-                      voteText: voteText,
-                      trailing: [
-                        for (final r in secondaryRatings)
-                          FluentBadge(
-                            text: r.voteCount > 0
-                                ? '${r.label} ${r.displayScore} (${r.voteCount})'
-                                : '${r.label} ${r.displayScore}',
-                            icon: FluentIcons.star_16_regular,
-                            onTap: r.url.isNotEmpty
-                                ? () => openExternalExploreUrl(r.url)
-                                : null,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      children: [
-                        if (detail.developers.isNotEmpty)
-                          FluentBadge(
-                            text: detail.developers.join(' / '),
-                            icon: FluentIcons.building_16_regular,
-                          ),
-                        if (detail.releaseDate.isNotEmpty)
-                          FluentBadge(
-                            text: detail.releaseDate,
-                            icon: FluentIcons.calendar_16_regular,
-                          ),
-                        for (final eng in detail.engines.take(2))
-                          FluentBadge(text: eng),
-                        for (final s in detail.series.take(2))
-                          FluentBadge(text: '系列：$s'),
-                      ],
-                    ),
-                    if (detail.summary.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        detail.summary,
-                        style: theme.typography.body,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 8,
-                      children: [
-                        if (localId != null)
-                          FilledButton(
-                            onPressed: () => openGameDetail(context, localId),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(
-                                  FluentIcons.checkmark_circle_16_filled,
-                                  size: 15,
-                                ),
-                                SizedBox(width: 6),
-                                Text('在库中查看'),
-                              ],
-                            ),
-                          )
-                        else
-                          FilledButton(
-                            onPressed:
-                                _adding ? null : () => _handleAdd(detail),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (_adding)
-                                  const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: ProgressRing(strokeWidth: 2),
-                                  )
-                                else
-                                  const Icon(FluentIcons.add_16_regular,
-                                      size: 15),
-                                const SizedBox(width: 6),
-                                const Text('一键入库'),
-                              ],
-                            ),
-                          ),
-                        if (detail.screenshots.isNotEmpty ||
-                            coverMedia.isNotEmpty)
-                          Button(
-                            onPressed: () {
-                              if (detail.screenshots.isNotEmpty) {
-                                setState(
-                                    () => _activeTab = ExplorePageTab.media);
-                              } else {
-                                showFluentLightboxDialog(
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth >= 620;
+                  final coverWidget = Semantics(
+                    button: true,
+                    label: '查看大图预览',
+                    child: Tooltip(
+                      message: '查看大图',
+                      child: HoverButton(
+                        onPressed: coverMedia.isEmpty
+                            ? null
+                            : () => showFluentLightboxDialog(
                                   context,
                                   pathOrUrl: coverMedia,
                                   title: '图片预览',
                                   caption: detail.title,
-                                );
-                              }
-                            },
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(FluentIcons.image_16_regular, size: 15),
-                                SizedBox(width: 6),
-                                Text('画廊大图'),
-                              ],
+                                ),
+                        builder: (context, states) => FocusBorder(
+                          focused: states.isFocused,
+                          child: AnimatedOpacity(
+                            duration:
+                                disableAnim ? Duration.zero : FluentMotion.fast,
+                            opacity: states.isHovered ? 0.92 : 1.0,
+                            child: FluentCoverImage(
+                              pathOrUrl: coverMedia,
+                              nsfw: detail.nsfw,
+                              width: wide ? 160 : 120,
+                              height: wide ? 236 : 178,
+                              radius: 8,
                             ),
                           ),
-                      ],
+                        ),
+                      ),
                     ),
-                  ],
-                );
+                  );
 
-                if (wide) {
-                  return Row(
+                  final infoColumn = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      coverWidget,
-                      const SizedBox(width: 20),
-                      Expanded(child: infoColumn),
+                      Text(
+                        detail.title,
+                        style: theme.typography.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (detail.originalTitle.isNotEmpty &&
+                          detail.originalTitle != detail.title) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          detail.originalTitle,
+                          style: theme.typography.subtitle?.copyWith(
+                            fontSize: 14,
+                            color: theme.textSecondary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      if (detail.aliases.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '别名：${detail.aliases.take(4).join(' / ')}',
+                          style: theme.typography.caption?.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      FluentR18ScoreRow(
+                        nsfw: detail.nsfw,
+                        scoreText: scoreText,
+                        voteText: voteText,
+                        trailing: [
+                          for (final r in secondaryRatings)
+                            FluentBadge(
+                              text: r.voteCount > 0
+                                  ? '${r.label} ${r.displayScore} (${r.voteCount})'
+                                  : '${r.label} ${r.displayScore}',
+                              icon: FluentIcons.star_16_regular,
+                              onTap: r.url.isNotEmpty
+                                  ? () => openExternalExploreUrl(r.url)
+                                  : null,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          if (detail.developers.isNotEmpty)
+                            FluentBadge(
+                              text: detail.developers.join(' / '),
+                              icon: FluentIcons.building_16_regular,
+                            ),
+                          if (detail.releaseDate.isNotEmpty)
+                            FluentBadge(
+                              text: detail.releaseDate,
+                              icon: FluentIcons.calendar_16_regular,
+                            ),
+                          for (final eng in detail.engines.take(2))
+                            FluentBadge(text: eng),
+                          for (final s in detail.series.take(2))
+                            FluentBadge(text: '系列：$s'),
+                        ],
+                      ),
+                      if (detail.summary.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          detail.summary,
+                          style: theme.typography.body,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          if (localId != null)
+                            FilledButton(
+                              onPressed: () => openGameDetail(context, localId),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    FluentIcons.checkmark_circle_16_filled,
+                                    size: 15,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text('在库中查看'),
+                                ],
+                              ),
+                            )
+                          else
+                            FilledButton(
+                              onPressed:
+                                  _adding ? null : () => _handleAdd(detail),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (_adding)
+                                    const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: ProgressRing(strokeWidth: 2),
+                                    )
+                                  else
+                                    const Icon(
+                                      FluentIcons.add_16_regular,
+                                      size: 15,
+                                    ),
+                                  const SizedBox(width: 6),
+                                  const Text('一键入库'),
+                                ],
+                              ),
+                            ),
+                          if (detail.screenshots.isNotEmpty ||
+                              coverMedia.isNotEmpty)
+                            Button(
+                              onPressed: () {
+                                if (detail.screenshots.isNotEmpty) {
+                                  setState(
+                                      () => _activeTab = ExplorePageTab.media);
+                                } else {
+                                  showFluentLightboxDialog(
+                                    context,
+                                    pathOrUrl: coverMedia,
+                                    title: '图片预览',
+                                    caption: detail.title,
+                                  );
+                                }
+                              },
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(FluentIcons.image_16_regular, size: 15),
+                                  SizedBox(width: 6),
+                                  Text('画廊大图'),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   );
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(child: coverWidget),
-                    const SizedBox(height: 14),
-                    infoColumn,
-                  ],
-                );
-              },
+
+                  if (wide) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        coverWidget,
+                        const SizedBox(width: 20),
+                        Expanded(child: infoColumn),
+                      ],
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(child: coverWidget),
+                      const SizedBox(height: 14),
+                      infoColumn,
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildTabStrip(BuildContext context, ExploreWorkDetail detail) {
     final theme = FluentTheme.of(context);
+    final disableAnim = fluentAnimationsDisabled(context);
     return FluentSurfaceCard(
       padding: const EdgeInsets.all(4),
       child: SingleChildScrollView(
@@ -671,63 +701,75 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
             for (final tab in ExplorePageTab.values)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: HoverButton(
-                  onPressed: () => setState(() => _activeTab = tab),
-                  builder: (context, states) {
-                    final selected = _activeTab == tab;
-                    final count = _tabCount(detail, tab);
-                    return AnimatedContainer(
-                      duration: FluentMotion.fast,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? theme.accentColor.withValues(alpha: 0.14)
-                            : states.isHovered
-                                ? theme.resources.subtleFillColorSecondary
-                                : Colors.transparent,
-                        borderRadius: BorderRadius.circular(6),
-                        border: selected
-                            ? Border.all(
-                                color: theme.accentColor.withValues(alpha: 0.45),
-                              )
-                            : null,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            tab.icon,
-                            size: 15,
+                child: Semantics(
+                  button: true,
+                  selected: _activeTab == tab,
+                  label: tab.label,
+                  child: HoverButton(
+                    onPressed: () => setState(() => _activeTab = tab),
+                    builder: (context, states) {
+                      final selected = _activeTab == tab;
+                      final count = _tabCount(detail, tab);
+                      return FocusBorder(
+                        focused: states.isFocused,
+                        child: AnimatedContainer(
+                          duration:
+                              disableAnim ? Duration.zero : FluentMotion.fast,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
                             color: selected
-                                ? theme.accentColor
-                                : theme.resources.textFillColorSecondary,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            tab.label,
-                            style: theme.typography.body?.copyWith(
-                              fontSize: 13,
-                              fontWeight:
-                                  selected ? FontWeight.w600 : FontWeight.w400,
+                                ? theme.accentTint
+                                : states.isHovered
+                                    ? theme.subtleHover
+                                    : Colors.transparent,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
                               color: selected
-                                  ? theme.accentColor
-                                  : theme.resources.textFillColorPrimary,
+                                  ? theme.accentInk.withValues(alpha: 0.45)
+                                  : Colors.transparent,
                             ),
                           ),
-                          if (tab != ExplorePageTab.overview && count > 0) ...[
-                            const SizedBox(width: 6),
-                            FluentBadge(
-                              text: '$count',
-                              foreground: selected ? theme.accentColor : null,
-                            ),
-                          ],
-                        ],
-                      ),
-                    );
-                  },
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                tab.icon,
+                                size: 15,
+                                color: selected
+                                    ? theme.accentInk
+                                    : theme.textSecondary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                tab.label,
+                                style: theme.typography.body?.copyWith(
+                                  fontSize: 13,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: selected
+                                      ? theme.accentInk
+                                      : theme.textPrimary,
+                                ),
+                              ),
+                              if (tab != ExplorePageTab.overview &&
+                                  count > 0) ...[
+                                const SizedBox(width: 6),
+                                FluentBadge(
+                                  text: '$count',
+                                  foreground:
+                                      selected ? theme.accentInk : null,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
           ],
@@ -939,30 +981,31 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
           FluentSectionHeader(
             title: '角色与声优',
             icon: FluentIcons.heart_16_regular,
-            trailing: Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                for (final r in const [
-                  (id: 'all', label: '全部'),
-                  (id: 'main', label: '主角'),
-                  (id: 'secondary', label: '配角'),
-                  (id: 'appears', label: '客串'),
-                ])
-                  _AnchorChip(
-                    label: r.label,
-                    selected: _characterRoleFilter == r.id,
-                    onTap: () =>
-                        setState(() => _characterRoleFilter = r.id),
-                  ),
-                Checkbox(
-                  checked: _showSpoilers,
-                  onChanged: (v) => setState(() => _showSpoilers = v ?? false),
-                  content: const Text('含剧透角色'),
+            trailing: FluentBadge(text: '${filtered.length} 名'),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              for (final r in const [
+                (id: 'all', label: '全部'),
+                (id: 'main', label: '主角'),
+                (id: 'secondary', label: '配角'),
+                (id: 'appears', label: '客串'),
+              ])
+                _AnchorChip(
+                  label: r.label,
+                  selected: _characterRoleFilter == r.id,
+                  onTap: () => setState(() => _characterRoleFilter = r.id),
                 ),
-              ],
-            ),
+              Checkbox(
+                checked: _showSpoilers,
+                onChanged: (v) => setState(() => _showSpoilers = v ?? false),
+                content: const Text('含剧透角色'),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           if (filtered.isEmpty)
@@ -985,10 +1028,13 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                     for (final c in filtered)
                       SizedBox(
                         width: itemW,
-                        child: FluentSurfaceCard(
+                        child: Container(
                           padding: const EdgeInsets.all(10),
-                          backgroundColor:
-                              theme.resources.subtleFillColorSecondary,
+                          decoration: BoxDecoration(
+                            color: theme.surfaceCardSecondary,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: theme.dividerHairline),
+                          ),
                           child: Row(
                             children: [
                               FluentCoverImage(
@@ -1013,6 +1059,15 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
+                                        if (c.spoiler) ...[
+                                          FluentBadge(
+                                            text: '剧透',
+                                            foreground: theme.warningInk,
+                                            background: theme.warningInk
+                                                .withValues(alpha: 0.14),
+                                          ),
+                                          const SizedBox(width: 4),
+                                        ],
                                         FluentBadge(text: c.roleLabel),
                                       ],
                                     ),
@@ -1023,8 +1078,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                                         c.originalName,
                                         style: theme.typography.caption
                                             ?.copyWith(
-                                          color: theme
-                                              .resources.textFillColorSecondary,
+                                          color: theme.textSecondary,
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -1033,7 +1087,9 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                                     const SizedBox(height: 4),
                                     Text(
                                       c.voiceActorLine,
-                                      style: theme.typography.caption,
+                                      style: theme.typography.caption?.copyWith(
+                                        color: theme.textSecondary,
+                                      ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -1085,7 +1141,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                         child: Text(
                           detail.credits[i].roleLabel,
                           style: theme.typography.bodyStrong?.copyWith(
-                            color: theme.resources.textFillColorSecondary,
+                            color: theme.textSecondary,
                           ),
                         ),
                       ),
@@ -1147,8 +1203,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                         width: itemW,
                         child: FluentSurfaceCard(
                           padding: const EdgeInsets.all(10),
-                          backgroundColor:
-                              theme.resources.subtleFillColorSecondary,
+                          backgroundColor: theme.surfaceCardSecondary,
                           onTap: () => _openRelated(rel),
                           child: Row(
                             children: [
@@ -1177,8 +1232,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                                         rel.originalTitle,
                                         style: theme.typography.caption
                                             ?.copyWith(
-                                          color: theme
-                                              .resources.textFillColorSecondary,
+                                          color: theme.textSecondary,
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -1191,26 +1245,26 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                                       children: [
                                         FluentBadge(
                                           text: rel.relationLabel,
-                                          foreground: theme.accentColor,
-                                          background: theme.accentColor
-                                              .withValues(alpha: 0.14),
+                                          foreground: theme.accentInk,
+                                          background: theme.accentTint,
                                         ),
                                         if (rel.releaseDate.isNotEmpty)
                                           FluentBadge(text: rel.releaseDate),
                                         if (rel.nsfw)
-                                          const FluentBadge(
+                                          FluentBadge(
                                             text: 'R18',
-                                            foreground: Color(0xFFD13438),
-                                            background: Color(0x24D13438),
+                                            foreground: theme.dangerInk,
+                                            background: theme.dangerTint,
                                           ),
                                       ],
                                     ),
                                   ],
                                 ),
                               ),
-                              const Icon(
+                              Icon(
                                 FluentIcons.chevron_right_16_regular,
                                 size: 16,
+                                color: theme.textSecondary,
                               ),
                             ],
                           ),
@@ -1310,7 +1364,10 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                                     ? shots[i].caption
                                     : detail.title,
                               ),
-                            ).fluentEntrance(index: i),
+                            ).fluentEntrance(
+                              index: i,
+                              disable: fluentAnimationsDisabled(context),
+                            ),
                           ),
                       ],
                     );
@@ -1359,7 +1416,10 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
                     item: items[i],
                     onOpenLink: openExternalExploreUrl,
                     theme: theme,
-                  ).fluentEntrance(index: i),
+                  ).fluentEntrance(
+                    index: i,
+                    disable: fluentAnimationsDisabled(context),
+                  ),
                 ],
               ],
             ),
@@ -1377,7 +1437,12 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        ResourceLinkSection(
+          game: detail.enrichedScrapedGame,
+          shrinkWrap: true,
+        ),
         if (storeAndSiteLinks.isNotEmpty) ...[
+          const SizedBox(height: 16),
           FluentSurfaceCard(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -1400,12 +1465,7 @@ class _GameExplorePageState extends ConsumerState<GameExplorePage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
         ],
-        ResourceLinkSection(
-          game: detail.enrichedScrapedGame,
-          shrinkWrap: true,
-        ),
       ],
     );
   }
@@ -1425,36 +1485,43 @@ class _AnchorChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    return HoverButton(
-      onPressed: onTap,
-      builder: (context, states) {
-        final bg = selected
-            ? theme.accentColor.withValues(alpha: 0.16)
-            : states.isHovered
-                ? theme.resources.subtleFillColorSecondary
-                : theme.resources.controlFillColorDefault;
-        final border = selected
-            ? theme.accentColor.withValues(alpha: 0.55)
-            : theme.resources.cardStrokeColorDefault;
-        return AnimatedContainer(
-          duration: FluentMotion.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: border),
-          ),
-          child: Text(
-            label,
-            style: theme.typography.caption?.copyWith(
-              color: selected
-                  ? theme.accentColor
-                  : theme.resources.textFillColorPrimary,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    final disableAnim = fluentAnimationsDisabled(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: HoverButton(
+        onPressed: onTap,
+        builder: (context, states) {
+          final bg = selected
+              ? theme.accentTint
+              : states.isHovered
+                  ? theme.subtleHover
+                  : theme.surfaceCardSecondary;
+          final border = selected
+              ? theme.accentInk.withValues(alpha: 0.55)
+              : theme.surfaceStroke;
+          return FocusBorder(
+            focused: states.isFocused,
+            child: AnimatedContainer(
+              duration: disableAnim ? Duration.zero : FluentMotion.fast,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: border),
+              ),
+              child: Text(
+                label,
+                style: theme.typography.caption?.copyWith(
+                  color: selected ? theme.accentInk : theme.textPrimary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
@@ -1472,9 +1539,13 @@ class _ReleaseRowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FluentSurfaceCard(
+    return Container(
       padding: const EdgeInsets.all(12),
-      backgroundColor: theme.resources.subtleFillColorSecondary,
+      decoration: BoxDecoration(
+        color: theme.surfaceCardSecondary,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.dividerHairline),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1490,8 +1561,8 @@ class _ReleaseRowCard extends StatelessWidget {
                   children: [
                     FluentBadge(
                       text: item.kindLabel,
-                      foreground: theme.accentColor,
-                      background: theme.accentColor.withValues(alpha: 0.14),
+                      foreground: theme.accentInk,
+                      background: theme.accentTint,
                     ),
                     if (item.date.isNotEmpty) FluentBadge(text: item.date),
                     for (final lang in item.languages) FluentBadge(text: lang),
@@ -1535,7 +1606,7 @@ class _ScreenshotCard extends StatelessWidget {
     final theme = FluentTheme.of(context);
     return FluentSurfaceCard(
       padding: const EdgeInsets.all(8),
-      backgroundColor: theme.resources.subtleFillColorSecondary,
+      backgroundColor: theme.surfaceCardSecondary,
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1577,9 +1648,13 @@ class _CrossMediaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FluentSurfaceCard(
+    return Container(
       padding: const EdgeInsets.all(12),
-      backgroundColor: theme.resources.subtleFillColorSecondary,
+      decoration: BoxDecoration(
+        color: theme.surfaceCardSecondary,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.dividerHairline),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1601,7 +1676,7 @@ class _CrossMediaCard extends StatelessWidget {
                   Text(
                     item.originalTitle,
                     style: theme.typography.caption?.copyWith(
-                      color: theme.resources.textFillColorSecondary,
+                      color: theme.textSecondary,
                     ),
                   ),
                 ],
@@ -1612,8 +1687,8 @@ class _CrossMediaCard extends StatelessWidget {
                   children: [
                     FluentBadge(
                       text: item.relationLabel,
-                      foreground: theme.accentColor,
-                      background: theme.accentColor.withValues(alpha: 0.14),
+                      foreground: theme.accentInk,
+                      background: theme.accentTint,
                     ),
                     if (item.date.isNotEmpty) FluentBadge(text: item.date),
                     if (item.score > 0)
@@ -1683,14 +1758,14 @@ class _ExternalLinkCard extends StatelessWidget {
     final host = Uri.tryParse(link.url)?.host ?? link.url;
     return FluentSurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      backgroundColor: theme.resources.subtleFillColorSecondary,
+      backgroundColor: theme.surfaceCardSecondary,
       onTap: onOpen,
       child: Row(
         children: [
           Icon(
             FluentIcons.globe_16_regular,
             size: 16,
-            color: theme.accentColor,
+            color: theme.accentInk,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1702,7 +1777,7 @@ class _ExternalLinkCard extends StatelessWidget {
                 Text(
                   link.subtitle.isNotEmpty ? '${link.subtitle} · $host' : host,
                   style: theme.typography.caption?.copyWith(
-                    color: theme.resources.textFillColorSecondary,
+                    color: theme.textSecondary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

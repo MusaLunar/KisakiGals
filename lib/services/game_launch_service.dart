@@ -51,21 +51,24 @@ class GameLaunchService {
       final settings = AppServices.I.settings;
       final mode = await settings.trackingMode();
 
-      // 转区启动：需要 Locale Emulator 路径；缺失则降级为普通启动并提示
-      var lePath = '';
-      if (game.useLocaleEmulator) {
-        lePath = await settings.getString(SettingsStore.kLePath, '');
-        if (lePath.isEmpty || !File(lePath).existsSync()) {
-          lePath = '';
-          showNotice('未配置 Locale Emulator 路径，本次按普通方式启动（可能显示乱码）',
-              error: true);
-        }
+      // 转区启动：由「Locale Emulator 转区启动」插件接管；未安装/未配置按插件策略提示并决定回退或中止
+      final leResolution = AppServices.I.plugins.resolveLaunchForGame(
+        gameUseLocaleEmulator: game.useLocaleEmulator,
+      );
+      if (leResolution.notice != null) {
+        showNotice(
+          leResolution.notice!,
+          error: leResolution.noticeIsError,
+        );
+      }
+      if (leResolution.abortLaunch) {
+        return;
       }
 
       final result = await GameLauncher.launch(
         game.exePath,
         directory: game.directory,
-        localeEmulatorPath: lePath,
+        localeEmulatorPath: leResolution.shouldUseLe ? leResolution.lePath : '',
       );
       if (!result.ok) {
         showNotice(result.message.isEmpty ? '启动失败' : result.message, error: true);

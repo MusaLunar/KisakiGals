@@ -129,12 +129,28 @@ class AiController extends StateNotifier<AiState> {
   AiController(this._ref) : super(const AiState());
 
   final Ref _ref;
+  int _summaryGen = 0;
+  int _recGen = 0;
 
   /// 写入状态。notifier 随容器销毁后（应用退出瞬间请求才返回）静默丢弃：
   /// `state` 的读写带 mounted 断言，靠这里兜住，避免 debug 下抛 StateError。
   void _emit(AiState next) {
     if (!mounted) return;
     state = next;
+  }
+
+  /// 取消当前正在进行的游玩总结生成（丢弃未返回的响应）。
+  void cancelSummary() {
+    if (!state.summarizing) return;
+    _summaryGen++;
+    _emit(state.copyWith(summarizing: false));
+  }
+
+  /// 取消当前正在进行的作品推荐生成（丢弃未返回的响应）。
+  void cancelRecommendations() {
+    if (!state.loadingRecommendations) return;
+    _recGen++;
+    _emit(state.copyWith(loadingRecommendations: false));
   }
 
   // ---------- 生成入口 ----------
@@ -148,9 +164,11 @@ class AiController extends StateNotifier<AiState> {
       showNotice('生成失败：$kAiNotConfiguredMsg', error: true);
       return;
     }
+    final gen = ++_summaryGen;
     _emit(state.copyWith(summarizing: true, summaryError: null));
     try {
       final data = await gatherPlayData();
+      if (!mounted || gen != _summaryGen) return;
       final r = await AppServices.I.ai.chat(
         config: config,
         system: '你是 galgame 游戏库管理器「KisakiGals」的助手，语气轻松友好，用简体中文回答。',
@@ -158,6 +176,7 @@ class AiController extends StateNotifier<AiState> {
             '偏好题材（结合标签词云）、点评 1-2 部最常玩或高分作品，最后给一句轻松的鼓励。\n\n$data',
         maxTokens: await _maxTokens(),
       );
+      if (!mounted || gen != _summaryGen) return;
       if (r.ok) {
         _emit(state.copyWith(
             summarizing: false, summary: r.content, summaryError: null));
@@ -167,6 +186,7 @@ class AiController extends StateNotifier<AiState> {
         showNotice('生成失败：${r.message}', error: true);
       }
     } catch (e) {
+      if (!mounted || gen != _summaryGen) return;
       _emit(state.copyWith(summarizing: false, summaryError: '生成失败：$e'));
       showNotice('生成失败：$e', error: true);
     }
@@ -182,12 +202,14 @@ class AiController extends StateNotifier<AiState> {
       showNotice('生成失败：$kAiNotConfiguredMsg', error: true);
       return;
     }
+    final gen = ++_recGen;
     _emit(state.copyWith(
         loadingRecommendations: true,
         recommendationsError: null,
         addStates: const {}));
     try {
       final data = await gatherPlayData();
+      if (!mounted || gen != _recGen) return;
       final r = await AppServices.I.ai.chat(
         config: config,
         system: '你是 galgame（美少女游戏）领域的资深推荐者，只输出 JSON，不输出任何解释文字。',
@@ -198,6 +220,7 @@ class AiController extends StateNotifier<AiState> {
         temperature: 0.9,
         maxTokens: await _maxTokens(),
       );
+      if (!mounted || gen != _recGen) return;
       if (!r.ok) {
         _emit(state.copyWith(
             loadingRecommendations: false, recommendationsError: r.message));
@@ -218,6 +241,7 @@ class AiController extends StateNotifier<AiState> {
           recommendationsError: null));
       showNotice('AI 推荐已更新（${recs.length} 部）', duration: _kAiNoticeDuration);
     } catch (e) {
+      if (!mounted || gen != _recGen) return;
       _emit(state.copyWith(
           loadingRecommendations: false, recommendationsError: '生成失败：$e'));
       showNotice('生成失败：$e', error: true);

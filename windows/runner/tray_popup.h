@@ -7,8 +7,13 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace Gdiplus {
+class Bitmap;
+}
 
 struct TrayRecentGame {
   int id = 0;
@@ -37,11 +42,18 @@ class KisakiTrayPopup {
   void Hide();
 
  private:
+  enum class RegionKind {
+    kMenuItem,
+    kRecentGame,
+    kStopSession,
+    kDangerMenuItem,
+  };
+
   struct HitRegion {
     RECT rect;
     std::string action;
-    bool is_danger = false;
-    bool is_primary = false;
+    RegionKind kind = RegionKind::kMenuItem;
+    size_t recent_index = 0;
   };
 
   static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam,
@@ -50,6 +62,7 @@ class KisakiTrayPopup {
                         LPARAM lparam) noexcept;
 
   void EnsureWindowClass();
+  void ApplyDwmAttributes(bool dark);
   void RebuildLayout();
   void Paint(HDC hdc);
   int HitTest(POINT pt) const;
@@ -60,10 +73,13 @@ class KisakiTrayPopup {
   TrayPopupData data_;
   std::vector<HitRegion> regions_;
   int hovered_index_ = -1;
+  int pressed_index_ = -1;
+  int focused_index_ = -1;
   bool tracking_mouse_ = false;
+  bool use_dwm_acrylic_ = false;
   float dpi_scale_ = 1.0f;
-  int width_ = 308;
-  int height_ = 360;
+  int width_ = 224;
+  int height_ = 260;
 
   int S(int v) const { return static_cast<int>(v * dpi_scale_ + 0.5f); }
   float SF(float v) const { return v * dpi_scale_; }

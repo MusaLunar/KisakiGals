@@ -1,9 +1,14 @@
 /// 纯 Dart 单元测试（dart test 运行，不依赖 flutter_tester）。
 library;
 
+import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqlite3/open.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:test/test.dart';
@@ -13,10 +18,13 @@ import 'package:kisakigals/core/utils.dart';
 import 'package:kisakigals/data/db.dart';
 import 'package:kisakigals/data/game_repository.dart';
 import 'package:kisakigals/data/models.dart';
+import 'package:kisakigals/data/settings_store.dart';
 import 'package:kisakigals/scraping/rate_limiter.dart';
 import 'package:kisakigals/scraping/scraped_game.dart';
 import 'package:kisakigals/services/game_explore_service.dart';
 import 'package:kisakigals/services/kungal_oauth.dart';
+import 'package:kisakigals/services/playtime_tracker.dart';
+import 'package:kisakigals/services/plugin_system.dart';
 import 'package:kisakigals/services/update_checker.dart';
 
 void main() {
@@ -297,6 +305,436 @@ void main() {
       final aliases = GameExploreService.extractAllLocalizedTexts(map);
       expect(aliases, contains('Mimi Wuhui'));
       expect(aliases, contains('秘密舞会'));
+    });
+  });
+
+  group('插件系统：规范校验、ZIP 安装与插件市场', () {
+    late Database db;
+    late SettingsStore settings;
+    late Directory tempRoot;
+
+    setUp(() async {
+      db = await databaseFactoryFfi.openDatabase(':memory:');
+      for (final ddl in kCreateTables) {
+        await db.execute(ddl);
+      }
+      settings = SettingsStore(db);
+      tempRoot = Directory.systemTemp.createTempSync('kisaki_plugin_test_');
+    });
+
+    tearDown(() async {
+      await db.close();
+      if (tempRoot.existsSync()) {
+        tempRoot.deleteSync(recursive: true);
+      }
+    });
+
+    test('Manifest v1 规范校验规则与权限白名单', () {
+      final valid = PluginManifestValidator.validate({
+        'schemaVersion': 1,
+        'id': 'sample-hook-plugin',
+        'name': '示例钩子插件',
+        'version': '1.1.0',
+        'author': 'Tester',
+        'minAppVersion': '1.0.0',
+        'permissions': ['notifications', 'session.listen'],
+      });
+      expect(valid.error, isNull);
+      expect(valid.manifest?.id, 'sample-hook-plugin');
+
+      expect(
+        PluginManifestValidator.validate({
+          'id': 'Invalid_ID!',
+          'name': 'Bad',
+          'version': '1.0.0',
+        }).error,
+        isNotNull,
+      );
+      expect(
+        PluginManifestValidator.validate({
+          'id': 'bad-ver',
+          'name': 'BadVer',
+          'version': 'v1',
+        }).error,
+        isNotNull,
+      );
+      expect(
+        PluginManifestValidator.validate({
+          'id': 'future-plugin',
+          'name': 'Future',
+          'version': '1.0.0',
+          'minAppVersion': '99.0.0',
+        }).error,
+        isNotNull,
+      );
+      expect(
+        PluginManifestValidator.validate({
+          'id': 'evil-perm',
+          'name': 'Evil',
+          'version': '1.0.0',
+          'permissions': ['root.shell'],
+        }).error,
+        isNotNull,
+      );
+    });
+
+    test('默认无内置插件，支持 .zip 导入安装、防 Zip Slip、配置持久化、通知钩子与卸载', () async {
+      final pluginsDir = p.join(tempRoot.path, 'plugins');
+      final sessionCtrl = StreamController<PlaySessionEnd>.broadcast();
+      final notices = <String>[];
+      final ctx = PluginContext(
+        settings,
+        tempRoot.path,
+        sessionCtrl.stream,
+        onNotify: (msg, {bool error = false}) => notices.add(msg),
+      );
+
+      final manager = PluginManager(settings, pluginsDir);
+      await manager.loadInstalled(ctx);
+      expect(manager.plugins, isEmpty);
+
+      final manifestMap = {
+        'schemaVersion': 1,
+        'id': 'sample-hook-plugin',
+        'name': '示例钩子插件',
+        'version': '1.1.0',
+        'author': 'Community',
+        'description': '示例通知钩子',
+        'minAppVersion': '1.0.0',
+        'entry': 'main.js',
+        'permissions': ['notifications', 'session.listen', 'settings.storage'],
+        'settings': [
+          {'key': 'minutes', 'label': '阈值', 'type': 'int', 'default': 60},
+        ],
+        'hooks': [
+          {
+            'event': 'onSessionEnd',
+            'action': 'notify',
+            'message': '已游玩 {minutes} 分钟，注意休息',
+          },
+        ],
+      };
+
+      final zipBytes = PluginManager.buildPluginZipBytes(
+        manifest: manifestMap,
+        mainJs: 'module.exports = { id: "sample-hook-plugin" };',
+        readme: '# Sample Hook Plugin\n',
+      );
+      final zipFile = File(p.join(tempRoot.path, 'sample-hook-plugin.zip'));
+      await zipFile.writeAsBytes(zipBytes);
+
+      // SHA-256 不匹配被拦截
+      final badHashRes = await manager.installFromZip(
+        zipFile.path,
+        ctx: ctx,
+        expectedSha256: '0000',
+      );
+      expect(badHashRes.ok, isFalse);
+
+      // 合法 .zip 安装成功
+      final actualHash = sha256.convert(zipBytes).toString();
+      final res = await manager.installFromZip(
+        zipFile.path,
+        ctx: ctx,
+        expectedSha256: actualHash,
+      );
+      expect(res.ok, isTrue);
+      expect(res.plugin?.enabled, isTrue);
+      expect(
+        File(p.join(pluginsDir, 'sample-hook-plugin', 'manifest.json'))
+            .existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(pluginsDir, 'sample-hook-plugin', 'main.js')).existsSync(),
+        isTrue,
+      );
+
+      // 修改配置并验证重启重加载恢复 + 钩子通知触发
+      await manager.setConfig('sample-hook-plugin', 'minutes', 30);
+      await res.plugin!.onDispose();
+
+      final reloaded = PluginManager(settings, pluginsDir);
+      await reloaded.loadInstalled(ctx);
+      expect(reloaded.plugins.length, 1);
+      expect(reloaded.byId('sample-hook-plugin')?.config['minutes'], 30);
+
+      sessionCtrl.add(
+        const PlaySessionEnd(session: null, elapsedSeconds: 35 * 60, gameId: 7),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(notices, contains('已游玩 35 分钟，注意休息'));
+
+      // 防 Zip Slip 校验
+      final slipArchive = Archive()
+        ..addFile(ArchiveFile('../escape.txt', 3, utf8.encode('bad')));
+      final slipRes = await reloaded.installFromZipBytes(
+        ZipEncoder().encode(slipArchive),
+        ctx: ctx,
+      );
+      expect(slipRes.ok, isFalse);
+      expect(slipRes.message, contains('不安全路径'));
+
+      // 卸载清理目录
+      expect(await reloaded.uninstall('sample-hook-plugin'), isTrue);
+      expect(reloaded.plugins, isEmpty);
+      expect(
+        Directory(p.join(pluginsDir, 'sample-hook-plugin')).existsSync(),
+        isFalse,
+      );
+      await sessionCtrl.close();
+    });
+
+    test('插件市场镜像加速 URL 解析与 .zip / .js 远程索引安装', () async {
+      const rawUrl =
+          'https://raw.githubusercontent.com/MusaLunar/KisakiGals-Plugins/main/plugins/demo/main.js';
+      const relUrl =
+          'https://github.com/MusaLunar/KisakiGals-Plugins/releases/download/v1.0.0/demo.zip';
+
+      expect(
+        PluginMarketplaceService.resolveCandidateUrls(
+          rawUrl,
+          PluginMirrorMode.jsdelivr,
+        ).first,
+        'https://cdn.jsdelivr.net/gh/MusaLunar/KisakiGals-Plugins@main/plugins/demo/main.js',
+      );
+      expect(
+        PluginMarketplaceService.resolveCandidateUrls(
+          relUrl,
+          PluginMirrorMode.ghfast,
+        ).first,
+        'https://ghfast.top/$relUrl',
+      );
+      expect(
+        PluginMarketplaceService.resolveCandidateUrls(
+          relUrl,
+          PluginMirrorMode.ghproxy,
+        ).first,
+        'https://gh-proxy.com/$relUrl',
+      );
+
+      final zipBytes = PluginManager.buildPluginZipBytes(
+        manifest: {
+          'schemaVersion': 1,
+          'id': 'zip-market-demo',
+          'name': '市场压缩包示例',
+          'version': '1.0.0',
+          'author': 'Market',
+          'description': 'Zip demo',
+          'packageType': 'zip',
+          'entry': 'main.js',
+          'permissions': ['notifications'],
+        },
+        mainJs: '// zip entry\n',
+      );
+      final zipSha = sha256.convert(zipBytes).toString();
+      final jsBytes = utf8.encode('// js plugin\n');
+      final jsSha = sha256.convert(jsBytes).toString();
+
+      final mockIndexJson = jsonEncode({
+        'schemaVersion': 1,
+        'generatedAt': '2026-11-21T00:00:00Z',
+        'plugins': [
+          {
+            'schemaVersion': 1,
+            'id': 'zip-market-demo',
+            'name': '市场压缩包示例',
+            'version': '1.0.0',
+            'author': 'Market',
+            'description': 'Zip demo',
+            'packageType': 'zip',
+            'entry': 'main.js',
+            'permissions': ['notifications'],
+            'downloadUrl': 'https://github.com/example/repo/releases/download/v1.0.0/zip-market-demo.zip',
+            'sha256': zipSha,
+            'verified': true,
+          },
+          {
+            'schemaVersion': 1,
+            'id': 'js-market-demo',
+            'name': '市场脚本示例',
+            'version': '1.2.0',
+            'author': 'Market',
+            'description': 'JS demo',
+            'packageType': 'js',
+            'entry': 'main.js',
+            'permissions': ['session.listen'],
+            'downloadUrl': 'https://raw.githubusercontent.com/example/repo/main/js-market-demo/main.js',
+            'sha256': jsSha,
+            'verified': true,
+          },
+        ],
+      });
+
+      final downloadedUrls = <String>[];
+      final market = PluginMarketplaceService(
+        downloader: (url) async {
+          downloadedUrls.add(url);
+          if (url.endsWith('index.json')) return utf8.encode(mockIndexJson);
+          if (url.endsWith('.zip')) return zipBytes;
+          if (url.endsWith('.js')) return jsBytes;
+          throw StateError('404: $url');
+        },
+      );
+
+      final indexRes = await market.fetchIndex(mirror: PluginMirrorMode.ghfast);
+      expect(indexRes.ok, isTrue);
+      expect(indexRes.entries.length, 2);
+      expect(downloadedUrls.first, startsWith('https://ghfast.top/'));
+
+      final pluginsDir = p.join(tempRoot.path, 'market_plugins');
+      final manager = PluginManager(settings, pluginsDir);
+
+      final zipInstall = await market.installEntry(
+        indexRes.entries[0],
+        manager: manager,
+        mirror: PluginMirrorMode.ghfast,
+      );
+      expect(zipInstall.ok, isTrue);
+      expect(zipInstall.plugin?.installSource, 'marketplace');
+      expect(zipInstall.plugin?.hasEntryFile, isTrue);
+
+      final jsInstall = await market.installEntry(
+        indexRes.entries[1],
+        manager: manager,
+        mirror: PluginMirrorMode.jsdelivr,
+      );
+      expect(jsInstall.ok, isTrue);
+      expect(jsInstall.plugin?.manifest.packageType, 'js');
+      expect(
+        File(p.join(pluginsDir, 'js-market-demo', 'main.js')).existsSync(),
+        isTrue,
+      );
+      expect(
+        downloadedUrls.last,
+        startsWith('https://cdn.jsdelivr.net/gh/example/repo@main/'),
+      );
+    });
+
+    test('官方精选目录仅保留 Locale Emulator 插件，支持启动解析与旧版路径迁移', () async {
+      final ids = kCuratedMarketplaceEntries.map((e) => e.id).toList();
+      expect(ids, [kLocaleEmulatorPluginId]);
+      for (final removed in const [
+        'idle-reminder',
+        'playtime-milestone',
+        'session-logger',
+        'save-health-check',
+      ]) {
+        expect(ids, isNot(contains(removed)));
+      }
+      expect(
+        kCuratedMarketplaceEntries.single.manifest.homepage,
+        'https://github.com/xupefei/Locale-Emulator',
+      );
+
+      final fakeLeExe = File(p.join(tempRoot.path, 'LEProc.exe'))
+        ..writeAsStringSync('stub');
+      await settings.setString(SettingsStore.kLePath, fakeLeExe.path);
+
+      final pluginsDir = p.join(tempRoot.path, 'le_plugins');
+      final manager = PluginManager(settings, pluginsDir);
+
+      // 未安装 LE 插件时：游戏未开启转区不受影响；开启转区则提示并回退普通启动
+      final offRes = manager.resolveLaunchForGame(gameUseLocaleEmulator: false);
+      expect(offRes.shouldUseLe, isFalse);
+      expect(offRes.abortLaunch, isFalse);
+      expect(offRes.notice, isNull);
+
+      final missingRes =
+          manager.resolveLaunchForGame(gameUseLocaleEmulator: true);
+      expect(missingRes.shouldUseLe, isFalse);
+      expect(missingRes.abortLaunch, isFalse);
+      expect(missingRes.notice, contains('尚未安装或启用'));
+
+      // 通过市场服务离线兜底安装 Locale Emulator 插件，并自动迁移旧版 kLePath
+      final market = PluginMarketplaceService(
+        downloader: (_) async => throw StateError('offline'),
+      );
+      final installRes = await market.installEntry(
+        kCuratedMarketplaceEntries.single,
+        manager: manager,
+      );
+      expect(installRes.ok, isTrue);
+      expect(
+        installRes.plugin?.config['le_path'],
+        fakeLeExe.path,
+      );
+
+      final readyRes = manager.resolveLaunchForGame(gameUseLocaleEmulator: true);
+      expect(readyRes.shouldUseLe, isTrue);
+      expect(readyRes.lePath, fakeLeExe.path);
+      expect(readyRes.abortLaunch, isFalse);
+      expect(readyRes.notice, isNull);
+
+      // 禁用 fallback_normal 且路径无效时，应中止启动
+      await manager.setConfig(kLocaleEmulatorPluginId, 'fallback_normal', false);
+      await manager.setConfig(
+        kLocaleEmulatorPluginId,
+        'le_path',
+        p.join(tempRoot.path, 'MissingLE.exe'),
+      );
+      final abortRes = manager.resolveLaunchForGame(gameUseLocaleEmulator: true);
+      expect(abortRes.shouldUseLe, isFalse);
+      expect(abortRes.abortLaunch, isTrue);
+      expect(abortRes.notice, contains('已中止启动'));
+    });
+
+    test('SettingsStore.kPerformanceMode 默认关闭并支持持久化读写', () async {
+      expect(
+        await settings.getBool(SettingsStore.kPerformanceMode, def: false),
+        isFalse,
+      );
+      await settings.setBool(SettingsStore.kPerformanceMode, true);
+      expect(
+        await settings.getBool(SettingsStore.kPerformanceMode, def: false),
+        isTrue,
+      );
+      await settings.setBool(SettingsStore.kPerformanceMode, false);
+      expect(
+        await settings.getBool(SettingsStore.kPerformanceMode, def: false),
+        isFalse,
+      );
+    });
+
+    test('仓库内置 plugins/index.json 与 locale-emulator-1.0.0.zip 制品哈希及安装校验通过',
+        () async {
+      final indexFile = File('plugins/index.json');
+      final zipFile = File('plugins/dist/locale-emulator-1.0.0.zip');
+      expect(indexFile.existsSync(), isTrue);
+      expect(zipFile.existsSync(), isTrue);
+
+      final parsed = PluginMarketplaceService.parseIndexJson(
+        indexFile.readAsStringSync(),
+      );
+      expect(parsed.ok, isTrue);
+      final entry = parsed.entries.singleWhere(
+        (e) => e.id == kLocaleEmulatorPluginId,
+      );
+      expect(
+        entry.downloadUrl,
+        'https://raw.githubusercontent.com/MusaLunar/KisakiGals/main/plugins/dist/locale-emulator-1.0.0.zip',
+      );
+      expect(
+        PluginMarketplaceService.defaultRegistryUrl,
+        'https://raw.githubusercontent.com/MusaLunar/KisakiGals/main/plugins/index.json',
+      );
+
+      final zipBytes = zipFile.readAsBytesSync();
+      final actualSha = sha256.convert(zipBytes).toString();
+      expect(entry.sha256, actualSha);
+      expect(entry.sizeBytes, zipBytes.length);
+
+      final pluginsDir = p.join(tempRoot.path, 'dist_plugins');
+      final manager = PluginManager(settings, pluginsDir);
+      final res = await manager.installFromZipBytes(
+        zipBytes,
+        expectedSha256: entry.sha256,
+        installSource: 'marketplace',
+        downloadUrl: entry.downloadUrl,
+      );
+      expect(res.ok, isTrue);
+      expect(res.plugin?.id, kLocaleEmulatorPluginId);
+      expect(res.plugin?.manifest.homepage, kLocaleEmulatorProjectUrl);
     });
   });
 }

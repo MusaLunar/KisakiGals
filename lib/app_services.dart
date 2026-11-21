@@ -25,6 +25,7 @@ import 'services/device.dart';
 import 'services/ai_service.dart';
 import 'services/playtime_tracker.dart';
 import 'services/plugin_system.dart';
+import 'ui/fluent/fluent_notices.dart';
 
 /// 修复历史版本的数据库路径双层嵌套：
 /// 旧版把文件路径再拼一层，得到 `<root>/kisakigals.db/kisakigals.db`。
@@ -188,12 +189,16 @@ class AppServices {
       'kun': await s.accounts.token('kun') ?? '',
     });
 
-    // 插件（精简后仅保留久坐提醒；自动备份/NSFW 已集成为应用功能）
+    // 插件系统（无强制内置插件；支持从插件市场或本地 .zip 包按需安装）
     s.plugins = PluginManager(s.settings, s.paths.plugins);
-    await s.plugins.loadImported();
-    final ctx = PluginContext(s.settings, s.paths.root, s.tracker.onSessionEnd);
+    final ctx = PluginContext(
+      s.settings,
+      s.paths.root,
+      s.tracker.onSessionEnd,
+      onNotify: (msg, {bool error = false}) => showNotice(msg, error: error),
+    );
     s.pluginContext = ctx;
-    await s.plugins.register(IdleReminderPlugin(), ctx);
+    await s.plugins.loadInstalled(ctx);
 
     // 设备识别与路径重定位（换机/换盘导入数据库后自动找回游戏目录）
     s.relocator = PathRelocator(s.settings, s.repo);

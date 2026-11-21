@@ -1,6 +1,8 @@
 /// Fluent 2 刮削搜索与重新匹配元数据对话框。
 library;
 
+import 'dart:math' as math;
+
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,6 +15,7 @@ import '../../scraping/scraped_game.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 
 /// 打开刮削搜索对话框为 [game] 匹配并应用多源元数据，成功应用返回 true，否则 false。
 Future<bool> showScrapeSearchDialog(
@@ -27,7 +30,7 @@ Future<bool> showScrapeSearchDialog(
 }) async {
   final applied = await showDialog<bool>(
     context: context,
-    barrierDismissible: true,
+    barrierDismissible: false,
     builder: (_) => _ScrapeSearchDialog(
       ref: ref,
       game: game,
@@ -71,6 +74,7 @@ class _ScrapeSearchDialogState extends State<_ScrapeSearchDialog> {
   bool _searching = false;
   bool _applying = false;
   bool _hasSearched = false;
+  String? _searchError;
   List<ScrapeHitGroup> _groups = const [];
 
   static Iterable<MapEntry<String, String>> get _filterableSources =>
@@ -106,6 +110,7 @@ class _ScrapeSearchDialogState extends State<_ScrapeSearchDialog> {
     setState(() {
       _searching = true;
       _hasSearched = true;
+      _searchError = null;
     });
     try {
       final only = _selectedSources.toList();
@@ -116,12 +121,14 @@ class _ScrapeSearchDialogState extends State<_ScrapeSearchDialog> {
       setState(() {
         _groups = groups;
         _searching = false;
+        _searchError = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _groups = const [];
         _searching = false;
+        _searchError = '$e';
       });
       showNotice('搜索失败：$e', error: true);
     }
@@ -159,81 +166,129 @@ class _ScrapeSearchDialogState extends State<_ScrapeSearchDialog> {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final busy = _searching || _applying;
+    final size = MediaQuery.sizeOf(context);
+    final maxW = math.max(320.0, math.min(760.0, size.width - 48));
+    final maxH = math.max(420.0, math.min(680.0, size.height - 48));
+    final contentH = math.max(260.0, maxH - 180);
 
-    return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 780, maxHeight: 680),
-      title: Row(
-        children: [
-          const Icon(FluentIcons.search_20_regular, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '刮削元数据 · ${widget.game.displayName}',
-              overflow: TextOverflow.ellipsis,
+    return PopScope(
+      canPop: !_applying,
+      child: ContentDialog(
+        constraints: BoxConstraints(maxWidth: maxW, maxHeight: maxH),
+        title: Row(
+          children: [
+            Icon(FluentIcons.search_20_regular,
+                size: 18, color: theme.accentInk),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '刮削元数据 · ${widget.game.displayName}',
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
+          ],
+        ),
+        content: SizedBox(
+          width: maxW - 48,
+          height: contentH,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: FluentSearchBox(
+                      controller: _queryCtrl,
+                      autofocus: true,
+                      compact: true,
+                      enabled: !busy,
+                      placeholder: '输入游戏名称（中文名 / 原名 / 别名均可）',
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) => _search(),
+                      onCleared: () {
+                        _queryCtrl.clear();
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: busy ? null : _search,
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(FluentIcons.search_20_regular, size: 16),
+                        SizedBox(width: 6),
+                        Text('搜索'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    '数据源 (${_selectedSources.length}/${_filterableSources.length})',
+                    style: theme.typography.caption?.copyWith(
+                      color: theme.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  HyperlinkButton(
+                    onPressed: busy
+                        ? null
+                        : () => setState(() {
+                              _selectedSources
+                                ..clear()
+                                ..addAll(_filterableSources.map((e) => e.key));
+                            }),
+                    child: const Text('全选'),
+                  ),
+                  HyperlinkButton(
+                    onPressed: busy
+                        ? null
+                        : () => setState(() {
+                              _selectedSources
+                                ..clear()
+                                ..addAll(KisakiSources.defaultEnabled);
+                            }),
+                    child: const Text('默认'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final entry in _filterableSources)
+                    ToggleButton(
+                      checked: _selectedSources.contains(entry.key),
+                      onChanged:
+                          busy ? null : (v) => _toggleSource(entry.key, v),
+                      child: Text(
+                        entry.value,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Divider(),
+              const SizedBox(height: 10),
+              Expanded(child: _buildBody(theme)),
+            ],
+          ),
+        ),
+        actions: [
+          Button(
+            onPressed: _applying ? null : () => Navigator.pop(context, false),
+            child: const Text('取消'),
           ),
         ],
       ),
-      content: SizedBox(
-        width: 732,
-        height: 510,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextBox(
-                    controller: _queryCtrl,
-                    enabled: !busy,
-                    placeholder: '输入游戏名称（中文名 / 原名 / 别名均可）',
-                    onSubmitted: (_) => _search(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: busy ? null : _search,
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(FluentIcons.search_20_regular, size: 16),
-                      SizedBox(width: 6),
-                      Text('搜索'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final entry in _filterableSources)
-                  ToggleButton(
-                    checked: _selectedSources.contains(entry.key),
-                    onChanged:
-                        busy ? null : (v) => _toggleSource(entry.key, v),
-                    child: Text(
-                      entry.value,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 12),
-            Expanded(child: _buildBody(theme)),
-          ],
-        ),
-      ),
-      actions: [
-        Button(
-          onPressed: _applying ? null : () => Navigator.pop(context, false),
-          child: const Text('取消'),
-        ),
-      ],
     );
   }
 
@@ -267,6 +322,17 @@ class _ScrapeSearchDialogState extends State<_ScrapeSearchDialog> {
         icon: FluentIcons.search_24_regular,
         title: '输入关键词并搜索',
         message: '可按需筛选上方数据源，点击「搜索」获取跨平台分组候选',
+      );
+    }
+    if (_searchError != null) {
+      return FluentEmptyState(
+        icon: FluentIcons.error_circle_24_regular,
+        title: '元信息搜索失败',
+        message: _searchError!,
+        action: FilledButton(
+          onPressed: _search,
+          child: const Text('重试搜索'),
+        ),
       );
     }
     if (_groups.isEmpty) {
@@ -366,7 +432,7 @@ class _ScrapeGroupExpander extends StatelessWidget {
                     child: Text(
                       '原名：${g.name}',
                       style: theme.typography.caption?.copyWith(
-                        color: theme.inactiveColor,
+                        color: theme.textSecondary,
                       ),
                     ),
                   ),
@@ -379,7 +445,7 @@ class _ScrapeGroupExpander extends StatelessWidget {
                         if (g.releaseDate.isNotEmpty) '发售：${g.releaseDate}',
                       ].join(' · '),
                       style: theme.typography.caption?.copyWith(
-                        color: theme.inactiveColor,
+                        color: theme.textSecondary,
                       ),
                     ),
                   ),

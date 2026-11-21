@@ -83,10 +83,17 @@ void main() {
     final scoreDx = tester.getTopLeft(find.textContaining('8.9').first).dx;
     expect(r18Dx, lessThan(scoreDx));
 
-    // Switch to 下载 tab & ensure no "入库" button sits on download cards
+    // Switch to 下载 tab, verify 资源检索站点 sits above 官方商城与外部站点, and ensure no "入库" button sits on download cards
     await tester.tap(find.text('下载'));
     await tester.pumpAndSettle();
     expect(find.text('Steam 商店页'), findsOneWidget);
+    final resourceSectionFinder = find.textContaining('站点发布页检索');
+    expect(resourceSectionFinder, findsOneWidget);
+    expect(find.text('官方商城与外部站点'), findsOneWidget);
+    expect(
+      tester.getTopLeft(resourceSectionFinder).dy,
+      lessThan(tester.getTopLeft(find.text('官方商城与外部站点')).dy),
+    );
     expect(find.text('入库下载'), findsNothing);
     expect(find.text('入库'), findsNothing);
   });
@@ -287,7 +294,7 @@ void main() {
   });
 
   testWidgets(
-      'DiscoverPage toggles modes, filters, layout, and streams Resource Search without add-to-library buttons',
+      'DiscoverPage removes Resource Search mode tab and renders unified CommandBar, filters, and layout toggle',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -306,37 +313,11 @@ void main() {
       ),
     ];
 
-    final searchedKeywords = <String>[];
-
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           discoverLibraryIndexProvider.overrideWith((ref) async => const {}),
           discoverFeedProvider.overrideWith(() => _FakeDiscoverFeed(sampleGames)),
-          resourceSearchRunnerProvider.overrideWithValue((keyword) async* {
-            searchedKeywords.add(keyword);
-            yield ResourceSearchUpdate(
-              completed: 1,
-              total: 2,
-              result: ResourceSourceResult(
-                site: '鲲Galgame',
-                tags: const [ResourceTag.noLogin],
-                items: const [
-                  ResourceItem(
-                    site: '鲲Galgame',
-                    title: '千恋万花 官方中文硬盘版',
-                    url: 'https://example.com/resource/1',
-                    tags: [ResourceTag.noLogin],
-                  ),
-                ],
-              ),
-            );
-            yield const ResourceSearchUpdate(
-              completed: 2,
-              total: 2,
-              done: true,
-            );
-          }),
         ],
         child: const FluentApp(
           home: ScaffoldPage(content: DiscoverPage()),
@@ -345,8 +326,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('发现聚合'), findsOneWidget);
-    expect(find.text('资源检索'), findsOneWidget);
+    expect(find.text('发现聚合'), findsNothing);
+    expect(find.text('资源检索'), findsNothing);
+    expect(find.byType(CommandBar), findsOneWidget);
+    expect(find.byType(FluentSurfaceCard), findsWidgets);
     expect(find.text('样例视觉小说'), findsOneWidget);
 
     // R18 strictly left of Score badge on Discover card
@@ -355,31 +338,15 @@ void main() {
     expect(r18Dx, lessThan(scoreDx));
 
     // Toggle layout grid -> list
-    await tester.tap(find.byTooltip('切换视图'));
+    await tester.tap(find.byTooltip('列表视图'));
     await tester.pumpAndSettle();
     expect(find.text('样例视觉小说'), findsOneWidget);
 
     // Open filter rail & verify filter controls
-    await tester.tap(find.text('筛选'));
+    await tester.tap(find.text('筛选栏'));
     await tester.pumpAndSettle();
     expect(find.text('最低评分'), findsOneWidget);
     expect(find.text('仅全年龄'), findsOneWidget);
-
-    // Switch to 资源检索 mode & run search
-    await tester.tap(find.text('资源检索'));
-    await tester.pumpAndSettle();
-
-    final searchBox = find.byType(TextBox).first;
-    await tester.enterText(searchBox, '千恋万花');
-    await tester.tap(find.text('检索'));
-    await tester.pumpAndSettle();
-
-    expect(searchedKeywords, contains('千恋万花'));
-    expect(find.text('千恋万花 官方中文硬盘版'), findsOneWidget);
-    expect(find.byType(FluentSurfaceCard), findsWidgets);
-    expect(find.text('入库'), findsNothing);
-    expect(find.text('入库下载'), findsNothing);
-    expect(find.text('一键入库'), findsNothing);
   });
 
   testWidgets('DiscoverPage consumes resourceQueryProvider one-shot',

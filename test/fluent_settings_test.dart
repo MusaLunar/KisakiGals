@@ -96,7 +96,7 @@ void main() {
   });
 
   testWidgets(
-      'SettingsPage renders 5 sections in bare ProviderScope and highlights AI section 3',
+      'SettingsPage renders 7 sections in bare ProviderScope and highlights AI section',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -104,20 +104,24 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          settingsSectionProvider.overrideWith((ref) => 3),
+          settingsSectionProvider.overrideWith((ref) => SettingsSections.ai),
         ],
         child: const FluentApp(home: SettingsPage()),
       ),
     );
     await _settle(tester, 450);
 
-    expect(find.text('外观与个性化'), findsWidgets);
-    expect(find.text('启动与热键'), findsWidgets);
-    expect(find.text('库与账号隐私'), findsWidgets);
+    expect(find.text('外观与显示'), findsWidgets);
+    expect(find.text('游戏与启动'), findsWidgets);
+    expect(find.text('游戏库与网络'), findsWidgets);
+    expect(find.text('账号与云同步'), findsWidgets);
     expect(find.text('AI 服务设置'), findsWidgets);
-    expect(find.text('备份与更新'), findsWidgets);
-    expect(find.byKey(const ValueKey('settings_section_active_3')),
-        findsOneWidget);
+    expect(find.text('存储与备份'), findsWidgets);
+    expect(find.text('插件与关于'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey('settings_section_active_${SettingsSections.ai}')),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -160,13 +164,13 @@ void main() {
     expect(container.read(backdropEffectProvider), BackdropEffectPref.acrylic);
 
     // Wide nav rail clicks sync settingsSectionProvider
-    await tester.tap(find.byKey(const ValueKey('settings_nav_3')));
-    await tester.pump();
-    expect(container.read(settingsSectionProvider), 3);
-
     await tester.tap(find.byKey(const ValueKey('settings_nav_4')));
     await tester.pump();
     expect(container.read(settingsSectionProvider), 4);
+
+    await tester.tap(find.byKey(const ValueKey('settings_nav_6')));
+    await tester.pump();
+    expect(container.read(settingsSectionProvider), 6);
 
     // Narrow window switches to sticky pill nav without overflow
     await tester.binding.setSurfaceSize(const Size(720, 800));
@@ -199,27 +203,7 @@ void main() {
     );
     await tester.pump();
 
-    // Section 1: Hotkey recorder listens and captures F8
-    final recordBtn = find.byKey(const ValueKey('settings_hotkey_record_btn'));
-    await tester.ensureVisible(recordBtn);
-    await tester.pump();
-    await tester.tap(recordBtn);
-    await tester.pump();
-    expect(find.textContaining('请按下快捷键'), findsOneWidget);
-
-    await tester.sendKeyEvent(LogicalKeyboardKey.f8);
-    await tester.pump();
-    expect(find.textContaining('F8'), findsWidgets);
-    NoticeCenter.instance.clear();
-    await tester.pump();
-
-    // Section 2: OAuth empty state, deduplicated sources, NSFW mode & slider
-    await tester.tap(find.byKey(const ValueKey('settings_nav_2')));
-    await tester.pump();
-    expect(find.text('OAuth 浏览器登录'), findsOneWidget);
-    expect(find.text('尚未记录游戏库根目录'), findsOneWidget);
-    expect(find.text(KisakiSources.labels[KisakiSources.cngal]!), findsOneWidget);
-
+    // Section 0: NSFW mode & blur slider (merged into Appearance & Display)
     await tester.ensureVisible(find.byKey(const ValueKey('settings_nsfw_show')));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('settings_nsfw_show')));
@@ -243,7 +227,35 @@ void main() {
     await tester.pump();
     expect(container.read(nsfwBlurProvider), isNot(12));
 
-    // Section 3: AI preset populates fields and missing config warns cleanly
+    // Section 1: Hotkey recorder listens and captures F8
+    await tester.tap(find.byKey(const ValueKey('settings_nav_1')));
+    await tester.pump();
+    final recordBtn = find.byKey(const ValueKey('settings_hotkey_record_btn'));
+    await tester.ensureVisible(recordBtn);
+    await tester.pump();
+    await tester.tap(recordBtn);
+    await tester.pump();
+    expect(find.textContaining('请按下快捷键'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.f8);
+    await tester.pump();
+    expect(find.textContaining('F8'), findsWidgets);
+    NoticeCenter.instance.clear();
+    await tester.pump();
+
+    // Section 2 & 3: Library & Network + Accounts & Sync headless safe states
+    await tester.tap(find.byKey(const ValueKey('settings_nav_2')));
+    await tester.pump();
+    expect(find.text('尚未记录游戏库根目录'), findsOneWidget);
+    expect(find.text(KisakiSources.labels[KisakiSources.cngal]!), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('settings_nav_3')));
+    await tester.pump();
+    expect(find.text('OAuth 浏览器登录'), findsOneWidget);
+
+    // Section 4: AI preset populates fields and missing config warns cleanly
+    await tester.tap(find.byKey(const ValueKey('settings_nav_4')));
+    await tester.pump();
     final presetCombo = find.byKey(const ValueKey('settings_ai_preset_combo'));
     await tester.ensureVisible(presetCombo);
     await tester.pump();
@@ -267,11 +279,25 @@ void main() {
     expect(find.byType(InfoBar), findsWidgets);
     expect(find.text('请先填写完整配置'), findsOneWidget);
 
-    // Section 4: Plugins empty state + Check Updates
-    await tester.tap(find.byKey(const ValueKey('settings_nav_4')));
+    // Section 6: Plugins empty state + Marketplace + Check Updates
+    await tester.tap(find.byKey(const ValueKey('settings_nav_6')));
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.text('尚未导入外部插件'), findsOneWidget);
+    expect(find.text('尚未安装任何插件'), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings_open_marketplace_btn')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('settings_import_plugin_zip_btn')),
+        findsOneWidget);
     expect(find.text('检查更新'), findsWidgets);
+
+    // Open Plugin Marketplace dialog and verify curated plugins load safely offline
+    await tester.tap(find.byKey(const ValueKey('settings_open_marketplace_btn')));
+    await tester.pumpAndSettle();
+    expect(find.text('KisakiGals 插件市场'), findsOneWidget);
+    expect(find.text('Locale Emulator 转区启动'), findsOneWidget);
+    expect(find.text('久坐提醒'), findsNothing);
+    await tester.tap(find.text('关闭').last);
+    await tester.pumpAndSettle();
+    expect(find.text('KisakiGals 插件市场'), findsNothing);
   });
 
   testWidgets('SettingsPage renders inside non-Fluent shell via ensureFluentTheme fallback',
@@ -290,7 +316,7 @@ void main() {
     );
     await _settle(tester, 450);
 
-    expect(find.text('外观与个性化'), findsWidgets);
+    expect(find.text('外观与显示'), findsWidgets);
     expect(find.text('AI 服务设置'), findsWidgets);
   });
 }

@@ -1,7 +1,8 @@
-/// 探索页：聚合百科榜单浏览 / 多源关键词搜索 / 全网流式资源检索（Fluent 2）。
+/// 探索页：Fluent 2 多源聚合榜单浏览与全网百科搜索（与游戏库共享统一工具栏、筛选栏与网格/列表视觉语言）。
 library;
 
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils.dart';
@@ -14,13 +15,15 @@ import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
+import '../library/filter_rail.dart' show kFilterRailWidth;
 import '../library/game_actions.dart';
+import '../shell/tabs.dart';
 import 'discover_filter_state.dart';
 import 'discover_state.dart';
 import 'game_explore_page.dart';
-import 'resource_links.dart';
 
-/// 探索页主视图（包含「发现聚合」与「资源检索」双模式切换）。
+/// 探索页主视图（发现聚合榜单与全网多源关键词搜索）。
 class DiscoverPage extends ConsumerStatefulWidget {
   const DiscoverPage({super.key});
 
@@ -33,11 +36,11 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   bool _sidebarVisible = false;
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
-  String _resourceQuerySeed = '';
 
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
     final services = tryAppServices();
     if (services != null) {
       services.settings
@@ -57,8 +60,27 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     }
   }
 
+  bool _onKey(KeyEvent e) {
+    if (e is KeyDownEvent &&
+        e.logicalKey == LogicalKeyboardKey.keyF &&
+        HardwareKeyboard.instance.isControlPressed &&
+        ref.read(tabIndexProvider) == Tabs.discover &&
+        _searchFocus.canRequestFocus) {
+      _searchFocus.requestFocus();
+      if (_searchCtrl.text.isNotEmpty) {
+        _searchCtrl.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _searchCtrl.text.length,
+        );
+      }
+      return true;
+    }
+    return false;
+  }
+
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _searchCtrl.dispose();
     _searchFocus.dispose();
     super.dispose();
@@ -71,8 +93,8 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
         .setBool(SettingsStore.kDiscoverSidebar, _sidebarVisible);
   }
 
-  Future<void> _toggleLayout() async {
-    final next = ref.read(discoverLayoutProvider) == 'list' ? 'grid' : 'list';
+  Future<void> _setLayout(String next) async {
+    if (ref.read(discoverLayoutProvider) == next) return;
     ref.read(discoverLayoutProvider.notifier).state = next;
     await tryAppServices()
         ?.settings
@@ -108,7 +130,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       );
     }
     ref.read(resourceQueryProvider.notifier).state = '';
-    _resourceQuerySeed = kw;
     final filter = ref.read(discoverFilterProvider);
     if (filter.keyword != kw) {
       ref
@@ -188,6 +209,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     }
   }
 
+  void _clearAllFilters(DiscoverFilter filter) {
+    _searchCtrl.clear();
+    ref
+        .read(discoverFeedProvider.notifier)
+        .updateFilter(filter.browse().cleared());
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<String>(resourceQueryProvider, (prev, next) {
@@ -199,165 +228,233 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       }
     });
 
-    final mode = ref.watch(discoverModeProvider);
     final filter = ref.watch(discoverFilterProvider);
     final layout = ref.watch(discoverLayoutProvider);
     final feedAsync = ref.watch(discoverFeedProvider);
     final libIndex = ref.watch(discoverLibraryIndexProvider).valueOrNull ??
         const <String, Game>{};
 
-    return ensureFluentScope(
+    return ensureFluentTheme(
       context,
       Builder(
-        builder: (ctx) => ColoredBox(
-          color: Colors.transparent,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(ctx, mode, filter),
-              if (mode == DiscoverMode.aggregate) ...[
-                _buildAggregateToolbar(ctx, filter, layout, feedAsync),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+        builder: (ctx) {
+          final disableAnim = fluentAnimationsDisabled(ctx);
+          final theme = FluentTheme.of(ctx);
+          final accent = theme.accentInk;
+          final filterCount = _activeFilterCount(filter);
+          final isLoading = feedAsync.isLoading;
+          final subtitle = '${filter.source.label} · ${filter.summary}';
+
+          return ScaffoldPage(
+            padding: EdgeInsets.zero,
+            header: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Expanded(
-                        child: _buildFeedBody(
-                          ctx,
-                          filter,
-                          layout,
-                          feedAsync,
-                          libIndex,
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('探索', style: theme.typography.title),
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            style: theme.typography.caption?.copyWith(
+                              color: theme.textSecondary,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      AnimatedSize(
-                        duration: FluentMotion.standard,
-                        curve: FluentMotion.enterCurve,
-                        alignment: Alignment.centerRight,
-                        child: _sidebarVisible
-                            ? SizedBox(
-                                width: 268,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                    right: 24,
-                                    bottom: 16,
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Flexible(
+                              child: CommandBar(
+                                overflowBehavior:
+                                    CommandBarOverflowBehavior.dynamicOverflow,
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                isCompact: false,
+                                primaryItems: [
+                                  CommandBarButton(
+                                    icon: const Icon(
+                                      FluentIcons.arrow_clockwise_16_regular,
+                                    ),
+                                    label: Text(isLoading ? '加载中…' : '刷新'),
+                                    onPressed: isLoading
+                                        ? null
+                                        : () => ref
+                                            .read(discoverFeedProvider.notifier)
+                                            .refresh(),
                                   ),
-                                  child: _DiscoverFilterRail(
-                                    filter: filter,
-                                    onChanged: (next) => ref
-                                        .read(discoverFeedProvider.notifier)
-                                        .updateFilter(next),
+                                  CommandBarButton(
+                                    icon: Icon(
+                                      FluentIcons.filter_16_regular,
+                                      color: (_sidebarVisible ||
+                                              filterCount > 0)
+                                          ? accent
+                                          : null,
+                                    ),
+                                    label: Text(
+                                      filterCount > 0
+                                          ? '筛选栏 ($filterCount)'
+                                          : '筛选栏',
+                                    ),
+                                    onPressed: _toggleSidebar,
                                   ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FluentSegmentedControl<String>(
+                              compact: true,
+                              selected: layout == 'list' ? 'list' : 'grid',
+                              onChanged: _setLayout,
+                              items: const [
+                                FluentSegmentItem<String>(
+                                  value: 'grid',
+                                  label: '网格视图',
+                                  tooltip: '网格视图',
+                                  icon: FluentIcons.grid_16_regular,
+                                  showLabel: false,
                                 ),
-                              )
-                            : const SizedBox.shrink(),
+                                FluentSegmentItem<String>(
+                                  value: 'list',
+                                  label: '列表视图',
+                                  tooltip: '列表视图',
+                                  icon: FluentIcons.text_bullet_list_16_regular,
+                                  showLabel: false,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ] else
-                Expanded(
-                  child: ResourceSearchPane(
-                    initialKeyword: _resourceQuerySeed.isNotEmpty
-                        ? _resourceQuerySeed
-                        : filter.keyword,
-                    onKeywordSubmitted: (kw) => _resourceQuerySeed = kw,
+                  const SizedBox(height: 12),
+                  _buildUnifiedControlRow(ctx, filter),
+                  if (filter.searching || filter.hasActiveFilters) ...[
+                    const SizedBox(height: 10),
+                    _ActiveDiscoverFilterChipsRow(
+                      filter: filter,
+                      onClearKeyword: _clearSearch,
+                      onUpdateFilter: (next) => ref
+                          .read(discoverFeedProvider.notifier)
+                          .updateFilter(next),
+                      onClearAll: () => _clearAllFilters(filter),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            content: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _buildFeedBody(
+                      ctx,
+                      filter,
+                      layout,
+                      feedAsync,
+                      libIndex,
+                    ),
                   ),
-                ),
-            ],
-          ),
-        ),
+                  AnimatedContainer(
+                    duration:
+                        disableAnim ? Duration.zero : FluentMotion.standard,
+                    curve: FluentMotion.enterCurve,
+                    width: _sidebarVisible ? 16 : 0,
+                  ),
+                  if (disableAnim)
+                    (_sidebarVisible
+                        ? SizedBox(
+                            width: kFilterRailWidth,
+                            child: _DiscoverFilterRail(
+                              filter: filter,
+                              onChanged: (next) => ref
+                                  .read(discoverFeedProvider.notifier)
+                                  .updateFilter(next),
+                            ),
+                          )
+                        : const SizedBox.shrink())
+                  else
+                    AnimatedSize(
+                      duration: FluentMotion.standard,
+                      curve: FluentMotion.enterCurve,
+                      alignment: Alignment.centerRight,
+                      child: _sidebarVisible
+                          ? SizedBox(
+                              width: kFilterRailWidth,
+                              child: _DiscoverFilterRail(
+                                filter: filter,
+                                onChanged: (next) => ref
+                                    .read(discoverFeedProvider.notifier)
+                                    .updateFilter(next),
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildHeader(
+  Widget _buildUnifiedControlRow(
     BuildContext context,
-    DiscoverMode mode,
     DiscoverFilter filter,
   ) {
     final theme = FluentTheme.of(context);
-    final subtitle = mode == DiscoverMode.aggregate
-        ? '${filter.source.label} · ${filter.summary}'
-        : mode.description;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 10),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 10,
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('探索', style: theme.typography.title),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: theme.typography.caption?.copyWith(
-                  color: theme.resources.textFillColorSecondary,
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 760;
+        final searchArea = Row(
+          children: [
+            Flexible(
+              child: FluentSearchBox(
+                controller: _searchCtrl,
+                focusNode: _searchFocus,
+                maxWidth: 420,
+                shortcutHint: 'Ctrl+F',
+                placeholder: '搜索全网百科：作品名 / 原名（输入过滤，回车全网检索）',
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) => _submitSearch(),
+                onCleared: _clearSearch,
               ),
-            ],
-          ),
-          _ModeSegmentedSwitch(
-            current: mode,
-            onChanged: (next) {
-              if (next == DiscoverMode.resource &&
-                  _resourceQuerySeed.isEmpty &&
-                  _searchCtrl.text.trim().isNotEmpty) {
-                _resourceQuerySeed = _searchCtrl.text.trim();
-              }
-              ref.read(discoverModeProvider.notifier).state = next;
-            },
-          ),
-        ],
-      ),
-    );
-  }
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _submitSearch,
+              child: const Text('搜索'),
+            ),
+          ],
+        );
 
-  Widget _buildAggregateToolbar(
-    BuildContext context,
-    DiscoverFilter filter,
-    String layout,
-    AsyncValue<DiscoverFeedState> feedAsync,
-  ) {
-    final theme = FluentTheme.of(context);
-    final isList = layout == 'list';
-    final isLoading = feedAsync.isLoading;
-    final typed = _searchCtrl.text.trim();
-    final filterCount = _activeFilterCount(filter);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: FluentSurfaceCard(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final narrow = constraints.maxWidth < 900;
-            final searchBox = TextBox(
-              controller: _searchCtrl,
-              focusNode: _searchFocus,
-              placeholder: '搜索作品名 / 别名（输入即过滤，回车全网搜索）',
-              prefix: const Padding(
-                padding: EdgeInsets.only(left: 10),
-                child: Icon(FluentIcons.search_16_regular, size: 15),
+        final combos = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '数据源',
+              style: theme.typography.caption?.copyWith(
+                color: theme.textSecondary,
               ),
-              suffix: typed.isNotEmpty || filter.searching
-                  ? IconButton(
-                      icon: const Icon(FluentIcons.dismiss_16_regular, size: 13),
-                      onPressed: _clearSearch,
-                    )
-                  : null,
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) => _submitSearch(),
-            );
-
-            final sourceCombo = SizedBox(
-              width: 122,
+            ),
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 120,
               child: ComboBox<DiscoverSource>(
                 isExpanded: true,
                 value: filter.source,
@@ -375,10 +472,17 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                       .updateFilter(filter.withSource(v));
                 },
               ),
-            );
-
-            final sortCombo = SizedBox(
-              width: 132,
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '排序',
+              style: theme.typography.caption?.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 142,
               child: ComboBox<DiscoverSort>(
                 isExpanded: true,
                 value: filter.sort,
@@ -398,103 +502,29 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                             .updateFilter(filter.copyWith(sort: v));
                       },
               ),
-            );
+            ),
+          ],
+        );
 
-            final actions = Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                FilledButton(
-                  onPressed: _submitSearch,
-                  child: const Text('搜索'),
-                ),
-                ToggleButton(
-                  checked: _sidebarVisible,
-                  onChanged: (_) => _toggleSidebar(),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(FluentIcons.filter_16_regular, size: 15),
-                      const SizedBox(width: 6),
-                      const Text('筛选'),
-                      if (filterCount > 0) ...[
-                        const SizedBox(width: 6),
-                        FluentBadge(
-                          text: '$filterCount',
-                          foreground: theme.accentColor,
-                          background: theme.accentColor.withValues(alpha: 0.14),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                Tooltip(
-                  message: '切换视图',
-                  child: IconButton(
-                    icon: Icon(
-                      isList
-                          ? FluentIcons.grid_16_regular
-                          : FluentIcons.text_bullet_list_16_regular,
-                      size: 16,
-                    ),
-                    onPressed: _toggleLayout,
-                  ),
-                ),
-                SizedBox(
-                  width: 96,
-                  child: CommandBar(
-                    isCompact: false,
-                    overflowBehavior: CommandBarOverflowBehavior.clip,
-                    primaryItems: [
-                      CommandBarButton(
-                        icon: const Icon(FluentIcons.arrow_clockwise_16_regular),
-                        label: const Text('刷新'),
-                        onPressed: isLoading
-                            ? null
-                            : () => ref
-                                .read(discoverFeedProvider.notifier)
-                                .refresh(),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            );
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              searchArea,
+              const SizedBox(height: 8),
+              Align(alignment: Alignment.centerRight, child: combos),
+            ],
+          );
+        }
 
-            if (narrow) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: searchBox),
-                      const SizedBox(width: 8),
-                      sourceCombo,
-                      const SizedBox(width: 8),
-                      sortCombo,
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  actions,
-                ],
-              );
-            }
-
-            return Row(
-              children: [
-                Expanded(child: searchBox),
-                const SizedBox(width: 8),
-                sourceCombo,
-                const SizedBox(width: 8),
-                sortCombo,
-                const SizedBox(width: 10),
-                actions,
-              ],
-            );
-          },
-        ),
-      ),
+        return Row(
+          children: [
+            Expanded(child: searchArea),
+            const SizedBox(width: 12),
+            combos,
+          ],
+        );
+      },
     );
   }
 
@@ -505,8 +535,6 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     AsyncValue<DiscoverFeedState> feedAsync,
     Map<String, Game> libIndex,
   ) {
-    final padding = EdgeInsets.fromLTRB(24, 6, _sidebarVisible ? 12 : 24, 24);
-
     if (feedAsync.isLoading && !feedAsync.hasValue) {
       return Center(
         child: Column(
@@ -525,17 +553,14 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     }
 
     if (feedAsync.hasError && !feedAsync.hasValue) {
-      return Padding(
-        padding: padding,
-        child: FluentEmptyState(
-          icon: FluentIcons.cloud_off_24_regular,
-          title: '探索列表加载失败',
-          message: '${feedAsync.error}',
-          action: FilledButton(
-            onPressed: () =>
-                ref.read(discoverFeedProvider.notifier).refresh(),
-            child: const Text('重新加载'),
-          ),
+      return FluentEmptyState(
+        icon: FluentIcons.cloud_off_24_regular,
+        title: '探索列表加载失败',
+        message: '${feedAsync.error}',
+        action: FilledButton(
+          onPressed: () =>
+              ref.read(discoverFeedProvider.notifier).refresh(),
+          child: const Text('重新加载'),
         ),
       );
     }
@@ -546,34 +571,52 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     }
 
     final visible = _filterLoaded(data.items, filter);
+    final typed = _searchCtrl.text.trim();
     if (visible.isEmpty) {
-      return Padding(
-        padding: padding,
-        child: FluentEmptyState(
-          icon: FluentIcons.compass_northwest_16_regular,
-          title: filter.searching ? '未搜索到相关作品' : '当前条件下暂无作品',
-          message: filter.searching
-              ? '尝试使用日文原名、简写或切换右侧「含 R18」设置。'
-              : '尝试放宽评分下限、年份范围或切换至 VNDB / Bangumi。',
-          action: filter.searching
-              ? FilledButton(
-                  onPressed: _clearSearch,
-                  child: const Text('返回榜单'),
-                )
-              : (filter.hasActiveFilters
-                  ? FilledButton(
-                      onPressed: () => ref
-                          .read(discoverFeedProvider.notifier)
-                          .updateFilter(filter.cleared()),
-                      child: const Text('清空筛选'),
-                    )
-                  : null),
-        ),
+      if (typed.isNotEmpty && typed != filter.keyword) {
+        return FluentEmptyState(
+          icon: FluentIcons.search_24_regular,
+          title: '当前已加载条目中无「$typed」',
+          message: '上方输入仅过滤当前已加载列表，点击下方可直接向 ${filter.source.label} 发起全网搜索。',
+          action: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton(
+                onPressed: _submitSearch,
+                child: Text('全网搜索「$typed」'),
+              ),
+              Button(
+                onPressed: _clearSearch,
+                child: const Text('清空搜索'),
+              ),
+            ],
+          ),
+        );
+      }
+      return FluentEmptyState(
+        icon: FluentIcons.compass_northwest_16_regular,
+        title: filter.searching ? '未搜索到相关作品' : '当前条件下暂无作品',
+        message: filter.searching
+            ? '尝试使用日文原名、简写或切换右侧「仅全年龄 / 含 R18」设置。'
+            : '尝试放宽评分下限、年份范围或切换至 VNDB / Bangumi。',
+        action: filter.searching
+            ? FilledButton(
+                onPressed: _clearSearch,
+                child: const Text('返回榜单'),
+              )
+            : (filter.hasActiveFilters
+                ? FilledButton(
+                    onPressed: () => ref
+                        .read(discoverFeedProvider.notifier)
+                        .updateFilter(filter.cleared()),
+                    child: const Text('清空筛选'),
+                  )
+                : null),
       );
     }
 
     final hasFooter = data.preloading || data.error != null || data.hasMore;
-    final totalCount = visible.length + (hasFooter ? 1 : 0);
 
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
@@ -586,9 +629,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
       },
       child: layout == 'list'
           ? ListView.separated(
-              padding: padding,
-              itemCount: totalCount,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              padding: const EdgeInsets.only(bottom: 16),
+              itemCount: visible.length + (hasFooter ? 1 : 0),
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 if (index >= visible.length) {
                   return _buildFooterTile(context, data);
@@ -601,32 +644,45 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
                   adding: _adding.contains(libKey),
                   onTap: () => _openDetail(g),
                   onAdd: () => _addToLibrary(g),
-                ).fluentEntrance(index: index);
+                );
               },
             )
-          : GridView.builder(
-              padding: padding,
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 215,
-                mainAxisSpacing: 14,
-                crossAxisSpacing: 14,
-                mainAxisExtent: 356,
-              ),
-              itemCount: totalCount,
-              itemBuilder: (context, index) {
-                if (index >= visible.length) {
-                  return _buildFooterTile(context, data);
-                }
-                final g = visible[index];
-                final libKey = discoverLibraryKey(g);
-                return _DiscoverGameCard(
-                  game: g,
-                  inLibrary: libIndex.containsKey(libKey),
-                  adding: _adding.contains(libKey),
-                  onTap: () => _openDetail(g),
-                  onAdd: () => _addToLibrary(g),
-                ).fluentEntrance(index: index);
-              },
+          : CustomScrollView(
+              slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.only(bottom: hasFooter ? 14 : 16),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 210,
+                      mainAxisSpacing: 14,
+                      crossAxisSpacing: 14,
+                      mainAxisExtent: 344,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final g = visible[index];
+                        final libKey = discoverLibraryKey(g);
+                        return _DiscoverGameCard(
+                          game: g,
+                          inLibrary: libIndex.containsKey(libKey),
+                          adding: _adding.contains(libKey),
+                          onTap: () => _openDetail(g),
+                          onAdd: () => _addToLibrary(g),
+                        );
+                      },
+                      childCount: visible.length,
+                    ),
+                  ),
+                ),
+                if (hasFooter)
+                  SliverPadding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    sliver: SliverToBoxAdapter(
+                      child: _buildFooterTile(context, data),
+                    ),
+                  ),
+              ],
             ),
     );
   }
@@ -634,21 +690,25 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
   Widget _buildFooterTile(BuildContext context, DiscoverFeedState data) {
     final theme = FluentTheme.of(context);
     if (data.preloading) {
-      return FluentSurfaceCard(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              ProgressRing(),
-              SizedBox(height: 8),
-              Text('加载下一页…'),
-            ],
-          ),
+      return const FluentSurfaceCard(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: ProgressRing(strokeWidth: 2),
+            ),
+            SizedBox(width: 10),
+            Text('加载下一页…'),
+          ],
         ),
       );
     }
     if (data.error != null) {
       return FluentSurfaceCard(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         onTap: () => ref.read(discoverFeedProvider.notifier).loadMore(),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -656,9 +716,9 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
             Icon(
               FluentIcons.cloud_off_24_regular,
               size: 22,
-              color: Colors.red,
+              color: theme.dangerInk,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text('加载下一页失败', style: theme.typography.bodyStrong),
             const SizedBox(height: 4),
             Text(
@@ -666,23 +726,26 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
               maxLines: 2,
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
-              style: theme.typography.caption,
+              style: theme.typography.caption?.copyWith(
+                color: theme.textSecondary,
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               '点击重试',
-              style: theme.typography.caption?.copyWith(color: theme.accentColor),
+              style: theme.typography.caption?.copyWith(color: theme.accentInk),
             ),
           ],
         ),
       );
     }
     return FluentSurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       onTap: () => ref.read(discoverFeedProvider.notifier).loadMore(),
       child: Center(
         child: Text(
           '继续加载更多',
-          style: theme.typography.bodyStrong?.copyWith(color: theme.accentColor),
+          style: theme.typography.bodyStrong?.copyWith(color: theme.accentInk),
         ),
       ),
     );
@@ -692,92 +755,77 @@ class _DiscoverPageState extends ConsumerState<DiscoverPage> {
     var count = 0;
     if (f.minRating > 0) count++;
     if (f.yearFrom != null || f.yearTo != null) count++;
-    if (!f.onlySfw) count++;
+    if (f.onlySfw) count++;
     if (f.tagIds.isNotEmpty) count += f.tagIds.length;
     return count;
   }
 }
 
-class _ModeSegmentedSwitch extends StatelessWidget {
-  final DiscoverMode current;
-  final ValueChanged<DiscoverMode> onChanged;
+class _ActiveDiscoverFilterChipsRow extends StatelessWidget {
+  final DiscoverFilter filter;
+  final VoidCallback onClearKeyword;
+  final ValueChanged<DiscoverFilter> onUpdateFilter;
+  final VoidCallback onClearAll;
 
-  const _ModeSegmentedSwitch({
-    required this.current,
-    required this.onChanged,
+  const _ActiveDiscoverFilterChipsRow({
+    required this.filter,
+    required this.onClearKeyword,
+    required this.onUpdateFilter,
+    required this.onClearAll,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: theme.resources.controlFillColorSecondary,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.resources.cardStrokeColorDefault),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final m in DiscoverMode.values)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: HoverButton(
-                onPressed: () => onChanged(m),
-                builder: (context, states) {
-                  final selected = current == m;
-                  return AnimatedContainer(
-                    duration: FluentMotion.fast,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? theme.resources.cardBackgroundFillColorDefault
-                          : states.isHovered
-                              ? theme.resources.subtleFillColorSecondary
-                              : Colors.transparent,
-                      borderRadius: BorderRadius.circular(6),
-                      border: selected
-                          ? Border.all(
-                              color: theme.accentColor.withValues(alpha: 0.45),
-                            )
-                          : null,
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          m == DiscoverMode.aggregate
-                              ? FluentIcons.compass_northwest_16_regular
-                              : FluentIcons.search_16_regular,
-                          size: 14,
-                          color: selected
-                              ? theme.accentColor
-                              : theme.resources.textFillColorSecondary,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          m.label,
-                          style: theme.typography.body?.copyWith(
-                            fontSize: 13,
-                            fontWeight:
-                                selected ? FontWeight.w600 : FontWeight.w400,
-                            color: selected
-                                ? theme.accentColor
-                                : theme.resources.textFillColorPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
+    final accent = theme.accentInk;
+
+    Widget chip(String label, VoidCallback onRemove) => FluentBadge(
+          text: '$label ×',
+          foreground: accent,
+          background: theme.accentTint,
+          tooltip: '移除该筛选条件',
+          onTap: onRemove,
+        );
+
+    final yearLabel = switch ((filter.yearFrom, filter.yearTo)) {
+      (final int from, final int to) => from == to ? '$from 年' : '$from-$to 年',
+      (final int from, null) => '$from 年以后',
+      (null, final int to) => '$to 年以前',
+      _ => null,
+    };
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (filter.searching)
+          chip('搜索: ${filter.keyword}', onClearKeyword),
+        if (filter.onlySfw)
+          chip('仅全年龄', () => onUpdateFilter(filter.copyWith(onlySfw: false))),
+        if (filter.minRating > 0)
+          chip(
+            '评分 ≥ ${filter.minRating == filter.minRating.roundToDouble() ? filter.minRating.toStringAsFixed(0) : filter.minRating.toStringAsFixed(1)}',
+            () => onUpdateFilter(filter.copyWith(minRating: 0)),
+          ),
+        if (yearLabel != null)
+          chip(
+            '年份: $yearLabel',
+            () => onUpdateFilter(
+              filter.copyWith(yearFrom: null, yearTo: null),
             ),
-        ],
-      ),
+          ),
+        for (final tagId in filter.tagIds)
+          chip(
+            '#${DiscoverTags.label(tagId)}',
+            () => onUpdateFilter(filter.toggleTag(tagId)),
+          ),
+        FluentBadge(
+          text: '清除全部',
+          foreground: theme.textSecondary,
+          onTap: onClearAll,
+        ),
+      ],
     );
   }
 }
@@ -878,7 +926,7 @@ class _DiscoverGameCard extends StatelessWidget {
                 child: Text(
                   game.developer.isNotEmpty ? game.developer : '开发商未知',
                   style: theme.typography.caption?.copyWith(
-                    color: theme.resources.textFillColorSecondary,
+                    color: theme.textSecondary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -978,7 +1026,7 @@ class _DiscoverGameListTile extends StatelessWidget {
                 Text(
                   subParts.isEmpty ? game.source.toUpperCase() : subParts.join(' · '),
                   style: theme.typography.caption?.copyWith(
-                    color: theme.resources.textFillColorSecondary,
+                    color: theme.textSecondary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1068,7 +1116,7 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
     final from = int.tryParse(_yearFromCtrl.text.trim());
     final to = int.tryParse(_yearToCtrl.text.trim());
     widget.onChanged(
-      widget.filter.copyWith(yearFrom: from, yearTo: to),
+      widget.filter.copyWith(yearFrom: from, yearTo: to).normalized(),
     );
   }
 
@@ -1076,6 +1124,7 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final f = widget.filter;
+    final vndbTagsEnabled = f.source == DiscoverSource.vndb;
     final tagQuery = _tagFilterCtrl.text.trim().toLowerCase();
     final filteredTags = DiscoverTags.presets.where((t) {
       if (tagQuery.isEmpty) return true;
@@ -1086,13 +1135,14 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
     return FluentSurfaceCard(
       padding: const EdgeInsets.all(14),
       child: ListView(
+        padding: const EdgeInsetsDirectional.only(end: 10),
         children: [
           Row(
             children: [
               Icon(
                 FluentIcons.filter_16_regular,
                 size: 16,
-                color: theme.accentColor,
+                color: theme.accentInk,
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -1109,7 +1159,7 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
           Text(
             f.source.hint,
             style: theme.typography.caption?.copyWith(
-              color: theme.resources.textFillColorSecondary,
+              color: theme.textSecondary,
             ),
           ),
           const SizedBox(height: 14),
@@ -1140,7 +1190,9 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
             children: [
               for (final score in const [0.0, 6.0, 7.0, 8.0, 8.5])
                 _RailChoiceChip(
-                  label: score == 0 ? '不限' : '${score.toStringAsFixed(score % 1 == 0 ? 0 : 1)}+',
+                  label: score == 0
+                      ? '不限'
+                      : '${score.toStringAsFixed(score % 1 == 0 ? 0 : 1)}+',
                   selected: f.minRating == score,
                   onTap: () => widget.onChanged(f.copyWith(minRating: score)),
                 ),
@@ -1155,6 +1207,11 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
                 child: TextBox(
                   controller: _yearFromCtrl,
                   placeholder: '起始年',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
                   onSubmitted: (_) => _applyYears(),
                 ),
               ),
@@ -1166,6 +1223,11 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
                 child: TextBox(
                   controller: _yearToCtrl,
                   placeholder: '结束年',
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
                   onSubmitted: (_) => _applyYears(),
                 ),
               ),
@@ -1203,32 +1265,44 @@ class _DiscoverFilterRailState extends State<_DiscoverFilterRail> {
           ),
           const SizedBox(height: 16),
           Text(
-            f.source == DiscoverSource.vndb
-                ? '题材标签（VNDB）'
-                : '题材标签（切换 VNDB 生效）',
+            vndbTagsEnabled ? '题材标签（VNDB）' : '题材标签（切换 VNDB 生效）',
             style: theme.typography.bodyStrong,
           ),
           const SizedBox(height: 8),
-          TextBox(
+          FluentSearchBox(
             controller: _tagFilterCtrl,
-            placeholder: '筛选标签…',
+            compact: true,
+            enabled: vndbTagsEnabled,
+            placeholder: vndbTagsEnabled ? '筛选标签…' : '需切换至 VNDB',
             onChanged: (_) => setState(() {}),
+            onCleared: () {
+              _tagFilterCtrl.clear();
+              setState(() {});
+            },
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              for (final t in filteredTags)
-                _RailChoiceChip(
-                  label: t.label,
-                  selected: f.tagIds.contains(t.id),
-                  onTap: f.source == DiscoverSource.vndb
-                      ? () => widget.onChanged(f.toggleTag(t.id))
-                      : null,
-                ),
-            ],
-          ),
+          if (filteredTags.isEmpty)
+            Text(
+              '没有匹配的预设标签',
+              style: theme.typography.caption?.copyWith(
+                color: theme.textSecondary,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final t in filteredTags)
+                  _RailChoiceChip(
+                    label: t.label,
+                    selected: f.tagIds.contains(t.id),
+                    onTap: vndbTagsEnabled
+                        ? () => widget.onChanged(f.toggleTag(t.id))
+                        : null,
+                  ),
+              ],
+            ),
         ],
       ),
     );
@@ -1249,39 +1323,50 @@ class _RailChoiceChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    return HoverButton(
-      onPressed: onTap,
-      builder: (context, states) {
-        final disabled = onTap == null;
-        final bg = selected
-            ? theme.accentColor.withValues(alpha: 0.16)
-            : states.isHovered && !disabled
-                ? theme.resources.subtleFillColorSecondary
-                : theme.resources.controlFillColorDefault;
-        final border = selected
-            ? theme.accentColor.withValues(alpha: 0.55)
-            : theme.resources.cardStrokeColorDefault;
-        return AnimatedContainer(
-          duration: FluentMotion.fast,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: border),
-          ),
-          child: Text(
-            label,
-            style: theme.typography.caption?.copyWith(
-              color: disabled
-                  ? theme.resources.textFillColorDisabled
-                  : selected
-                      ? theme.accentColor
-                      : theme.resources.textFillColorPrimary,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    final disabled = onTap == null;
+    return Semantics(
+      button: true,
+      selected: selected,
+      enabled: !disabled,
+      label: label,
+      child: HoverButton(
+        onPressed: onTap,
+        builder: (context, states) {
+          final bg = selected
+              ? theme.accentTint
+              : states.isHovered && !disabled
+                  ? theme.subtleHover
+                  : theme.surfaceCardSecondary;
+          final border = selected
+              ? theme.accentInk.withValues(alpha: 0.55)
+              : theme.surfaceStroke;
+          return FocusBorder(
+            focused: states.isFocused,
+            child: AnimatedContainer(
+              duration: fluentAnimationsDisabled(context)
+                  ? Duration.zero
+                  : FluentMotion.fast,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: border),
+              ),
+              child: Text(
+                label,
+                style: theme.typography.caption?.copyWith(
+                  color: disabled
+                      ? theme.textDisabled
+                      : selected
+                          ? theme.accentInk
+                          : theme.textPrimary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

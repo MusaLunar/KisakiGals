@@ -24,13 +24,25 @@ import 'ui/shell/app_shell.dart';
 import 'ui/shell/tabs.dart' show Tabs;
 
 const MethodChannel _trayPopupChannel = MethodChannel('kisaki/tray_menu');
+const MethodChannel _windowEnvChannel = MethodChannel('kisaki/window_env');
+
+Future<WindowBackdropCaps> _probeWindowBackdropCaps() async {
+  if (!Platform.isWindows) return const WindowBackdropCaps.unsupported();
+  try {
+    final raw = await _windowEnvChannel
+        .invokeMethod<Map<Object?, Object?>>('getBackdropCaps');
+    return WindowBackdropCaps.fromMap(raw);
+  } catch (_) {
+    return const WindowBackdropCaps.unsupported();
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 调优图片缓存上限（配合 CoverImage 按显示像素比降采样解码，减少滚动卡顿与内存峰值）
-  PaintingBinding.instance.imageCache.maximumSize = 260;
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 160 << 20; // 160 MB
+  // 调优图片缓存上限（配合 CoverImage 按显示像素比降采样解码，减少低配设备内存占用）
+  PaintingBinding.instance.imageCache.maximumSize = 180;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 96 << 20; // 96 MB
 
   SystemTheme.fallbackColor = kDefaultWin11Azure;
   await SystemTheme.accentColor.load();
@@ -38,17 +50,25 @@ Future<void> main() async {
   await windowManager.ensureInitialized();
   await acrylic.Window.initialize();
 
+  final caps = await _probeWindowBackdropCaps();
+  final initialDark =
+      PlatformDispatcher.instance.platformBrightness == Brightness.dark;
+  final initialEffective =
+      resolveEffectiveBackdrop(BackdropEffectPref.mica, caps);
   await syncWindowBackdrop(
-    effect: BackdropEffectPref.mica,
-    dark: PlatformDispatcher.instance.platformBrightness == Brightness.dark,
+    effect: initialEffective,
+    dark: initialDark,
+    caps: caps,
   );
 
-  const windowOptions = WindowOptions(
+  final windowOptions = WindowOptions(
     title: 'KisakiGals',
-    minimumSize: Size(1080, 680),
-    size: Size(1280, 800),
+    minimumSize: const Size(1080, 680),
+    size: const Size(1280, 800),
     center: true,
-    backgroundColor: Colors.transparent,
+    backgroundColor: initialEffective == BackdropEffectPref.solid
+        ? neutralWindowBackground(initialDark)
+        : Colors.transparent,
     titleBarStyle: TitleBarStyle.hidden,
   );
   await windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -58,7 +78,14 @@ Future<void> main() async {
 
   await AppServices.init();
 
-  runApp(const ProviderScope(child: KisakiApp()));
+  runApp(
+    ProviderScope(
+      overrides: [
+        windowBackdropCapsProvider.overrideWith((ref) => caps),
+      ],
+      child: const KisakiApp(),
+    ),
+  );
 }
 
 /// F10 截图边界（全局，覆盖所有路由）。
@@ -115,13 +142,17 @@ Future<Map<String, dynamic>> _buildTrayPopupPayload({
     }
   }
 
+  final nsfwMode =
+      await services.settings.getString(SettingsStore.kNsfwMode, 'blur');
+
   final recentPayload = <Map<String, dynamic>>[];
   for (final g in recentGames) {
     final gid = g.id;
     if (gid == null) continue;
     final isRunning = activeId == gid;
-    var coverPath =
-        g.coverPath.isEmpty ? '' : services.paths.resolveStored(g.coverPath);
+    var coverPath = (g.nsfw && nsfwMode != 'show') || g.coverPath.isEmpty
+        ? ''
+        : services.paths.resolveStored(g.coverPath);
     if (coverPath.isNotEmpty && !File(coverPath).existsSync()) {
       coverPath = '';
     }
@@ -228,6 +259,7 @@ class KisakiApp extends ConsumerStatefulWidget {
 class _KisakiAppState extends ConsumerState<KisakiApp>
     with WindowListener, TrayListener, WidgetsBindingObserver {
   StreamSubscription<SystemAccentColor>? _accentSub;
+  bool _quitting = false;
 
   @override
   void initState() {
@@ -256,6 +288,8 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
         final services = tryAppServices();
         if (services == null) return;
         final s = services.settings;
+        ref.read(performanceModeProvider.notifier).state =
+            await s.getBool(SettingsStore.kPerformanceMode, def: false);
         ref.read(nsfwModeProvider.notifier).state =
             await s.getString(SettingsStore.kNsfwMode, 'blur');
         ref.read(nsfwBlurProvider.notifier).state =
@@ -320,11 +354,19 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
   void _syncBackdrop() {
     if (!widget.enableDesktopHooks) return;
     final pref = _readOptional(themeProvider, ThemeModePref.system);
-    final effect = _readOptional(backdropEffectProvider, BackdropEffectPref.mica);
+    final perfMode = _readOptional(performanceModeProvider, false);
+    final effect = perfMode
+        ? BackdropEffectPref.solid
+        : _readOptional(backdropEffectProvider, BackdropEffectPref.mica);
+    final caps = _readOptional<WindowBackdropCaps?>(
+      windowBackdropCapsProvider,
+      null,
+    );
     unawaited(
       syncWindowBackdrop(
         effect: effect,
         dark: _isDarkForPref(pref),
+        caps: caps,
       ),
     );
   }
@@ -442,8 +484,23 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
         ref.read(trackingGameProvider.notifier).state = null;
         await updateTrayMenu();
       case 'quit':
-        await _shutdown();
-        await trayManager.destroy();
+        if (_quitting) return;
+        _quitting = true;
+        try {
+          await _shutdown().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {},
+          );
+        } catch (_) {}
+        try {
+          await trayManager.destroy().timeout(
+            const Duration(seconds: 2),
+            onTimeout: () {},
+          );
+        } catch (_) {}
+        try {
+          await windowManager.setPreventClose(false);
+        } catch (_) {}
         exit(0);
     }
   }
@@ -470,6 +527,9 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
       ref.listen<BackdropEffectPref>(backdropEffectProvider, (prev, next) {
         _syncBackdrop();
       });
+      ref.listen<bool>(performanceModeProvider, (prev, next) {
+        _syncBackdrop();
+      });
     }
 
     final pref = _watchOptional(themeProvider, ThemeModePref.system);
@@ -478,6 +538,14 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
       backdropEffectProvider,
       BackdropEffectPref.mica,
     );
+    final perfMode = _watchOptional(performanceModeProvider, false);
+    final caps = _watchOptional<WindowBackdropCaps?>(
+      windowBackdropCapsProvider,
+      null,
+    );
+    final effectiveBackdrop = perfMode
+        ? BackdropEffectPref.solid
+        : effectiveBackdropFor(backdrop, caps);
     final systemAccent = ref.watch(systemAccentColorProvider);
 
     return FluentApp(
@@ -487,13 +555,13 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
         brightness: Brightness.light,
         preset: preset,
         systemAccent: systemAccent,
-        backdrop: backdrop,
+        backdrop: effectiveBackdrop,
       ),
       darkTheme: buildFluentTheme(
         brightness: Brightness.dark,
         preset: preset,
         systemAccent: systemAccent,
-        backdrop: backdrop,
+        backdrop: effectiveBackdrop,
       ),
       themeMode: switch (pref) {
         ThemeModePref.system => ThemeMode.system,
@@ -506,7 +574,8 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
       ],
       supportedLocales: FluentLocalizations.supportedLocales,
       builder: (context, child) {
-        return Stack(
+        final mq = MediaQuery.of(context);
+        final content = Stack(
           children: [
             RepaintBoundary(
               key: shotBoundaryKey,
@@ -514,6 +583,11 @@ class _KisakiAppState extends ConsumerState<KisakiApp>
             ),
             const FluentNoticeHost(),
           ],
+        );
+        if (!perfMode || mq.disableAnimations) return content;
+        return MediaQuery(
+          data: mq.copyWith(disableAnimations: true),
+          child: content,
         );
       },
       home: AppShell(enableWindowHooks: widget.enableDesktopHooks),

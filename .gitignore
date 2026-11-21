@@ -3,7 +3,7 @@ build/
 *.iml
 .idea/
 fsdk/
-dist/
+/dist/
 stage_pkg/
 backups/
 # --- 仅本地使用的打包脚本与环境临时文件（不上传仓库）---

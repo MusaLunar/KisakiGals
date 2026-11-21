@@ -1,4 +1,4 @@
-/// Fluent 2 共享图片选择对话框（支持候选缩略图、手动 URL/路径输入、本地图片文件选择）。
+/// Fluent 2 共享图片选择对话框（支持比例适配、候选缩略图、手动 URL/路径输入、本地图片文件选择）。
 library;
 
 import 'dart:io';
@@ -8,7 +8,9 @@ import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 
 import '../../core/media_paths.dart';
 import '../fluent/fluent_icons.dart';
+import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 
 /// 打开 Fluent 图片选择对话框，返回选中的图片 URL 或本地路径；取消返回 null。
 Future<String?> showImagePickerDialog(
@@ -16,16 +18,21 @@ Future<String?> showImagePickerDialog(
   required String title,
   List<String> candidates = const [],
   String? initialValue,
+  double aspectRatio = 2 / 3,
   Future<String?> Function()? pickLocalFile,
 }) {
   return showDialog<String>(
     context: context,
     barrierDismissible: true,
-    builder: (_) => _ImagePickerDialog(
-      title: title,
-      candidates: candidates,
-      initialValue: initialValue,
-      pickLocalFile: pickLocalFile,
+    builder: (ctx) => ensureFluentScope(
+      ctx,
+      _ImagePickerDialog(
+        title: title,
+        candidates: candidates,
+        initialValue: initialValue,
+        aspectRatio: aspectRatio,
+        pickLocalFile: pickLocalFile,
+      ),
     ),
   );
 }
@@ -34,11 +41,13 @@ class _ImagePickerDialog extends StatefulWidget {
   final String title;
   final List<String> candidates;
   final String? initialValue;
+  final double aspectRatio;
   final Future<String?> Function()? pickLocalFile;
 
   const _ImagePickerDialog({
     required this.title,
     required this.candidates,
+    required this.aspectRatio,
     this.initialValue,
     this.pickLocalFile,
   });
@@ -51,6 +60,8 @@ class _ImagePickerDialogState extends State<_ImagePickerDialog> {
   late final TextEditingController _ctrl =
       TextEditingController(text: widget.initialValue?.trim() ?? '');
   late String _selected = widget.initialValue?.trim() ?? '';
+  DateTime? _lastTapAt;
+  String? _lastTapItem;
 
   late final List<String> _baseCandidates = _dedupe(widget.candidates);
 
@@ -129,8 +140,8 @@ class _ImagePickerDialogState extends State<_ImagePickerDialog> {
     _select(path.trim());
   }
 
-  void _confirm() {
-    final value = _selected.trim();
+  void _confirm([String? explicit]) {
+    final value = (explicit ?? _selected).trim();
     if (value.isEmpty) return;
     Navigator.pop(context, value);
   }
@@ -138,46 +149,92 @@ class _ImagePickerDialogState extends State<_ImagePickerDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final accent = theme.accentInk;
     final items = _displayItems;
+    final manualInput = _selected.isNotEmpty &&
+        !_baseCandidates.contains(_selected) &&
+        !_isPreviewableInput(_selected);
 
     return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 720, maxHeight: 620),
+      constraints: const BoxConstraints(maxWidth: 740, maxHeight: 640),
       title: Row(
         children: [
-          const Icon(FluentIcons.image_20_regular, size: 18),
+          Icon(FluentIcons.image_20_regular, size: 18, color: accent),
           const SizedBox(width: 8),
           Expanded(child: Text(widget.title, overflow: TextOverflow.ellipsis)),
+          if (items.isNotEmpty)
+            Text(
+              '${items.length} 个候选',
+              style: theme.typography.caption?.copyWith(
+                color: theme.textSecondary,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
         ],
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: TextBox(
-                  controller: _ctrl,
-                  placeholder: '输入图片链接 (http/https) 或本地文件路径',
-                  onChanged: (v) => setState(() => _selected = v.trim()),
-                  onSubmitted: (_) => _confirm(),
+          InfoLabel(
+            label: '图片地址或本地路径',
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextBox(
+                    controller: _ctrl,
+                    placeholder: '输入图片链接 (http/https) 或本地文件路径',
+                    prefix: Padding(
+                      padding: const EdgeInsets.only(left: 10),
+                      child: Icon(
+                        FluentIcons.image_16_regular,
+                        size: 14,
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                    suffix: _ctrl.text.isNotEmpty
+                        ? Tooltip(
+                            message: '清空输入',
+                            child: IconButton(
+                              icon: const Icon(
+                                FluentIcons.dismiss_12_regular,
+                                size: 12,
+                              ),
+                              onPressed: () {
+                                _ctrl.clear();
+                                setState(() => _selected = '');
+                              },
+                            ),
+                          )
+                        : null,
+                    onChanged: (v) => setState(() => _selected = v.trim()),
+                    onSubmitted: (_) => _confirm(),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Button(
-                onPressed: _pickLocal,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(FluentIcons.folder_open_20_regular, size: 16),
-                    SizedBox(width: 6),
-                    Text('浏览本地图片…'),
-                  ],
+                const SizedBox(width: 8),
+                Button(
+                  onPressed: _pickLocal,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.folder_open_20_regular, size: 16),
+                      SizedBox(width: 6),
+                      Text('浏览本地图片…'),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
+          if (manualInput) ...[
+            const SizedBox(height: 6),
+            Text(
+              '未检测到本地图片或完整 http(s) 地址，仍可直接按当前文本确定',
+              style: theme.typography.caption?.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           if (items.isEmpty)
             const Padding(
@@ -194,11 +251,11 @@ class _ImagePickerDialogState extends State<_ImagePickerDialog> {
                 constraints: const BoxConstraints(maxHeight: 400),
                 child: GridView.builder(
                   shrinkWrap: true,
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 140,
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: widget.aspectRatio > 1.2 ? 220 : 140,
                     mainAxisSpacing: 10,
                     crossAxisSpacing: 10,
-                    childAspectRatio: 2 / 3,
+                    childAspectRatio: widget.aspectRatio,
                   ),
                   itemCount: items.length,
                   itemBuilder: (context, index) {
@@ -208,7 +265,20 @@ class _ImagePickerDialogState extends State<_ImagePickerDialog> {
                       pathOrUrl: item,
                       selected: selected,
                       accentColor: accent,
-                      onTap: () => _select(item),
+                      onTap: () {
+                        final now = DateTime.now();
+                        final isDouble = _lastTapItem == item &&
+                            _lastTapAt != null &&
+                            now.difference(_lastTapAt!) <
+                                const Duration(milliseconds: 350);
+                        _lastTapItem = item;
+                        _lastTapAt = now;
+                        if (isDouble) {
+                          _confirm(item);
+                        } else {
+                          _select(item);
+                        }
+                      },
                     );
                   },
                 ),
@@ -222,7 +292,7 @@ class _ImagePickerDialogState extends State<_ImagePickerDialog> {
           child: const Text('取消'),
         ),
         FilledButton(
-          onPressed: _selected.isEmpty ? null : _confirm,
+          onPressed: _selected.isEmpty ? null : () => _confirm(),
           child: const Text('确定'),
         ),
       ],
@@ -243,62 +313,86 @@ class _CandidateTile extends StatelessWidget {
     required this.onTap,
   });
 
+  static String _shortTooltip(String raw) {
+    final uri = Uri.tryParse(raw);
+    if (uri != null && uri.host.isNotEmpty) {
+      return '${uri.host}\n$raw';
+    }
+    return raw;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final disableAnim = fluentAnimationsDisabled(context);
+
     return Tooltip(
-      message: pathOrUrl,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: selected
-                    ? accentColor
-                    : (isDark
-                        ? Colors.white.withValues(alpha: 0.12)
-                        : Colors.black.withValues(alpha: 0.1)),
-                width: selected ? 2.5 : 1,
-              ),
-            ),
-            padding: const EdgeInsets.all(2),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                FluentCoverImage(
-                  pathOrUrl: pathOrUrl,
-                  fit: BoxFit.cover,
-                  radius: 6,
-                  allowRevealOnHover: false,
-                ),
-                if (selected)
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        color: Color(0xCCFFFFFF),
-                        shape: BoxShape.circle,
-                      ),
-                      padding: const EdgeInsets.all(1),
-                      child: Icon(
-                        FluentIcons.checkmark_circle_16_filled,
-                        size: 16,
-                        color: accentColor,
-                      ),
+      message: _shortTooltip(pathOrUrl),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: '候选图片：$pathOrUrl',
+        child: HoverButton(
+          cursor: SystemMouseCursors.click,
+          onPressed: onTap,
+            builder: (context, states) {
+              final borderColor = selected
+                  ? accentColor
+                  : (states.isHovered
+                      ? accentColor.withValues(alpha: 0.65)
+                      : theme.surfaceStroke);
+
+              return FocusBorder(
+                focused: states.isFocused,
+                renderOutside: false,
+                child: AnimatedContainer(
+                  duration: disableAnim ? Duration.zero : FluentMotion.fast,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: borderColor,
+                      width: selected ? 2.0 : 1.0,
                     ),
                   ),
-              ],
-            ),
+                  padding: const EdgeInsets.all(2),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      FluentCoverImage(
+                        pathOrUrl: pathOrUrl,
+                        fit: BoxFit.cover,
+                        radius: 6,
+                        allowRevealOnHover: false,
+                      ),
+                      if (selected)
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: accentColor,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: theme.onAccentInk.withValues(alpha: 0.25),
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              FluentIcons.checkmark_12_regular,
+                              size: 13,
+                              color: theme.onAccentInk,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
-      ),
-    );
+      );
   }
 }

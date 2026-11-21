@@ -82,6 +82,12 @@ class _FakeAiController extends StateNotifier<AiState> implements AiController {
   Future<void> generateSummary() async {}
 
   @override
+  void cancelSummary() {}
+
+  @override
+  void cancelRecommendations() {}
+
+  @override
   Future<String> gatherPlayData() async => '';
 }
 
@@ -200,11 +206,44 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationView), findsOneWidget);
-    expect(find.byType(TitleBar), findsOneWidget);
+    expect(find.byWidgetPredicate((w) => w is TitleBar), findsOneWidget);
     expect(find.byType(AutoSuggestBox<Game>), findsOneWidget);
     expect(find.byType(HomePage), findsOneWidget);
 
-    // Switch to Library
+    const expectedNavLabels = <(int, String)>[
+      (Tabs.home, '主页'),
+      (Tabs.library, '游戏库'),
+      (Tabs.discover, '探索'),
+      (Tabs.stats, '统计'),
+      (Tabs.ai, 'AI 助手'),
+      (Tabs.add, '入库'),
+      (Tabs.settings, '设置'),
+    ];
+    for (final (tabIdx, label) in expectedNavLabels) {
+      expect(
+        find.descendant(
+          of: find.byKey(ValueKey('nav_tab_$tabIdx')),
+          matching: find.text(label),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('nav_action_nsfw')),
+        matching: find.text('R18 已模糊'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('nav_action_theme')),
+        matching: find.text('切换深色'),
+      ),
+      findsOneWidget,
+    );
+
+    // Switch to Library and verify TitleBar AutoSuggestBox syncs directly with libraryFilterProvider.query
     await tester.tap(
       find.byKey(const ValueKey('nav_tab_${Tabs.library}')),
       warnIfMissed: false,
@@ -212,6 +251,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(container.read(tabIndexProvider), Tabs.library);
     expect(find.byType(LibraryPage), findsOneWidget);
+
+    await tester.enterText(find.byType(AutoSuggestBox<Game>), 'Key');
+    await tester.pump(const Duration(milliseconds: 220));
+    await tester.pumpAndSettle();
+    expect(container.read(libraryFilterProvider).query, 'Key');
+
+    // Leaving Library clears transient TitleBar text without wiping libraryFilterProvider.query,
+    // and AutoSuggestBox search still works from Settings
+    await tester.tap(
+      find.byKey(const ValueKey('nav_tab_${Tabs.settings}')),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(libraryFilterProvider).query, 'Key');
 
     // Switch to footer Add (pane index 5 -> Tabs.add = 6)
     await tester.tap(
@@ -310,6 +363,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('active_tracking_stop')));
     await tester.pumpAndSettle();
     expect(container.read(trackingGameProvider), isNull);
+    NoticeCenter.instance.clear();
   });
 
   testWidgets('KisakiApp uses FluentApp and renders FluentNoticeHost InfoBar',
@@ -378,5 +432,51 @@ void main() {
     final box = tester.widget<AutoSuggestBox<Game>>(boxFinder);
     final results = box.sorter!('Key', box.items);
     expect(results.length, 20);
+  });
+
+  testWidgets(
+      'AppShell renders left navigation labels at 1080x680 minimum window size',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1080, 680));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: _shellOverrides(),
+        child: FluentApp(
+          theme: buildFluentTheme(
+            brightness: Brightness.light,
+            preset: AccentPreset.azure,
+            systemAccent: kDefaultWin11Azure,
+            backdrop: BackdropEffectPref.solid,
+          ),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child ?? const SizedBox.shrink(),
+          ),
+          home: const AppShell(enableWindowHooks: false),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    const expectedNavLabels = <(int, String)>[
+      (Tabs.home, '主页'),
+      (Tabs.library, '游戏库'),
+      (Tabs.discover, '探索'),
+      (Tabs.stats, '统计'),
+      (Tabs.ai, 'AI 助手'),
+      (Tabs.add, '入库'),
+      (Tabs.settings, '设置'),
+    ];
+    for (final (tabIdx, label) in expectedNavLabels) {
+      expect(
+        find.descendant(
+          of: find.byKey(ValueKey('nav_tab_$tabIdx')),
+          matching: find.text(label),
+        ),
+        findsOneWidget,
+      );
+    }
   });
 }

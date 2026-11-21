@@ -323,13 +323,13 @@ class GameRepository implements GameRepositoryLike {
     final total = await db.rawQuery(
         'SELECT COALESCE(SUM(seconds),0) AS s, COUNT(*) AS c FROM game_sessions WHERE date >= ?',
         [fromDate]);
-    final totalSeconds = (total.first['s'] ?? 0) as int;
-    final sessionCount = (total.first['c'] ?? 0) as int;
+    final totalSeconds = (total.first['s'] as num?)?.toInt() ?? 0;
+    final sessionCount = (total.first['c'] as num?)?.toInt() ?? 0;
 
     final days = await db.rawQuery(
         'SELECT COUNT(DISTINCT date) AS d FROM game_sessions WHERE date >= ?',
         [fromDate]);
-    final activeDays = (days.first['d'] ?? 0) as int;
+    final activeDays = (days.first['d'] as num?)?.toInt() ?? 0;
 
     final agg = AggStats(
       totalSeconds: totalSeconds,
@@ -341,8 +341,8 @@ class GameRepository implements GameRepositoryLike {
         'SELECT hour, SUM(seconds) AS s FROM game_sessions WHERE date >= ? GROUP BY hour',
         [fromDate]);
     for (final r in hours) {
-      final h = (r['hour'] ?? 0) as int;
-      if (h >= 0 && h < 24) agg.byHour[h] = (r['s'] ?? 0) as int;
+      final h = (r['hour'] as num?)?.toInt() ?? 0;
+      if (h >= 0 && h < 24) agg.byHour[h] = (r['s'] as num?)?.toInt() ?? 0;
     }
 
     final wd = await db.rawQuery(
@@ -350,8 +350,8 @@ class GameRepository implements GameRepositoryLike {
         'FROM game_sessions WHERE date >= ? GROUP BY w',
         [fromDate]);
     for (final r in wd) {
-      final w = (((r['w'] ?? 0) as int) + 6) % 7; // 周日 0 → 周一 0
-      agg.byWeekday[w] = (r['s'] ?? 0) as int;
+      final w = (((r['w'] as num?)?.toInt() ?? 0) + 6) % 7; // 周日 0 → 周一 0
+      agg.byWeekday[w] = (r['s'] as num?)?.toInt() ?? 0;
     }
 
     final dailyRows = await db.rawQuery(
@@ -359,7 +359,10 @@ class GameRepository implements GameRepositoryLike {
         'GROUP BY date ORDER BY date',
         [fromDate, today]);
     agg.daily = dailyRows
-        .map((r) => DailyPoint(r['date'] as String, (r['s'] ?? 0) as int))
+        .map((r) => DailyPoint(
+              (r['date'] ?? '').toString(),
+              (r['s'] as num?)?.toInt() ?? 0,
+            ))
         .toList();
 
     final top = await db.rawQuery(
@@ -371,9 +374,9 @@ class GameRepository implements GameRepositoryLike {
         [fromDate]);
     agg.topGames = top
         .map((r) => TopGame(
-            (r['game_id'] ?? 0) as int,
-            (r['name'] ?? '未知') as String,
-            (r['s'] ?? 0) as int))
+            (r['game_id'] as num?)?.toInt() ?? 0,
+            (r['name'] ?? '未知').toString(),
+            (r['s'] as num?)?.toInt() ?? 0))
         .toList();
 
     return agg;
@@ -411,7 +414,7 @@ class GameRepository implements GameRepositoryLike {
   Future<List<ActivityItem>> recentActivity({int limit = 30}) async {
     final rows = await db.rawQuery('''
       SELECT act.type, act.game_id, act.at, act.detail,
-             g.name, g.name_cn, g.cover_path
+             g.name, g.name_cn, g.cover_path, g.nsfw
       FROM (
         SELECT 'played' AS type, game_id, start_ts AS at, '' AS detail FROM game_sessions
         UNION ALL
@@ -424,16 +427,17 @@ class GameRepository implements GameRepositoryLike {
     ''', [limit]);
     final result = <ActivityItem>[];
     for (final r in rows) {
-      final gid = (r['game_id'] ?? 0) as int;
-      final nameCn = (r['name_cn'] ?? '') as String;
-      final name = (r['name'] ?? '') as String;
+      final gid = (r['game_id'] as num?)?.toInt() ?? 0;
+      final nameCn = (r['name_cn'] ?? '').toString();
+      final name = (r['name'] ?? '').toString();
       result.add(ActivityItem(
-        type: (r['type'] ?? 'played') as String,
+        type: (r['type'] ?? 'played').toString(),
         gameId: gid,
         gameName: nameCn.isNotEmpty ? nameCn : name,
-        coverPath: (r['cover_path'] ?? '') as String,
-        at: DateTime.tryParse((r['at'] ?? '') as String) ?? DateTime.now(),
-        detail: (r['detail'] ?? '') as String,
+        coverPath: (r['cover_path'] ?? '').toString(),
+        at: DateTime.tryParse((r['at'] ?? '').toString()) ?? DateTime.now(),
+        detail: (r['detail'] ?? '').toString(),
+        nsfw: ((r['nsfw'] as num?)?.toInt() ?? 0) != 0,
       ));
     }
     return result;
@@ -442,7 +446,7 @@ class GameRepository implements GameRepositoryLike {
   /// 未开始游玩的游戏数量等总览。
   Future<int> gameCount() async {
     final r = await db.rawQuery('SELECT COUNT(*) AS c FROM games');
-    return (r.first['c'] ?? 0) as int;
+    return (r.first['c'] as num?)?.toInt() ?? 0;
   }
 
   // ---------- 游玩路径 (Play Path) ----------

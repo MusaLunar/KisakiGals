@@ -8,6 +8,7 @@ import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 
 import '../../core/media_paths.dart';
 import 'fluent_icons.dart';
+import 'fluent_theme.dart';
 
 Future<bool> showFluentConfirmDialog(
   BuildContext context, {
@@ -16,32 +17,52 @@ Future<bool> showFluentConfirmDialog(
   String confirmLabel = '确定',
   String cancelLabel = '取消',
   bool destructive = false,
+  bool barrierDismissible = false,
 }) async {
   final result = await showDialog<bool>(
     context: context,
-    builder: (ctx) => ContentDialog(
-      title: Text(title),
-      content: Text(content),
-      actions: [
-        Button(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: Text(cancelLabel),
-        ),
-        destructive
-            ? Button(
-                style: const ButtonStyle(
-                  backgroundColor: WidgetStatePropertyAll(Color(0xFFD13438)),
-                  foregroundColor: WidgetStatePropertyAll(Colors.white),
+    barrierDismissible: barrierDismissible,
+    builder: (ctx) {
+      final theme = FluentTheme.of(ctx);
+      final isDark = theme.isDark;
+      final dangerNormal = theme.dangerFill;
+      final dangerHover =
+          isDark ? const Color(0xFFD63B2C) : const Color(0xFFB52B2F);
+      final dangerPress =
+          isDark ? const Color(0xFFAC2316) : const Color(0xFF962024);
+
+      return ContentDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          Button(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(cancelLabel),
+          ),
+          destructive
+              ? Button(
+                  style: ButtonStyle(
+                    backgroundColor: WidgetStateProperty.resolveWith((states) {
+                      if (states.isDisabled) {
+                        return theme.resources.accentFillColorDisabled;
+                      }
+                      if (states.isPressed) return dangerPress;
+                      if (states.isHovered) return dangerHover;
+                      return dangerNormal;
+                    }),
+                    foregroundColor:
+                        const WidgetStatePropertyAll(Colors.white),
+                  ),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(confirmLabel),
+                )
+              : FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(confirmLabel),
                 ),
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(confirmLabel),
-              )
-            : FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(confirmLabel),
-              ),
-      ],
-    ),
+        ],
+      );
+    },
   );
   return result == true;
 }
@@ -102,59 +123,90 @@ Future<void> showFluentLightboxDialog(
         ),
       );
 
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: true,
-    builder: (ctx) => ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 960, maxHeight: 740),
-      title: Row(
-        children: [
-          const Icon(FluentIcons.image_20_regular, size: 18),
-          const SizedBox(width: 8),
-          Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
-          IconButton(
-            icon: const Icon(FluentIcons.dismiss_20_regular, size: 16),
-            onPressed: () => Navigator.pop(ctx),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: InteractiveViewer(
-                minScale: 0.5,
-                maxScale: 4.0,
-                child: resolved.isEmpty
-                    ? buildFallback()
-                    : isNet
-                        ? CachedNetworkImage(
-                            imageUrl: resolved,
-                            fit: BoxFit.contain,
-                            errorWidget: (_, __, ___) => buildFallback(),
-                          )
-                        : Image.file(
-                            File(resolved),
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => buildFallback(),
-                          ),
+  final viewerCtrl = TransformationController();
+  try {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        final theme = FluentTheme.of(ctx);
+        return ContentDialog(
+          constraints: const BoxConstraints(maxWidth: 960, maxHeight: 760),
+          title: Row(
+            children: [
+              const Icon(FluentIcons.image_20_regular, size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
+              Tooltip(
+                message: '重置缩放',
+                child: IconButton(
+                  icon: const Icon(
+                    FluentIcons.arrow_reset_20_regular,
+                    size: 16,
+                  ),
+                  onPressed: () => viewerCtrl.value = Matrix4.identity(),
+                ),
               ),
-            ),
+              Tooltip(
+                message: '关闭 (Esc)',
+                child: IconButton(
+                  icon: const Icon(FluentIcons.dismiss_20_regular, size: 16),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+            ],
           ),
-          if (caption != null && caption.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(caption),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: InteractiveViewer(
+                    transformationController: viewerCtrl,
+                    minScale: 0.5,
+                    maxScale: 4.0,
+                    child: resolved.isEmpty
+                        ? buildFallback()
+                        : isNet
+                            ? CachedNetworkImage(
+                                imageUrl: resolved,
+                                fit: BoxFit.contain,
+                                errorWidget: (_, __, ___) => buildFallback(),
+                              )
+                            : Image.file(
+                                File(resolved),
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => buildFallback(),
+                              ),
+                  ),
+                ),
+              ),
+              if (caption != null && caption.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SelectableText(
+                  caption,
+                  style: theme.typography.caption?.copyWith(
+                    color: theme.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            Button(
+              onPressed: () => viewerCtrl.value = Matrix4.identity(),
+              child: const Text('重置缩放'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('关闭'),
+            ),
           ],
-        ],
-      ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('关闭'),
-        ),
-      ],
-    ),
-  );
+        );
+      },
+    );
+  } finally {
+    viewerCtrl.dispose();
+  }
 }

@@ -798,7 +798,7 @@ class KunOAuthService {
       padding: 24px;
       background: #FAF7F2;
       color: #18171C;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      font-family: "Source Han Sans CN", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", sans-serif;
     }
     .card {
       width: 100%;
@@ -1093,7 +1093,7 @@ class KunOAuthService {
       justify-content: center;
       background: #FAF7F2;
       color: #18171C;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-family: "Source Han Sans CN", "Source Han Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
     }
     .card {
       max-width: 440px;

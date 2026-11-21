@@ -13,6 +13,7 @@ import 'package:kisakigals/ui/library/filter_rail.dart';
 import 'package:kisakigals/ui/library/game_card.dart';
 import 'package:kisakigals/ui/library/game_list_tile.dart';
 import 'package:kisakigals/ui/library/library_page.dart';
+import 'package:kisakigals/ui/shell/tabs.dart';
 
 Widget _fluentHost({
   required Widget child,
@@ -207,7 +208,7 @@ void main() {
 
     expect(find.byType(MenuFlyout), findsOneWidget);
     expect(find.text('启动游戏'), findsOneWidget);
-    expect(find.text('LE 转区启动'), findsOneWidget);
+    expect(find.text('LE 转区启动'), findsNothing);
     expect(find.text('查看详情'), findsOneWidget);
     expect(find.text('探索百科'), findsOneWidget);
     expect(find.text('存档备份'), findsOneWidget);
@@ -317,7 +318,7 @@ void main() {
   });
 
   testWidgets(
-      'LibraryPage renders DropTarget, CommandBar, layout toggle, and FilterRail',
+      'LibraryPage renders DropTarget, CommandBar, layout toggle, FilterRail, no duplicate search bar, and unifies Add Game with Tabs.add',
       (tester) async {
     final sampleGames = [
       Game(
@@ -339,16 +340,29 @@ void main() {
       ),
     ];
 
+    final container = ProviderContainer(
+      overrides: [
+        gamesProvider.overrideWith(() => _FakeGamesController(sampleGames)),
+        platformRatingsProvider.overrideWith((ref) async => const {}),
+        allTagsProvider.overrideWith((ref) async => [TagItem(name: '催泪')]),
+        developersProvider.overrideWith((ref) async => ['Key', 'Yuzusoft']),
+        usedSourcesProvider.overrideWith((ref) async => ['vndb']),
+      ],
+    );
+    addTearDown(container.dispose);
+
     await tester.pumpWidget(
-      _fluentHost(
-        overrides: [
-          gamesProvider.overrideWith(() => _FakeGamesController(sampleGames)),
-          platformRatingsProvider.overrideWith((ref) async => const {}),
-          allTagsProvider.overrideWith((ref) async => [TagItem(name: '催泪')]),
-          developersProvider.overrideWith((ref) async => ['Key', 'Yuzusoft']),
-          usedSourcesProvider.overrideWith((ref) async => ['vndb']),
-        ],
-        child: const LibraryPage(),
+      UncontrolledProviderScope(
+        container: container,
+        child: FluentApp(
+          theme: buildFluentTheme(
+            brightness: Brightness.light,
+            preset: AccentPreset.azure,
+            systemAccent: kDefaultWin11Azure,
+            backdrop: BackdropEffectPref.solid,
+          ),
+          home: const LibraryPage(),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -357,11 +371,13 @@ void main() {
     expect(find.byType(CommandBar), findsOneWidget);
     expect(find.byType(FluentGameCard), findsNWidgets(2));
     expect(find.byType(FluentGameListTile), findsNothing);
+    // No duplicate search box inside LibraryPage itself (TitleBar search box handles it)
+    expect(find.byType(TextBox), findsNothing);
     expect(find.text('添加游戏'), findsOneWidget);
     expect(find.text('刷新库'), findsOneWidget);
 
     // Toggle grid -> list layout
-    await tester.tap(find.text('列表视图'));
+    await tester.tap(find.byTooltip('列表视图'));
     await tester.pumpAndSettle();
     expect(find.byType(FluentGameListTile), findsNWidgets(2));
     expect(find.byType(FluentGameCard), findsNothing);
@@ -371,6 +387,11 @@ void main() {
     await tester.tap(find.text('筛选栏'));
     await tester.pumpAndSettle();
     expect(find.text('清除筛选'), findsOneWidget);
+
+    // Clicking "添加游戏" switches unified Add tab instead of pushing a separate route
+    await tester.tap(find.text('添加游戏'));
+    await tester.pumpAndSettle();
+    expect(container.read(tabIndexProvider), Tabs.add);
   });
 }
 

@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
@@ -9,16 +10,18 @@ import '../../providers.dart';
 import '../../scraping/cover_candidates.dart';
 import '../../services/game_launcher.dart';
 import '../add/scrape_search_dialog.dart';
+import '../fluent/fluent_dialogs.dart';
 import '../fluent/fluent_icons.dart';
+import '../fluent/fluent_motion.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 import '../widgets/image_picker_dialog.dart';
 import '../widgets/save_dir_picker_dialog.dart';
 import 'save_backup_dialog.dart';
 
-/// Opens a Fluent 2 multi-section ContentDialog for editing all metadata,
-/// launch settings, save directory, tags, and artwork of [game].
+/// 打开 Fluent 2 分区编辑弹窗，修改作品元数据、启动方式、存档目录、标签与封面图。
 Future<bool> showEditGameDialog(
   BuildContext context,
   WidgetRef ref,
@@ -36,7 +39,7 @@ Future<bool> showEditGameDialog(
   if (hasTheme && hasLoc) {
     final res = await showDialog<bool>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       builder: (_) => _EditGameDialog(
         ref: ref,
         game: game,
@@ -51,23 +54,19 @@ Future<bool> showEditGameDialog(
 
   final res = await Navigator.of(context).push<bool>(
     RawDialogRoute<bool>(
-      barrierDismissible: true,
+      barrierDismissible: false,
       barrierLabel: '关闭编辑弹窗',
-      barrierColor: const Color(0x66000000),
-      pageBuilder: (dialogCtx, _, __) => ensureFluentTheme(
+      barrierColor: const Color(0x7A000000),
+      pageBuilder: (dialogCtx, _, __) => ensureFluentScope(
         context,
-        Localizations.override(
-          context: dialogCtx,
-          delegates: const [FluentLocalizations.delegate],
-          child: Center(
-            child: _EditGameDialog(
-              ref: ref,
-              game: game,
-              onSave: onSave,
-              loadSources: loadSources,
-              loadTags: loadTags,
-              onScrape: onScrape,
-            ),
+        Center(
+          child: _EditGameDialog(
+            ref: ref,
+            game: game,
+            onSave: onSave,
+            loadSources: loadSources,
+            loadTags: loadTags,
+            onScrape: onScrape,
           ),
         ),
       ),
@@ -105,7 +104,9 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     ('视觉封面', FluentIcons.image_16_regular, ValueKey('edit-anchor-media')),
   ];
 
+  final _scrollCtrl = ScrollController();
   final _sectionKeys = List.generate(4, (_) => GlobalKey());
+  final _nameFocus = FocusNode();
   int _activeSection = 0;
 
   late final TextEditingController _nameCtrl;
@@ -124,12 +125,13 @@ class _EditGameDialogState extends State<_EditGameDialog> {
   late PlayStatus _playStatus;
   late bool _nsfw;
   late bool _isFavorite;
-  late String _localeMode;
+  late String _initialSnapshot;
 
   List<SourceRecord> _sources = const [];
   List<TagItem> _tags = [];
   bool _tagsDirty = false;
   bool _saving = false;
+  String? _nameError;
 
   @override
   void initState() {
@@ -151,18 +153,23 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     _playStatus = g.playStatus;
     _nsfw = g.nsfw;
     _isFavorite = g.isFavorite;
-    final rawLocale = g.localeMode.trim().toLowerCase();
-    _localeMode = switch (rawLocale) {
-      'japanese' || 'le' => 'japanese',
-      'none' || '' => g.useLocaleEmulator ? 'japanese' : 'none',
-      _ => 'none',
-    };
+    _initialSnapshot = _snapshotSignature();
+
+    _nameCtrl.addListener(() {
+      if (_nameError != null && _nameCtrl.text.trim().isNotEmpty) {
+        setState(() => _nameError = null);
+      }
+    });
+    _scrollCtrl.addListener(_onScrollSpy);
 
     _loadMeta();
   }
 
   @override
   void dispose() {
+    _scrollCtrl.removeListener(_onScrollSpy);
+    _scrollCtrl.dispose();
+    _nameFocus.dispose();
     _nameCtrl.dispose();
     _nameCnCtrl.dispose();
     _aliasesCtrl.dispose();
@@ -176,6 +183,51 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     _bgCtrl.dispose();
     _tagInputCtrl.dispose();
     super.dispose();
+  }
+
+  String _snapshotSignature() => [
+        _nameCtrl.text,
+        _nameCnCtrl.text,
+        _aliasesCtrl.text,
+        _devCtrl.text,
+        _releaseCtrl.text,
+        _summaryCtrl.text,
+        _exeCtrl.text,
+        _dirCtrl.text,
+        _saveCtrl.text,
+        _coverCtrl.text,
+        _bgCtrl.text,
+        _playStatus.name,
+        _nsfw.toString(),
+        _isFavorite.toString(),
+      ].join('\u0000');
+
+  bool get _isDirty => _tagsDirty || _snapshotSignature() != _initialSnapshot;
+
+  void _onScrollSpy() {
+    if (!mounted) return;
+    var bestIdx = _activeSection;
+    var bestDelta = double.infinity;
+    final viewportBox =
+        _scrollCtrl.position.context.notificationContext?.findRenderObject()
+            as RenderBox?;
+    if (viewportBox == null || !viewportBox.hasSize) return;
+    final topY = viewportBox.localToGlobal(Offset.zero).dy;
+
+    for (var i = 0; i < _sectionKeys.length; i++) {
+      final ro =
+          _sectionKeys[i].currentContext?.findRenderObject() as RenderBox?;
+      if (ro == null || !ro.hasSize) continue;
+      final dy = ro.localToGlobal(Offset.zero).dy - topY;
+      final score = dy <= 48 ? (48 - dy) : (dy - 48) * 1.4;
+      if (score < bestDelta) {
+        bestDelta = score;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx != _activeSection) {
+      setState(() => _activeSection = bestIdx);
+    }
   }
 
   Future<void> _loadMeta() async {
@@ -196,7 +248,16 @@ class _EditGameDialogState extends State<_EditGameDialog> {
       if (!mounted) return;
       setState(() {
         _sources = loadedSources;
-        _tags = List<TagItem>.from(loadedTags);
+        if (!_tagsDirty) {
+          _tags = List<TagItem>.from(loadedTags);
+        } else {
+          for (final t in loadedTags) {
+            if (!_tags.any(
+                (cur) => cur.name.toLowerCase() == t.name.toLowerCase())) {
+              _tags.add(t);
+            }
+          }
+        }
       });
     } catch (_) {}
   }
@@ -217,6 +278,8 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     _bgCtrl.text = fresh.backgroundUrl;
     setState(() {
       _nsfw = fresh.nsfw;
+      _tagsDirty = false;
+      _initialSnapshot = _snapshotSignature();
     });
     await _loadMeta();
   }
@@ -225,10 +288,11 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     setState(() => _activeSection = index);
     final ctx = _sectionKeys[index].currentContext;
     if (ctx != null) {
+      final disableAnim = fluentAnimationsDisabled(context);
       Scrollable.ensureVisible(
         ctx,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
+        duration: disableAnim ? Duration.zero : FluentMotion.standard,
+        curve: FluentMotion.enterCurve,
         alignment: 0.04,
       );
     }
@@ -271,7 +335,9 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     if (raw.isEmpty) return;
     final exists =
         _tags.any((t) => t.name.toLowerCase() == raw.toLowerCase());
-    if (!exists) {
+    if (exists) {
+      showNotice('标签「#$raw」已存在');
+    } else {
       setState(() {
         _tags.add(TagItem(name: raw, weight: 1.0, source: 'manual'));
         _tagsDirty = true;
@@ -345,9 +411,10 @@ class _EditGameDialogState extends State<_EditGameDialog> {
       title: '选择作品封面',
       candidates: _imageCandidates(),
       initialValue: _coverCtrl.text.trim().isEmpty ? null : _coverCtrl.text.trim(),
+      aspectRatio: 2 / 3,
     );
     if (picked != null && mounted) {
-      setState(() => _coverCtrl.text = _toStoredMediaPath(picked));
+      _coverCtrl.text = _toStoredMediaPath(picked);
     }
   }
 
@@ -357,20 +424,53 @@ class _EditGameDialogState extends State<_EditGameDialog> {
       title: '选择详情背景图',
       candidates: _imageCandidates(),
       initialValue: _bgCtrl.text.trim().isEmpty ? null : _bgCtrl.text.trim(),
+      aspectRatio: 16 / 9,
     );
     if (picked != null && mounted) {
-      setState(() => _bgCtrl.text = _toStoredMediaPath(picked));
+      _bgCtrl.text = _toStoredMediaPath(picked);
     }
   }
 
   Future<void> _openScrape() async {
+    if (_isDirty) {
+      final proceed = await showFluentConfirmDialog(
+        context,
+        title: '重新搜刮元信息',
+        content: '搜刮结果将覆盖当前弹窗中的名称、简介、标签与封面。是否继续？',
+        confirmLabel: '继续搜刮',
+      );
+      if (!proceed || !mounted) return;
+    }
     final draft = _buildDraftGame();
     final ok = widget.onScrape != null
         ? await widget.onScrape!(context, draft)
-        : await showScrapeSearchDialog(context, widget.ref, widget.game);
+        : await showScrapeSearchDialog(context, widget.ref, draft);
     if (ok && mounted) {
       await _reloadAfterScrape();
     }
+  }
+
+  Future<void> _openSaveBackups() async {
+    final draft = _buildDraftGame();
+    await showSaveBackupDialog(context, widget.ref, draft);
+    if (mounted && draft.savePath != _saveCtrl.text.trim()) {
+      setState(() => _saveCtrl.text = draft.savePath);
+    }
+  }
+
+  Future<void> _requestCancel() async {
+    if (_saving) return;
+    if (_isDirty) {
+      final discard = await showFluentConfirmDialog(
+        context,
+        title: '放弃未保存的修改',
+        content: '当前表单有尚未保存的更改，确定放弃并关闭吗？',
+        confirmLabel: '放弃修改',
+        destructive: true,
+      );
+      if (!discard || !mounted) return;
+    }
+    Navigator.of(context).pop(false);
   }
 
   Game _buildDraftGame() {
@@ -395,7 +495,7 @@ class _EditGameDialogState extends State<_EditGameDialog> {
       lastPlayedAt: widget.game.lastPlayedAt,
       screenshots: widget.game.screenshots,
       backgroundUrl: _bgCtrl.text.trim(),
-      localeMode: _localeMode,
+      localeMode: widget.game.localeMode,
       savePath: _saveCtrl.text.trim(),
     )..sessionCount = widget.game.sessionCount;
   }
@@ -404,8 +504,10 @@ class _EditGameDialogState extends State<_EditGameDialog> {
     if (_saving) return;
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      showNotice('作品原名不能为空', error: true);
+      setState(() => _nameError = '作品原名不能为空');
       _scrollToSection(0);
+      _nameFocus.requestFocus();
+      showNotice('作品原名不能为空', error: true);
       return;
     }
 
@@ -445,113 +547,123 @@ class _EditGameDialogState extends State<_EditGameDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final accent = theme.accentInk;
 
-    return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 840, maxHeight: 720),
-      title: Row(
-        children: [
-          Icon(FluentIcons.edit_16_regular, size: 18, color: accent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '编辑作品信息 · ${widget.game.displayName}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): _save,
+        const SingleActivator(LogicalKeyboardKey.escape): _requestCancel,
+      },
+      child: ContentDialog(
+        constraints: const BoxConstraints(maxWidth: 840, maxHeight: 720),
+        title: Row(
+          children: [
+            Icon(FluentIcons.edit_16_regular, size: 18, color: accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '编辑作品信息 · ${widget.game.displayName}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-          Button(
-            onPressed: _openScrape,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(FluentIcons.search_16_regular, size: 14),
-                SizedBox(width: 6),
-                Text('重新搜刮'),
-              ],
-            ),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildAnchorBar(theme, accent),
-          const SizedBox(height: 10),
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(right: 4),
-              child: Column(
+            const SizedBox(width: 8),
+            Button(
+              onPressed: _saving ? null : _openScrape,
+              child: const Row(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expander(
-                    key: _sectionKeys[0],
-                    initiallyExpanded: true,
-                    leading: const Icon(FluentIcons.info_16_regular, size: 16),
-                    header: const Text('基本信息'),
-                    content: _buildBasicInfoSection(theme),
-                  ),
-                  const SizedBox(height: 10),
-                  Expander(
-                    key: _sectionKeys[1],
-                    initiallyExpanded: true,
-                    leading: const Icon(FluentIcons.play_16_regular, size: 16),
-                    header: const Text('启动与目录'),
-                    content: _buildLaunchSection(),
-                  ),
-                  const SizedBox(height: 10),
-                  Expander(
-                    key: _sectionKeys[2],
-                    initiallyExpanded: true,
-                    leading:
-                        const Icon(FluentIcons.archive_16_regular, size: 16),
-                    header: const Text('存档与备份'),
-                    content: _buildSaveSection(),
-                  ),
-                  const SizedBox(height: 10),
-                  Expander(
-                    key: _sectionKeys[3],
-                    initiallyExpanded: true,
-                    leading: const Icon(FluentIcons.image_16_regular, size: 16),
-                    header: const Text('视觉封面'),
-                    content: _buildMediaSection(),
-                  ),
+                  Icon(FluentIcons.search_16_regular, size: 14),
+                  SizedBox(width: 6),
+                  Text('重新搜刮'),
                 ],
               ),
             ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildAnchorBar(theme, accent),
+            const SizedBox(height: 10),
+            Flexible(
+              child: SingleChildScrollView(
+                controller: _scrollCtrl,
+                padding: const EdgeInsets.only(right: 6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expander(
+                      key: _sectionKeys[0],
+                      initiallyExpanded: true,
+                      leading: const Icon(FluentIcons.info_16_regular, size: 16),
+                      header: const Text('基本信息'),
+                      content: _buildBasicInfoSection(theme),
+                    ),
+                    const SizedBox(height: 10),
+                    Expander(
+                      key: _sectionKeys[1],
+                      initiallyExpanded: true,
+                      leading: const Icon(FluentIcons.play_16_regular, size: 16),
+                      header: const Text('启动与目录'),
+                      content: _buildLaunchSection(),
+                    ),
+                    const SizedBox(height: 10),
+                    Expander(
+                      key: _sectionKeys[2],
+                      initiallyExpanded: true,
+                      leading:
+                          const Icon(FluentIcons.archive_16_regular, size: 16),
+                      header: const Text('存档与备份'),
+                      content: _buildSaveSection(),
+                    ),
+                    const SizedBox(height: 10),
+                    Expander(
+                      key: _sectionKeys[3],
+                      initiallyExpanded: true,
+                      leading: const Icon(FluentIcons.image_16_regular, size: 16),
+                      header: const Text('视觉封面'),
+                      content: _buildMediaSection(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Button(
+            onPressed: _saving ? null : _requestCancel,
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: ProgressRing(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 6),
+                      Text('保存中…'),
+                    ],
+                  )
+                : const Text('保存修改'),
           ),
         ],
       ),
-      actions: [
-        Button(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: _saving
-              ? const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: ProgressRing(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 6),
-                    Text('保存中…'),
-                  ],
-                )
-              : const Text('保存修改'),
-        ),
-      ],
     );
   }
 
   Widget _buildAnchorBar(FluentThemeData theme, Color accent) {
     final res = theme.resources;
+    final disableAnim = fluentAnimationsDisabled(context);
+
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -566,55 +678,66 @@ class _EditGameDialogState extends State<_EditGameDialog> {
           children: [
             for (var i = 0; i < _sections.length; i++) ...[
               if (i > 0) const SizedBox(width: 6),
-              HoverButton(
-                key: _sections[i].$3,
-                onPressed: () => _scrollToSection(i),
-                builder: (context, states) {
-                  final active = _activeSection == i;
-                  final bg = active
-                      ? accent.withValues(alpha: 0.14)
-                      : states.isHovered
-                          ? res.subtleFillColorSecondary
-                          : Colors.transparent;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 140),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: bg,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: active
-                            ? accent.withValues(alpha: 0.45)
-                            : Colors.transparent,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _sections[i].$2,
-                          size: 14,
-                          color: active ? accent : theme.inactiveColor,
+              Semantics(
+                button: true,
+                selected: _activeSection == i,
+                label: _sections[i].$1,
+                child: HoverButton(
+                  key: _sections[i].$3,
+                  cursor: SystemMouseCursors.click,
+                  onPressed: () => _scrollToSection(i),
+                  builder: (context, states) {
+                    final active = _activeSection == i;
+                    final bg = active
+                        ? accent.withValues(alpha: 0.14)
+                        : states.isPressed
+                            ? theme.subtlePressed
+                            : states.isHovered
+                                ? theme.subtleHover
+                                : Colors.transparent;
+                    return FocusBorder(
+                      focused: states.isFocused,
+                      renderOutside: false,
+                      child: AnimatedContainer(
+                        duration:
+                            disableAnim ? Duration.zero : FluentMotion.fast,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _sections[i].$1,
-                          style: theme.typography.body?.copyWith(
-                            fontSize: 13,
-                            fontWeight:
-                                active ? FontWeight.w600 : FontWeight.w400,
+                        decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
                             color: active
-                                ? accent
-                                : theme.typography.body?.color,
+                                ? accent.withValues(alpha: 0.45)
+                                : Colors.transparent,
                           ),
                         ),
-                      ],
-                    ),
-                  );
-                },
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _sections[i].$2,
+                              size: 14,
+                              color: active ? accent : theme.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _sections[i].$1,
+                              style: theme.typography.body?.copyWith(
+                                fontSize: 13,
+                                fontWeight:
+                                    active ? FontWeight.w600 : FontWeight.w400,
+                                color: active ? accent : theme.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ],
@@ -634,9 +757,27 @@ class _EditGameDialogState extends State<_EditGameDialog> {
             Expanded(
               child: InfoLabel(
                 label: '原名 *',
-                child: TextBox(
-                  controller: _nameCtrl,
-                  placeholder: '日语 / 英语原名',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextBox(
+                      controller: _nameCtrl,
+                      focusNode: _nameFocus,
+                      placeholder: '日语 / 英语原名',
+                      highlightColor: _nameError != null ? theme.dangerInk : null,
+                      unfocusedColor:
+                          _nameError != null ? theme.dangerInk : null,
+                    ),
+                    if (_nameError != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _nameError!,
+                        style: theme.typography.caption?.copyWith(
+                          color: theme.dangerInk,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -748,9 +889,11 @@ class _EditGameDialogState extends State<_EditGameDialog> {
               children: _tags
                   .map(
                     (t) => Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 4,
+                      padding: const EdgeInsetsDirectional.fromSTEB(
+                        10,
+                        2,
+                        2,
+                        2,
                       ),
                       decoration: BoxDecoration(
                         color: res.controlFillColorDefault,
@@ -764,15 +907,18 @@ class _EditGameDialogState extends State<_EditGameDialog> {
                             '#${t.name}',
                             style: theme.typography.caption,
                           ),
-                          const SizedBox(width: 4),
-                          GestureDetector(
-                            onTap: () => _removeTag(t),
-                            child: MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: Icon(
-                                FluentIcons.dismiss_16_regular,
-                                size: 12,
-                                color: theme.inactiveColor,
+                          Tooltip(
+                            message: '移除标签「#${t.name}」',
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: IconButton(
+                                icon: Icon(
+                                  FluentIcons.dismiss_12_regular,
+                                  size: 11,
+                                  color: theme.textSecondary,
+                                ),
+                                onPressed: () => _removeTag(t),
                               ),
                             ),
                           ),
@@ -810,7 +956,8 @@ class _EditGameDialogState extends State<_EditGameDialog> {
           const SizedBox(height: 12),
           Text(
             '已关联数据源',
-            style: theme.typography.caption?.copyWith(color: theme.inactiveColor),
+            style:
+                theme.typography.caption?.copyWith(color: theme.textSecondary),
           ),
           const SizedBox(height: 4),
           Wrap(
@@ -848,7 +995,14 @@ class _EditGameDialogState extends State<_EditGameDialog> {
               const SizedBox(width: 8),
               Button(
                 onPressed: () => _pickDirectory(_dirCtrl, '选择游戏安装目录'),
-                child: const Text('选择目录'),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.folder_open_16_regular, size: 14),
+                    SizedBox(width: 4),
+                    Text('选择目录'),
+                  ],
+                ),
               ),
             ],
           ),
@@ -867,7 +1021,14 @@ class _EditGameDialogState extends State<_EditGameDialog> {
               const SizedBox(width: 8),
               Button(
                 onPressed: _pickExe,
-                child: const Text('浏览 EXE'),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.document_16_regular, size: 14),
+                    SizedBox(width: 4),
+                    Text('浏览 EXE'),
+                  ],
+                ),
               ),
               const SizedBox(width: 6),
               Button(
@@ -883,43 +1044,6 @@ class _EditGameDialogState extends State<_EditGameDialog> {
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: InfoLabel(
-                label: '转区启动方式',
-                child: ComboBox<String>(
-                  isExpanded: true,
-                  value: const ['none', 'japanese'].contains(_localeMode)
-                      ? _localeMode
-                      : 'none',
-                  items: const [
-                    ComboBoxItem(value: 'none', child: Text('直接启动')),
-                    ComboBoxItem(
-                      value: 'japanese',
-                      child: Text('Locale Emulator (日语转区)'),
-                    ),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) setState(() => _localeMode = v);
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Padding(
-              padding: const EdgeInsets.only(top: 18),
-              child: ToggleSwitch(
-                key: const ValueKey('edit-le-switch'),
-                checked: _localeMode == 'japanese',
-                content: const Text('LE 快捷转区'),
-                onChanged: (v) =>
-                    setState(() => _localeMode = v ? 'japanese' : 'none'),
-              ),
-            ),
-          ],
         ),
       ],
     );
@@ -942,7 +1066,14 @@ class _EditGameDialogState extends State<_EditGameDialog> {
               const SizedBox(width: 8),
               Button(
                 onPressed: () => _pickDirectory(_saveCtrl, '选择存档目录'),
-                child: const Text('浏览目录'),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(FluentIcons.folder_open_16_regular, size: 14),
+                    SizedBox(width: 4),
+                    Text('浏览目录'),
+                  ],
+                ),
               ),
               const SizedBox(width: 6),
               Button(
@@ -964,8 +1095,7 @@ class _EditGameDialogState extends State<_EditGameDialog> {
           Align(
             alignment: Alignment.centerLeft,
             child: Button(
-              onPressed: () =>
-                  showSaveBackupDialog(context, widget.ref, _buildDraftGame()),
+              onPressed: _openSaveBackups,
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -992,7 +1122,6 @@ class _EditGameDialogState extends State<_EditGameDialog> {
           previewHeight: 80,
           buttonLabel: '选择封面',
           onPick: _pickCoverImage,
-          onChanged: () => setState(() {}),
         ),
         const SizedBox(height: 12),
         _MediaFieldRow(
@@ -1002,7 +1131,6 @@ class _EditGameDialogState extends State<_EditGameDialog> {
           previewHeight: 62,
           buttonLabel: '选择背景',
           onPick: _pickBgImage,
-          onChanged: () => setState(() {}),
         ),
       ],
     );
@@ -1017,7 +1145,6 @@ class _MediaFieldRow extends StatelessWidget {
     required this.previewHeight,
     required this.buttonLabel,
     required this.onPick,
-    required this.onChanged,
   });
 
   final String label;
@@ -1026,70 +1153,113 @@ class _MediaFieldRow extends StatelessWidget {
   final double previewHeight;
   final String buttonLabel;
   final VoidCallback onPick;
-  final VoidCallback onChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final res = theme.resources;
-    final path = controller.text.trim();
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            width: previewWidth,
-            height: previewHeight,
-            decoration: BoxDecoration(
-              color: res.cardBackgroundFillColorDefault,
-              border: Border.all(color: res.cardStrokeColorDefault),
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, val, _) {
+        final path = val.text.trim();
+        final validPreview = path.isNotEmpty &&
+            (path.startsWith('http://') ||
+                path.startsWith('https://') ||
+                (!'http://'.startsWith(path.toLowerCase()) &&
+                    !'https://'.startsWith(path.toLowerCase())));
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            ClipRRect(
               borderRadius: BorderRadius.circular(6),
-            ),
-            child: path.isEmpty
-                ? Icon(
-                    FluentIcons.image_24_regular,
-                    size: 20,
-                    color: theme.inactiveColor,
-                  )
-                : FluentCoverImage(
-                    pathOrUrl: path,
-                    width: previewWidth,
-                    height: previewHeight,
-                    radius: 6,
-                  ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: InfoLabel(
-            label: label,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextBox(
-                    controller: controller,
-                    placeholder: '本地路径或 http(s):// 图片链接',
-                    onChanged: (_) => onChanged(),
+              child: Tooltip(
+                message: path.isEmpty ? '点击选择图片' : '点击查看大图',
+                child: HoverButton(
+                  cursor: SystemMouseCursors.click,
+                  onPressed: path.isEmpty
+                      ? onPick
+                      : () => showFluentLightboxDialog(
+                            context,
+                            pathOrUrl: path,
+                            title: label,
+                          ),
+                  builder: (context, states) => FocusBorder(
+                    focused: states.isFocused,
+                    renderOutside: false,
+                    child: Container(
+                      width: previewWidth,
+                      height: previewHeight,
+                      decoration: BoxDecoration(
+                        color: res.cardBackgroundFillColorDefault,
+                        border: Border.all(
+                          color: states.isHovered
+                              ? theme.accentInk
+                              : res.cardStrokeColorDefault,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: !validPreview
+                          ? Icon(
+                              FluentIcons.image_24_regular,
+                              size: 20,
+                              color: theme.textTertiary,
+                            )
+                          : FluentCoverImage(
+                              pathOrUrl: path,
+                              width: previewWidth,
+                              height: previewHeight,
+                              radius: 5,
+                              allowRevealOnHover: false,
+                            ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Button(
-                  onPressed: onPick,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(FluentIcons.image_16_regular, size: 14),
-                      const SizedBox(width: 4),
-                      Text(buttonLabel),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: InfoLabel(
+                label: label,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextBox(
+                        controller: controller,
+                        placeholder: '本地路径或 http(s):// 图片链接',
+                        suffix: path.isNotEmpty
+                            ? Tooltip(
+                                message: '清空',
+                                child: IconButton(
+                                  icon: const Icon(
+                                    FluentIcons.dismiss_12_regular,
+                                    size: 12,
+                                  ),
+                                  onPressed: controller.clear,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Button(
+                      onPressed: onPick,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(FluentIcons.image_16_regular, size: 14),
+                          const SizedBox(width: 4),
+                          Text(buttonLabel),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

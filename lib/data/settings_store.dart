@@ -65,6 +65,7 @@ class SettingsStore {
   // ---------- 常用设置项 ----------
 
   static const kThemeMode = 'theme.mode'; // system/light/dark
+  static const kPerformanceMode = 'ui.performance_mode'; // 低性能 / 流畅模式
   static const kTrackingMode = 'tracking.mode'; // foreground/elapsed
   static const kAfterLaunch = 'system.after_launch'; // none/minimize
   static const kCloseBehavior = 'system.close'; // exit/minimize_tray
@@ -125,6 +126,12 @@ class SettingsStore {
 
   /// 窗口材质效果：mica / tabbed / acrylic / solid
   static const kBackdropEffect = 'appearance.backdrop_effect';
+
+  /// 插件市场下载源 / GitHub 加速镜像：auto / direct / ghfast / ghproxy / jsdelivr
+  static const kPluginMirror = 'plugin.download_mirror';
+
+  /// 自定义插件聚合索引 URL（留空使用官方聚合仓库 index.json）
+  static const kPluginRegistryUrl = 'plugin.registry_url';
 
   Future<AccentPreset> accentPreset() async =>
       AccentPreset.fromId(await getString(kAccentPreset, AccentPreset.system.id));

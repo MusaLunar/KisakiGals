@@ -46,14 +46,14 @@ flutter:
   assets:
     - assets/data/
     - assets/logo/
-  # 思源黑体（Source Han Sans / Noto Sans SC 同源设计）简体子集，
-  # 内置以保证中文与数字字形一致（不依赖系统是否安装）
+  # Adobe Source Han Sans (思源黑体) 简体中文静态子集，
+  # 内置以保证跨设备中文字形与字重渲染一致（不依赖系统字体安装）
   fonts:
-    - family: NotoSansSC
+    - family: SourceHanSansCN
       fonts:
-        - asset: assets/fonts/NotoSansSC-Regular.otf
+        - asset: assets/fonts/SourceHanSansCN-Regular.otf
           weight: 400
-        - asset: assets/fonts/NotoSansSC-Medium.otf
+        - asset: assets/fonts/SourceHanSansCN-Medium.otf
           weight: 500
-        - asset: assets/fonts/NotoSansSC-Bold.otf
+        - asset: assets/fonts/SourceHanSansCN-Bold.otf
           weight: 700

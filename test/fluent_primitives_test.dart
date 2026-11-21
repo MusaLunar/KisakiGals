@@ -1,10 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kisakigals/core/constants.dart';
 import 'package:kisakigals/data/settings_store.dart';
 import 'package:kisakigals/providers.dart';
+import 'package:kisakigals/ui/discover/discover_filter_state.dart';
 import 'package:kisakigals/ui/fluent/fluent_dialogs.dart';
 import 'package:kisakigals/ui/fluent/fluent_icons.dart';
 import 'package:kisakigals/ui/fluent/fluent_motion.dart';
@@ -39,16 +41,114 @@ void main() {
     );
 
     expect(lightSys.brightness, Brightness.light);
+    expect(lightSys.typography.body?.fontFamily, kAppFontFamily);
+    expect(lightSys.typography.title?.fontFamily, kAppFontFamily);
     expect(lightSys.accentColor.normal, sys);
     expect(lightSys.scaffoldBackgroundColor, const Color(0x00000000));
+    expect(
+      lightSys.navigationPaneTheme.backgroundColor,
+      const Color(0x00000000),
+    );
     expect(darkSakura.brightness, Brightness.dark);
     expect(darkSakura.accentColor.normal, const Color(0xFFD85C84));
     expect(solidDark.scaffoldBackgroundColor, const Color(0xFF202020));
+    expect(
+      solidDark.navigationPaneTheme.backgroundColor,
+      const Color(0xFF202020),
+    );
+    expect(neutralWindowBackground(false), const Color(0xFFF3F3F3));
+    expect(neutralWindowBackground(true), const Color(0xFF202020));
     expect(solidDark.accentColor.normal, kLavenderAccent);
     expect(
       resolveAccentBaseColor(AccentPreset.system, const Color(0x00000000)),
       kDefaultWin11Azure,
     );
+  });
+
+  test('resolveEffectiveBackdrop downgrades unsupported environments to solid',
+      () {
+    const win10 = WindowBackdropCaps(
+      buildNumber: 19045,
+      dwmEnabled: true,
+      transparencyEnabled: true,
+      isRemoteSession: false,
+      highContrast: false,
+    );
+    expect(
+      resolveEffectiveBackdrop(BackdropEffectPref.mica, win10),
+      BackdropEffectPref.solid,
+    );
+    expect(
+      resolveEffectiveBackdrop(BackdropEffectPref.tabbed, win10),
+      BackdropEffectPref.solid,
+    );
+    expect(
+      resolveEffectiveBackdrop(BackdropEffectPref.acrylic, win10),
+      BackdropEffectPref.acrylic,
+    );
+
+    const win11Base = WindowBackdropCaps(
+      buildNumber: 22000,
+      dwmEnabled: true,
+      transparencyEnabled: true,
+      isRemoteSession: false,
+      highContrast: false,
+    );
+    expect(
+      resolveEffectiveBackdrop(BackdropEffectPref.mica, win11Base),
+      BackdropEffectPref.mica,
+    );
+    expect(
+      resolveEffectiveBackdrop(BackdropEffectPref.tabbed, win11Base),
+      BackdropEffectPref.mica,
+    );
+
+    const win1122H2 = WindowBackdropCaps.win11Full();
+    expect(
+      resolveEffectiveBackdrop(BackdropEffectPref.tabbed, win1122H2),
+      BackdropEffectPref.tabbed,
+    );
+
+    for (final degraded in [
+      const WindowBackdropCaps(
+        buildNumber: 22621,
+        dwmEnabled: false,
+        transparencyEnabled: true,
+        isRemoteSession: false,
+        highContrast: false,
+      ),
+      const WindowBackdropCaps(
+        buildNumber: 22621,
+        dwmEnabled: true,
+        transparencyEnabled: false,
+        isRemoteSession: false,
+        highContrast: false,
+      ),
+      const WindowBackdropCaps(
+        buildNumber: 22621,
+        dwmEnabled: true,
+        transparencyEnabled: true,
+        isRemoteSession: true,
+        highContrast: false,
+      ),
+      const WindowBackdropCaps(
+        buildNumber: 22621,
+        dwmEnabled: true,
+        transparencyEnabled: true,
+        isRemoteSession: false,
+        highContrast: true,
+      ),
+      WindowBackdropCaps.fromMap(null),
+    ]) {
+      expect(
+        resolveEffectiveBackdrop(BackdropEffectPref.mica, degraded),
+        BackdropEffectPref.solid,
+      );
+      expect(
+        resolveEffectiveBackdrop(BackdropEffectPref.acrylic, degraded),
+        BackdropEffectPref.solid,
+      );
+    }
   });
 
   test('NoticeCenter caps active notices at 3 and dismisses cleanly', () {
@@ -203,7 +303,7 @@ void main() {
     );
 
     await tester.tap(find.byType(FluentSurfaceCard));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(tapped, isTrue);
     expect(find.text('R18 已遮罩'), findsOneWidget);
     expect(find.text('在玩'), findsOneWidget);
@@ -330,5 +430,150 @@ void main() {
       ),
     );
     expect(find.text('Scoped OK'), findsOneWidget);
+  });
+
+  test('KisakiFluentTokens exposes calibrated light and dark semantic colors',
+      () {
+    final light = buildFluentTheme(
+      brightness: Brightness.light,
+      preset: AccentPreset.azure,
+      systemAccent: kDefaultWin11Azure,
+      backdrop: BackdropEffectPref.mica,
+    );
+    final dark = buildFluentTheme(
+      brightness: Brightness.dark,
+      preset: AccentPreset.lavender,
+      systemAccent: kDefaultWin11Azure,
+      backdrop: BackdropEffectPref.mica,
+    );
+
+    expect(light.textPrimary.a, greaterThan(0.8));
+    expect(light.textSecondary.a, greaterThan(0.5));
+    expect(light.onAccentInk, isNot(equals(Colors.transparent)));
+    expect(dark.textPrimary, isNot(equals(light.textPrimary)));
+    expect(dark.dangerInk, isNot(equals(light.dangerInk)));
+    expect(dark.favoriteInk, isNot(equals(light.favoriteInk)));
+  });
+
+  test('DiscoverFilter default onlySfw=false matches cleared() and active state',
+      () {
+    const def = DiscoverFilter();
+    expect(def.onlySfw, isFalse);
+    expect(def.hasActiveFilters, isFalse);
+    expect(def.summary, contains('未筛选'));
+
+    final sfwOnly = def.copyWith(onlySfw: true);
+    expect(sfwOnly.hasActiveFilters, isTrue);
+    expect(sfwOnly.summary, contains('仅全年龄'));
+
+    final reset = sfwOnly.cleared();
+    expect(reset.onlySfw, isFalse);
+    expect(reset.hasActiveFilters, isFalse);
+  });
+
+  testWidgets('FluentSearchBox supports shortcutHint, clear button, and Escape',
+      (tester) async {
+    final ctrl = TextEditingController();
+    final focus = FocusNode();
+    var clearedCount = 0;
+    addTearDown(() {
+      ctrl.dispose();
+      focus.dispose();
+    });
+
+    await tester.pumpWidget(
+      FluentApp(
+        theme: buildFluentTheme(
+          brightness: Brightness.light,
+          preset: AccentPreset.azure,
+          systemAccent: kDefaultWin11Azure,
+          backdrop: BackdropEffectPref.solid,
+        ),
+        home: StatefulBuilder(
+          builder: (context, setState) => ScaffoldPage(
+            content: Center(
+              child: FluentSearchBox(
+                controller: ctrl,
+                focusNode: focus,
+                placeholder: '搜索作品',
+                shortcutHint: 'Ctrl+K',
+                onChanged: (_) => setState(() {}),
+                onCleared: () {
+                  clearedCount++;
+                  ctrl.clear();
+                  setState(() {});
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Ctrl+K'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextBox), '千恋万花');
+    await tester.pump();
+    expect(find.text('Ctrl+K'), findsNothing);
+    expect(find.byTooltip('清空搜索'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('清空搜索'));
+    await tester.pumpAndSettle();
+    expect(ctrl.text, isEmpty);
+    expect(clearedCount, 1);
+
+    await tester.enterText(find.byType(TextBox), 'ATRI');
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(ctrl.text, isEmpty);
+    expect(clearedCount, 2);
+  });
+
+  testWidgets('FluentSegmentedControl updates selection and shows tooltips',
+      (tester) async {
+    var current = 'grid';
+    await tester.pumpWidget(
+      FluentApp(
+        theme: buildFluentTheme(
+          brightness: Brightness.light,
+          preset: AccentPreset.azure,
+          systemAccent: kDefaultWin11Azure,
+          backdrop: BackdropEffectPref.solid,
+        ),
+        home: StatefulBuilder(
+          builder: (context, setState) => ScaffoldPage(
+            content: Center(
+              child: FluentSegmentedControl<String>(
+                selected: current,
+                onChanged: (next) => setState(() => current = next),
+                items: const [
+                  FluentSegmentItem<String>(
+                    value: 'grid',
+                    label: '网格视图',
+                    tooltip: '网格视图',
+                    icon: FluentIcons.grid_16_regular,
+                    showLabel: false,
+                  ),
+                  FluentSegmentItem<String>(
+                    value: 'list',
+                    label: '列表视图',
+                    tooltip: '列表视图',
+                    icon: FluentIcons.text_bullet_list_16_regular,
+                    showLabel: false,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('网格视图'), findsOneWidget);
+    expect(find.byTooltip('列表视图'), findsOneWidget);
+    await tester.tap(find.byTooltip('列表视图'));
+    await tester.pumpAndSettle();
+    expect(current, 'list');
   });
 }

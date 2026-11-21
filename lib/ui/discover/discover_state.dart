@@ -408,7 +408,3 @@ final discoverFeedProvider =
 
 /// 与设计规范名称兼容的别名。
 final discoverStateProvider = discoverFeedProvider;
-
-/// 探索页顶栏视图模式（发现聚合 / 资源检索）。
-final discoverModeProvider =
-    StateProvider<DiscoverMode>((ref) => DiscoverMode.aggregate);

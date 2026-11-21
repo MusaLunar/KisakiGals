@@ -5,9 +5,11 @@ import '../../core/constants.dart';
 import '../../data/models.dart';
 import '../../providers.dart';
 import '../../services/upload/upload.dart';
+import '../fluent/fluent_dialogs.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 
 const _uploadableSources = <String>{
@@ -17,8 +19,7 @@ const _uploadableSources = <String>{
   KisakiSources.kun,
 };
 
-/// Opens a Fluent 2 dialog to rate [game], edit its short review, and optionally
-/// sync the rating/comment to logged-in remote platforms.
+/// 打开 Fluent 2 作品评分与短评同步对话框。
 Future<bool> showRateGameDialog(
   BuildContext context,
   WidgetRef ref,
@@ -49,19 +50,15 @@ Future<bool> showRateGameDialog(
     RawDialogRoute<bool>(
       barrierDismissible: true,
       barrierLabel: '关闭评分弹窗',
-      barrierColor: const Color(0x66000000),
-      pageBuilder: (dialogCtx, _, __) => ensureFluentTheme(
+      barrierColor: const Color(0x7A000000),
+      pageBuilder: (dialogCtx, _, __) => ensureFluentScope(
         context,
-        Localizations.override(
-          context: dialogCtx,
-          delegates: const [FluentLocalizations.delegate],
-          child: Center(
-            child: _RateGameDialog(
-              ref: ref,
-              game: game,
-              initialSources: sources,
-              onSave: onSave,
-            ),
+        Center(
+          child: _RateGameDialog(
+            ref: ref,
+            game: game,
+            initialSources: sources,
+            onSave: onSave,
           ),
         ),
       ),
@@ -89,7 +86,9 @@ class _RateGameDialog extends StatefulWidget {
 
 class _RateGameDialogState extends State<_RateGameDialog> {
   late double _rating;
+  late double _initialRating;
   late final TextEditingController _reviewCtrl;
+  late bool _markAsPlayed;
   List<SourceRecord> _sources = const [];
   final Map<String, String> _tokens = {};
   final Map<String, bool> _syncEnabled = {};
@@ -99,8 +98,10 @@ class _RateGameDialogState extends State<_RateGameDialog> {
   @override
   void initState() {
     super.initState();
-    _rating = (widget.game.userRating * 10).round() / 10.0;
+    _initialRating = (widget.game.userRating * 10).round() / 10.0;
+    _rating = _initialRating;
     _reviewCtrl = TextEditingController(text: widget.game.userReview);
+    _markAsPlayed = widget.game.playStatus == PlayStatus.wish;
     if (widget.initialSources != null) {
       _applySources(widget.initialSources!);
     } else {
@@ -112,6 +113,24 @@ class _RateGameDialogState extends State<_RateGameDialog> {
   void dispose() {
     _reviewCtrl.dispose();
     super.dispose();
+  }
+
+  bool get _isDirty =>
+      _rating != _initialRating || _reviewCtrl.text != widget.game.userReview;
+
+  Future<void> _requestCancel() async {
+    if (_saving) return;
+    if (_isDirty) {
+      final discard = await showFluentConfirmDialog(
+        context,
+        title: '放弃未保存的评价',
+        content: '评分或短评尚未保存，确定放弃吗？',
+        confirmLabel: '放弃',
+        destructive: true,
+      );
+      if (!discard || !mounted) return;
+    }
+    Navigator.of(context).pop(false);
   }
 
   Future<void> _loadSources() async {
@@ -134,7 +153,8 @@ class _RateGameDialogState extends State<_RateGameDialog> {
     final syncMap = <String, bool>{};
     for (final s in list) {
       if (!_uploadableSources.contains(s.source)) continue;
-      final token = services != null ? await services.accounts.token(s.source) : null;
+      final token =
+          services != null ? await services.accounts.token(s.source) : null;
       if (token != null && token.isNotEmpty) {
         tokens[s.source] = token;
         syncMap[s.source] = true;
@@ -175,10 +195,11 @@ class _RateGameDialogState extends State<_RateGameDialog> {
     final double finalRating = rounded <= 0 ? 0.0 : rounded;
     final String finalReview = _reviewCtrl.text.trim();
 
-    final nextStatus =
-        (finalRating > 0 && widget.game.playStatus == PlayStatus.wish)
-            ? PlayStatus.played
-            : widget.game.playStatus;
+    final nextStatus = (finalRating > 0 &&
+            widget.game.playStatus == PlayStatus.wish &&
+            _markAsPlayed)
+        ? PlayStatus.played
+        : widget.game.playStatus;
     final updated = Game(
       id: widget.game.id,
       name: widget.game.name,
@@ -275,8 +296,8 @@ class _RateGameDialogState extends State<_RateGameDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
-    final mutedColor = theme.inactiveColor;
+    final accent = theme.accentInk;
+    final mutedColor = theme.textSecondary;
     final syncable =
         _sources.where((s) => _uploadableSources.contains(s.source)).toList();
 
@@ -331,27 +352,58 @@ class _RateGameDialogState extends State<_RateGameDialog> {
                           ],
                         ),
                       ),
-                      Button(
-                        key: const ValueKey('rate-dec-btn'),
-                        onPressed: _rating <= 0 ? null : () => _nudge(-0.1),
-                        child: const Text('-0.1'),
+                      Tooltip(
+                        message: '减少 0.1 分',
+                        child: Button(
+                          key: const ValueKey('rate-dec-btn'),
+                          onPressed:
+                              _rating <= 0 ? null : () => _nudge(-0.1),
+                          child: const Text('-0.1'),
+                        ),
                       ),
                       const SizedBox(width: 6),
-                      Button(
-                        key: const ValueKey('rate-inc-btn'),
-                        onPressed: _rating >= 10 ? null : () => _nudge(0.1),
-                        child: const Text('+0.1'),
+                      Tooltip(
+                        message: '增加 0.1 分',
+                        child: Button(
+                          key: const ValueKey('rate-inc-btn'),
+                          onPressed:
+                              _rating >= 10 ? null : () => _nudge(0.1),
+                          child: const Text('+0.1'),
+                        ),
                       ),
-                      if (_rating > 0) ...[
-                        const SizedBox(width: 6),
-                        Button(
-                          onPressed: () => setState(() => _rating = 0.0),
+                      const SizedBox(width: 6),
+                      // 固定常驻防止从 0 -> 0.1 时按钮水平跳位误触清零
+                      Tooltip(
+                        message: '清除评分恢复未评状态',
+                        child: Button(
+                          onPressed: _rating > 0
+                              ? () => setState(() => _rating = 0.0)
+                              : null,
                           child: const Text('清零评分'),
                         ),
-                      ],
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final preset in const [6.0, 7.0, 8.0, 9.0, 10.0])
+                        FluentBadge(
+                          text: preset.toStringAsFixed(0),
+                          selected: (_rating - preset).abs() < 0.05,
+                          foreground: (_rating - preset).abs() < 0.05
+                              ? theme.onAccentInk
+                              : theme.textSecondary,
+                          background: (_rating - preset).abs() < 0.05
+                              ? accent
+                              : null,
+                          onTap: () => setState(() => _rating = preset),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
                   Slider(
                     value: _rating.clamp(0.0, 10.0),
                     min: 0.0,
@@ -362,18 +414,51 @@ class _RateGameDialogState extends State<_RateGameDialog> {
                         setState(() => _rating = (v * 10).round() / 10.0),
                   ),
                   const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('0.0 未评', style: theme.typography.caption),
-                      Text('5.0 及格', style: theme.typography.caption),
-                      Text('8.0 佳作', style: theme.typography.caption),
-                      Text('10.0 神作', style: theme.typography.caption),
-                    ],
+                  // 按滑块真实比例 (0% / 50% / 80% / 100%) 对齐刻度标签
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final w = constraints.maxWidth;
+                      final tickStyle = theme.typography.caption?.copyWith(
+                        color: mutedColor,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      );
+                      return SizedBox(
+                        height: 18,
+                        width: w,
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: 0,
+                              child: Text('0.0 未评', style: tickStyle),
+                            ),
+                            Positioned(
+                              left: (w * 0.50 - 24).clamp(0.0, w - 56),
+                              child: Text('5.0 及格', style: tickStyle),
+                            ),
+                            Positioned(
+                              left: (w * 0.80 - 24).clamp(0.0, w - 56),
+                              child: Text('8.0 佳作', style: tickStyle),
+                            ),
+                            Positioned(
+                              right: 0,
+                              child: Text('10.0 神作', style: tickStyle),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
             ),
+            if (widget.game.playStatus == PlayStatus.wish && _rating > 0) ...[
+              const SizedBox(height: 10),
+              Checkbox(
+                checked: _markAsPlayed,
+                onChanged: (v) => setState(() => _markAsPlayed = v ?? true),
+                content: const Text('保存评分后同时将游玩状态设为「已玩过」'),
+              ),
+            ],
             const SizedBox(height: 14),
             InfoLabel(
               label: '短评 / 游玩感想',
@@ -404,9 +489,22 @@ class _RateGameDialogState extends State<_RateGameDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '同步评分到外部平台',
-                      style: theme.typography.bodyStrong,
+                    Row(
+                      children: [
+                        Text(
+                          '同步评分到外部平台',
+                          style: theme.typography.bodyStrong,
+                        ),
+                        if (_rating <= 0) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '(请先拖动滑块评分)',
+                            style: theme.typography.caption?.copyWith(
+                              color: mutedColor,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 8),
                     ...syncable.map((s) {
@@ -418,24 +516,31 @@ class _RateGameDialogState extends State<_RateGameDialog> {
                         padding: const EdgeInsets.symmetric(vertical: 3),
                         child: Row(
                           children: [
-                            Checkbox(
-                              checked: loggedIn && checked,
-                              onChanged: loggedIn && _rating > 0
-                                  ? (val) => setState(
-                                        () =>
-                                            _syncEnabled[s.source] = val ?? false,
-                                      )
-                                  : null,
-                              content: Text('$label (${s.sourceId})'),
+                            Expanded(
+                              child: Checkbox(
+                                checked: loggedIn && checked && _rating > 0,
+                                onChanged: loggedIn && _rating > 0
+                                    ? (val) => setState(
+                                          () => _syncEnabled[s.source] =
+                                              val ?? false,
+                                        )
+                                    : null,
+                                content: Text(
+                                  '$label (${s.sourceId})',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
                             ),
-                            const Spacer(),
-                            if (!loggedIn)
+                            if (!loggedIn) ...[
+                              const SizedBox(width: 8),
                               Text(
                                 '未登录',
                                 style: theme.typography.caption?.copyWith(
                                   color: mutedColor,
                                 ),
                               ),
+                            ],
                           ],
                         ),
                       );
@@ -449,7 +554,7 @@ class _RateGameDialogState extends State<_RateGameDialog> {
       ),
       actions: [
         Button(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+          onPressed: _saving ? null : _requestCancel,
           child: const Text('取消'),
         ),
         FilledButton(

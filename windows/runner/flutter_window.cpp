@@ -1,5 +1,7 @@
 #include "flutter_window.h"
 
+#include <dwmapi.h>
+
 #include <optional>
 #include <string>
 
@@ -54,6 +56,49 @@ int GetIntField(const flutter::EncodableMap& map, const char* key,
   return def;
 }
 
+int32_t QueryWindowsBuildNumber() {
+  using RtlGetVersionPtr = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
+  HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+  if (!ntdll) return 0;
+  auto fn = reinterpret_cast<RtlGetVersionPtr>(
+      ::GetProcAddress(ntdll, "RtlGetVersion"));
+  if (!fn) return 0;
+  RTL_OSVERSIONINFOW info = {};
+  info.dwOSVersionInfoSize = sizeof(info);
+  if (fn(&info) != 0) return 0;
+  return static_cast<int32_t>(info.dwBuildNumber);
+}
+
+bool QueryDwmCompositionEnabled() {
+  BOOL enabled = FALSE;
+  if (SUCCEEDED(::DwmIsCompositionEnabled(&enabled))) {
+    return enabled == TRUE;
+  }
+  return false;
+}
+
+bool QueryTransparencyEnabled() {
+  DWORD value = 1;
+  DWORD size = sizeof(value);
+  LSTATUS st = ::RegGetValueW(
+      HKEY_CURRENT_USER,
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+      L"EnableTransparency", RRF_RT_REG_DWORD, nullptr, &value, &size);
+  if (st == ERROR_SUCCESS) {
+    return value != 0;
+  }
+  return true;
+}
+
+bool QueryHighContrastEnabled() {
+  HIGHCONTRASTW hc = {};
+  hc.cbSize = sizeof(hc);
+  if (::SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(hc), &hc, 0)) {
+    return (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
+  }
+  return false;
+}
+
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -78,6 +123,7 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetupTrayPopupChannel();
+  SetupWindowEnvChannel();
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -165,9 +211,40 @@ void FlutterWindow::SetupTrayPopupChannel() {
       });
 }
 
+void FlutterWindow::SetupWindowEnvChannel() {
+  env_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "kisaki/window_env",
+          &flutter::StandardMethodCodec::GetInstance());
+
+  env_channel_->SetMethodCallHandler(
+      [](const flutter::MethodCall<flutter::EncodableValue>& call,
+         std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+             result) {
+        if (call.method_name() == "getBackdropCaps") {
+          flutter::EncodableMap caps;
+          caps[flutter::EncodableValue("buildNumber")] =
+              flutter::EncodableValue(QueryWindowsBuildNumber());
+          caps[flutter::EncodableValue("dwmEnabled")] =
+              flutter::EncodableValue(QueryDwmCompositionEnabled());
+          caps[flutter::EncodableValue("transparencyEnabled")] =
+              flutter::EncodableValue(QueryTransparencyEnabled());
+          caps[flutter::EncodableValue("isRemoteSession")] =
+              flutter::EncodableValue(::GetSystemMetrics(SM_REMOTESESSION) !=
+                                      0);
+          caps[flutter::EncodableValue("highContrast")] =
+              flutter::EncodableValue(QueryHighContrastEnabled());
+          result->Success(flutter::EncodableValue(caps));
+        } else {
+          result->NotImplemented();
+        }
+      });
+}
+
 void FlutterWindow::OnDestroy() {
   tray_popup_.reset();
   tray_channel_.reset();
+  env_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

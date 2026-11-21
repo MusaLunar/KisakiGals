@@ -7,14 +7,22 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
-#include "resource.h"
-
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
 #define DWMWA_WINDOW_CORNER_PREFERENCE 33
 #endif
 #ifndef DWMWCP_ROUND
 #define DWMWCP_ROUND 2
+#endif
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#endif
+#ifndef DWMSBT_TRANSIENTWINDOW
+#define DWMSBT_TRANSIENTWINDOW 3
 #endif
 
 namespace {
@@ -23,25 +31,13 @@ constexpr const wchar_t kTrayPopupClassName[] = L"KisakiTrayPopupWindow";
 bool g_class_registered = false;
 
 // Unicode string constants (ASCII-escaped to avoid any MSVC codepage issues)
-// "桌面快捷启动"
-constexpr const wchar_t kStrSubtitle[] =
-    L"\u684C\u9762\u5FEB\u6377\u542F\u52A8";
-// "正在游玩中"
-constexpr const wchar_t kStrPlayingNow[] = L"\u6B63\u5728\u6E38\u73A9\u4E2D";
-// "结束会话"
-constexpr const wchar_t kStrStopSession[] = L"\u7ED3\u675F\u4F1A\u8BDD";
-// "最近游玩 · 点击即刻启动"
-constexpr const wchar_t kStrRecentHeader[] =
-    L"\u6700\u8FD1\u6E38\u73A9 \u00B7 \u70B9\u51FB\u5373\u523B\u542F\u52A8";
-// "暂无最近游玩记录"
-constexpr const wchar_t kStrRecentEmpty[] =
-    L"\u6682\u65E0\u6700\u8FD1\u6E38\u73A9\u8BB0\u5F55";
+// "停止会话 · "
+constexpr const wchar_t kStrStopSessionPrefix[] =
+    L"\u505C\u6B62\u4F1A\u8BDD \u00B7 ";
 // "运行中"
 constexpr const wchar_t kStrRunning[] = L"\u8FD0\u884C\u4E2D";
-// "▶ 启动"
-constexpr const wchar_t kStrLaunch[] = L"\u25B6 \u542F\u52A8";
-// "打开主面板"
-constexpr const wchar_t kStrNavShow[] = L"\u6253\u5F00\u4E3B\u9762\u677F";
+// "打开主窗口"
+constexpr const wchar_t kStrNavShow[] = L"\u6253\u5F00\u4E3B\u7A97\u53E3";
 // "我的游戏库"
 constexpr const wchar_t kStrNavLibrary[] = L"\u6211\u7684\u6E38\u620F\u5E93";
 // "探索发现"
@@ -52,6 +48,16 @@ constexpr const wchar_t kStrNavStats[] = L"\u6E38\u73A9\u7EDF\u8BA1";
 constexpr const wchar_t kStrNavSettings[] = L"\u504F\u597D\u8BBE\u7F6E";
 // "退出 KisakiGals"
 constexpr const wchar_t kStrQuit[] = L"\u9000\u51FA KisakiGals";
+
+// Segoe Fluent Icons / Segoe MDL2 Assets shared codepoints
+constexpr const wchar_t kGlyphPlay[] = L"\uE768";
+constexpr const wchar_t kGlyphStop[] = L"\uE71A";
+constexpr const wchar_t kGlyphHome[] = L"\uE80F";
+constexpr const wchar_t kGlyphLibrary[] = L"\uE8F1";
+constexpr const wchar_t kGlyphExplore[] = L"\uE774";
+constexpr const wchar_t kGlyphStats[] = L"\uE9D2";
+constexpr const wchar_t kGlyphSettings[] = L"\uE713";
+constexpr const wchar_t kGlyphQuit[] = L"\uE7E8";
 
 void AddRoundRect(Gdiplus::GraphicsPath& path, Gdiplus::RectF r, float radius) {
   if (radius <= 0.5f) {
@@ -113,7 +119,7 @@ void KisakiTrayPopup::EnsureWindowClass() {
   if (g_class_registered) return;
   WNDCLASSEXW wc = {};
   wc.cbSize = sizeof(WNDCLASSEXW);
-  wc.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
+  wc.style = CS_HREDRAW | CS_VREDRAW;
   wc.lpfnWndProc = KisakiTrayPopup::WndProc;
   wc.hInstance = GetModuleHandle(nullptr);
   wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -123,84 +129,93 @@ void KisakiTrayPopup::EnsureWindowClass() {
   g_class_registered = true;
 }
 
+void KisakiTrayPopup::ApplyDwmAttributes(bool dark) {
+  if (!hwnd_) return;
+
+  BOOL dark_val = dark ? TRUE : FALSE;
+  DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_val,
+                        sizeof(dark_val));
+
+  DWORD corner_pref = DWMWCP_ROUND;
+  DwmSetWindowAttribute(hwnd_, DWMWA_WINDOW_CORNER_PREFERENCE, &corner_pref,
+                        sizeof(corner_pref));
+
+  DWORD backdrop = DWMSBT_TRANSIENTWINDOW;
+  HRESULT hr = DwmSetWindowAttribute(hwnd_, DWMWA_SYSTEMBACKDROP_TYPE,
+                                     &backdrop, sizeof(backdrop));
+  if (SUCCEEDED(hr)) {
+    use_dwm_acrylic_ = true;
+    MARGINS margins = {-1, -1, -1, -1};
+    DwmExtendFrameIntoClientArea(hwnd_, &margins);
+  } else {
+    use_dwm_acrylic_ = false;
+  }
+}
+
 void KisakiTrayPopup::RebuildLayout() {
   regions_.clear();
-  const int pad = S(12);
-  width_ = S(312);
-  int y = pad;
+  const int pad_x = S(4);
+  const int pad_y = S(4);
+  const int item_h = S(32);
+  const int item_gap = S(2);
+  const int sep_space = S(9);
+  width_ = S(224);
+  int y = pad_y;
 
-  // 1. Masthead (40px)
-  y += S(40);
-  y += S(6);
-
-  // 2. Running game banner (optional)
+  // Group 1: Primary window / active session controls (mirrors MenuFlyout top group)
+  {
+    RECT rc = {pad_x, y, width_ - pad_x, y + item_h};
+    regions_.push_back({rc, "show", RegionKind::kMenuItem, 0});
+    y += item_h;
+  }
   if (!data_.running_title.empty()) {
-    const int banner_h = S(46);
-    RECT stop_rc = {width_ - pad - S(74), y + S(9), width_ - pad - S(8),
-                    y + banner_h - S(9)};
-    regions_.push_back({stop_rc, "stop_tracking", true, false});
-    y += banner_h + S(10);
+    y += item_gap;
+    RECT rc = {pad_x, y, width_ - pad_x, y + item_h};
+    regions_.push_back({rc, "stop_tracking", RegionKind::kStopSession, 0});
+    y += item_h;
   }
 
-  // 3. Section header
-  y += S(22);
+  y += sep_space;
 
-  // 4. Recently played 2 game cards
-  if (data_.recent_games.empty()) {
-    y += S(48);
-  } else {
-    const int count =
-        static_cast<int>(std::min<size_t>(2, data_.recent_games.size()));
-    const int card_h = S(58);
-    for (int i = 0; i < count; ++i) {
-      RECT card_rc = {pad, y, width_ - pad, y + card_h};
+  // Group 2 (optional): Up to 2 recent games as uniform MenuFlyout items
+  const size_t recent_count = std::min<size_t>(2, data_.recent_games.size());
+  if (recent_count > 0) {
+    for (size_t i = 0; i < recent_count; ++i) {
+      RECT rc = {pad_x, y, width_ - pad_x, y + item_h};
       regions_.push_back(
-          {card_rc,
+          {rc,
            "launch_game_" + std::to_string(data_.recent_games[i].id),
-           false,
-           true});
-      y += card_h + S(6);
+           RegionKind::kRecentGame, i});
+      y += item_h;
+      if (i + 1 < recent_count) y += item_gap;
     }
+    y += sep_space;
   }
 
-  y += S(6);
-  y += S(10);
-
-  // 5. 2x2 navigation grid
-  const int gap = S(6);
-  const int col_w = (width_ - pad * 2 - gap) / 2;
-  const int nav_h = S(36);
-
-  struct NavDef {
-    const char* action;
+  // Group 3: Navigation destinations (uniform MenuFlyoutItem rows)
+  const char* nav_actions[4] = {
+      "nav_library",
+      "nav_discover",
+      "nav_stats",
+      "nav_settings",
   };
-  const NavDef navs[4] = {
-      {"show"},
-      {"nav_library"},
-      {"nav_discover"},
-      {"nav_stats"},
-  };
-
   for (int i = 0; i < 4; ++i) {
-    int row = i / 2;
-    int col = i % 2;
-    int left = pad + col * (col_w + gap);
-    int top = y + row * (nav_h + gap);
-    RECT rc = {left, top, left + col_w, top + nav_h};
-    regions_.push_back({rc, navs[i].action, false, false});
+    RECT rc = {pad_x, y, width_ - pad_x, y + item_h};
+    regions_.push_back({rc, nav_actions[i], RegionKind::kMenuItem, 0});
+    y += item_h;
+    if (i + 1 < 4) y += item_gap;
   }
 
-  y += nav_h * 2 + gap + S(10);
-  y += S(8);
+  y += sep_space;
 
-  // 6. Footer buttons
-  const int foot_h = S(34);
-  RECT settings_rc = {pad, y, pad + col_w, y + foot_h};
-  RECT quit_rc = {pad + col_w + gap, y, width_ - pad, y + foot_h};
-  regions_.push_back({settings_rc, "nav_settings", false, false});
-  regions_.push_back({quit_rc, "quit", true, false});
+  // Group 4: Danger quit item
+  {
+    RECT rc = {pad_x, y, width_ - pad_x, y + item_h};
+    regions_.push_back({rc, "quit", RegionKind::kDangerMenuItem, 0});
+    y += item_h;
+  }
 
-  y += foot_h + pad;
+  y += pad_y;
   height_ = y;
 }
 
@@ -208,6 +223,8 @@ void KisakiTrayPopup::Show(const TrayPopupData& data) {
   EnsureWindowClass();
   data_ = data;
   hovered_index_ = -1;
+  pressed_index_ = -1;
+  focused_index_ = -1;
 
   POINT cursor = {};
   GetCursorPos(&cursor);
@@ -237,11 +254,9 @@ void KisakiTrayPopup::Show(const TrayPopupData& data) {
         L"KisakiTrayPopup", WS_POPUP | WS_CLIPCHILDREN, 0, 0, width_, height_,
         nullptr, nullptr, GetModuleHandle(nullptr), this);
     if (!hwnd_) return;
-
-    DWORD corner_pref = DWMWCP_ROUND;
-    DwmSetWindowAttribute(hwnd_, DWMWA_WINDOW_CORNER_PREFERENCE, &corner_pref,
-                          sizeof(corner_pref));
   }
+
+  ApplyDwmAttributes(data_.dark);
 
   UINT win_dpi = GetDpiForWindow(hwnd_);
   if (win_dpi > 0) {
@@ -255,12 +270,11 @@ void KisakiTrayPopup::Show(const TrayPopupData& data) {
 
   const RECT work = mi.rcWork;
   const int margin = S(8);
-  // Position to the right of the mouse cursor by default
-  int x = cursor.x + S(6);
-  int y = cursor.y - height_ - S(6);
+  int x = cursor.x - width_ / 2;
+  int y = cursor.y - height_ - S(10);
 
   if (y < work.top + margin) {
-    y = cursor.y + S(8);
+    y = cursor.y + S(10);
   }
   x = std::clamp(x, static_cast<int>(work.left + margin),
                  static_cast<int>(work.right - width_ - margin));
@@ -276,10 +290,15 @@ void KisakiTrayPopup::Show(const TrayPopupData& data) {
 }
 
 void KisakiTrayPopup::Hide() {
+  if (GetCapture() == hwnd_) {
+    ReleaseCapture();
+  }
   if (hwnd_ && IsWindowVisible(hwnd_)) {
     ShowWindow(hwnd_, SW_HIDE);
   }
   hovered_index_ = -1;
+  pressed_index_ = -1;
+  focused_index_ = -1;
 }
 
 int KisakiTrayPopup::HitTest(POINT pt) const {
@@ -292,363 +311,298 @@ int KisakiTrayPopup::HitTest(POINT pt) const {
 }
 
 void KisakiTrayPopup::Paint(HDC hdc) {
-  Gdiplus::Bitmap buffer(width_, height_, PixelFormat32bppARGB);
-  Gdiplus::Graphics g(&buffer);
-  g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-  g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-  g.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+  if (width_ <= 0 || height_ <= 0) return;
 
-  const bool dark = data_.dark;
+  BITMAPINFO bmi = {};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = width_;
+  bmi.bmiHeader.biHeight = -height_;  // top-down DIB
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
 
-  const uint32_t raw_accent =
-      ((data_.accent_argb & 0xFF000000u) == 0u) ? 0xFF0078D4u
-                                               : data_.accent_argb;
-  const BYTE ar = static_cast<BYTE>((raw_accent >> 16) & 0xFFu);
-  const BYTE ag = static_cast<BYTE>((raw_accent >> 8) & 0xFFu);
-  const BYTE ab = static_cast<BYTE>(raw_accent & 0xFFu);
+  void* dib_bits = nullptr;
+  HDC mem_dc = CreateCompatibleDC(hdc);
+  HBITMAP dib = CreateDIBSection(mem_dc, &bmi, DIB_RGB_COLORS, &dib_bits, nullptr, 0);
+  if (!mem_dc || !dib || !dib_bits) {
+    if (dib) DeleteObject(dib);
+    if (mem_dc) DeleteDC(mem_dc);
+    return;
+  }
+  HGDIOBJ old_bmp = SelectObject(mem_dc, dib);
 
-  // Windows 11 Fluent 2 Neutral surfaces + dynamic system accent
-  const Gdiplus::Color bg_color =
-      dark ? Gdiplus::Color(255, 32, 32, 32)
-           : Gdiplus::Color(255, 243, 243, 243);
-  const Gdiplus::Color card_bg =
-      dark ? Gdiplus::Color(255, 44, 44, 44)
-           : Gdiplus::Color(255, 255, 255, 255);
-  const Gdiplus::Color hover_bg =
-      dark ? Gdiplus::Color(255, 56, 56, 56)
-           : Gdiplus::Color(255, 234, 234, 234);
-  const Gdiplus::Color border_color =
-      dark ? Gdiplus::Color(255, 68, 68, 68)
-           : Gdiplus::Color(255, 224, 224, 224);
-  const Gdiplus::Color ink_color =
-      dark ? Gdiplus::Color(255, 245, 245, 245)
-           : Gdiplus::Color(255, 27, 27, 27);
-  const Gdiplus::Color ink_soft =
-      dark ? Gdiplus::Color(255, 178, 178, 178)
-           : Gdiplus::Color(255, 108, 108, 108);
+  {
+    Gdiplus::Bitmap buffer(width_, height_, width_ * 4, PixelFormat32bppPARGB,
+                           static_cast<BYTE*>(dib_bits));
+    Gdiplus::Graphics g(&buffer);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
 
-  const Gdiplus::Color accent = Gdiplus::Color(255, ar, ag, ab);
-  const Gdiplus::Color accent_tint =
-      dark ? Gdiplus::Color(48, ar, ag, ab)
-           : Gdiplus::Color(32, ar, ag, ab);
-  const float luma = 0.2126f * static_cast<float>(ar) +
-                     0.7152f * static_cast<float>(ag) +
-                     0.0722f * static_cast<float>(ab);
-  const Gdiplus::Color on_primary_ink =
-      luma > 152.0f ? Gdiplus::Color(255, 20, 20, 20)
-                    : Gdiplus::Color(255, 255, 255, 255);
+    const bool dark = data_.dark;
 
-  auto compute_accent_ink = [&]() -> Gdiplus::Color {
-    const float fr = static_cast<float>(ar);
-    const float fg = static_cast<float>(ag);
-    const float fb = static_cast<float>(ab);
-    if (dark) {
-      if (luma >= 165.0f) return accent;
-      const float t = std::clamp(
-          (165.0f - luma) / std::max(1.0f, 255.0f - luma), 0.25f, 0.75f);
+    const uint32_t raw_accent =
+        ((data_.accent_argb & 0xFF000000u) == 0u) ? 0xFF0078D4u
+                                                 : data_.accent_argb;
+    const BYTE ar = static_cast<BYTE>((raw_accent >> 16) & 0xFFu);
+    const BYTE ag = static_cast<BYTE>((raw_accent >> 8) & 0xFFu);
+    const BYTE ab = static_cast<BYTE>(raw_accent & 0xFFu);
+
+    // Fluent 2 MenuFlyout acrylic tint + subtle fill interaction states
+    const BYTE bg_alpha = use_dwm_acrylic_ ? (dark ? 204 : 220) : 255;
+    const Gdiplus::Color flyout_bg =
+        dark ? Gdiplus::Color(bg_alpha, 44, 44, 44)
+             : Gdiplus::Color(bg_alpha, 249, 249, 249);
+    const Gdiplus::Color subtle_hover =
+        dark ? Gdiplus::Color(20, 255, 255, 255)
+             : Gdiplus::Color(12, 0, 0, 0);
+    const Gdiplus::Color subtle_press =
+        dark ? Gdiplus::Color(13, 255, 255, 255)
+             : Gdiplus::Color(8, 0, 0, 0);
+    const Gdiplus::Color divider_color =
+        dark ? Gdiplus::Color(26, 255, 255, 255)
+             : Gdiplus::Color(20, 0, 0, 0);
+    const Gdiplus::Color fallback_border =
+        dark ? Gdiplus::Color(255, 68, 68, 68)
+             : Gdiplus::Color(255, 224, 224, 224);
+
+    const Gdiplus::Color ink_primary =
+        dark ? Gdiplus::Color(255, 245, 245, 245)
+             : Gdiplus::Color(255, 24, 24, 24);
+    const Gdiplus::Color ink_secondary =
+        dark ? Gdiplus::Color(225, 220, 220, 220)
+             : Gdiplus::Color(210, 64, 64, 64);
+    const Gdiplus::Color focus_ring_color =
+        dark ? Gdiplus::Color(220, 255, 255, 255)
+             : Gdiplus::Color(185, 0, 0, 0);
+
+    const float luma = 0.2126f * static_cast<float>(ar) +
+                       0.7152f * static_cast<float>(ag) +
+                       0.0722f * static_cast<float>(ab);
+    auto compute_accent_ink = [&]() -> Gdiplus::Color {
+      const float fr = static_cast<float>(ar);
+      const float fg = static_cast<float>(ag);
+      const float fb = static_cast<float>(ab);
+      if (dark) {
+        if (luma >= 165.0f) return Gdiplus::Color(255, ar, ag, ab);
+        const float t = std::clamp(
+            (165.0f - luma) / std::max(1.0f, 255.0f - luma), 0.28f, 0.78f);
+        return Gdiplus::Color(
+            255,
+            static_cast<BYTE>(std::clamp(fr + (255.0f - fr) * t, 0.0f, 255.0f)),
+            static_cast<BYTE>(std::clamp(fg + (255.0f - fg) * t, 0.0f, 255.0f)),
+            static_cast<BYTE>(std::clamp(fb + (255.0f - fb) * t, 0.0f, 255.0f)));
+      }
+      if (luma <= 92.0f) return Gdiplus::Color(255, ar, ag, ab);
+      const float scale = 92.0f / luma;
       return Gdiplus::Color(
           255,
-          static_cast<BYTE>(std::clamp(fr + (255.0f - fr) * t, 0.0f, 255.0f)),
-          static_cast<BYTE>(std::clamp(fg + (255.0f - fg) * t, 0.0f, 255.0f)),
-          static_cast<BYTE>(std::clamp(fb + (255.0f - fb) * t, 0.0f, 255.0f)));
+          static_cast<BYTE>(std::clamp(fr * scale, 0.0f, 255.0f)),
+          static_cast<BYTE>(std::clamp(fg * scale, 0.0f, 255.0f)),
+          static_cast<BYTE>(std::clamp(fb * scale, 0.0f, 255.0f)));
+    };
+    const Gdiplus::Color accent_ink = compute_accent_ink();
+
+    const Gdiplus::Color danger_ink =
+        dark ? Gdiplus::Color(255, 255, 153, 164)
+             : Gdiplus::Color(255, 196, 43, 28);
+    const Gdiplus::Color danger_fill =
+        dark ? Gdiplus::Color(255, 196, 43, 28)
+             : Gdiplus::Color(255, 209, 52, 56);
+    const Gdiplus::Color danger_tint =
+        dark ? Gdiplus::Color(36, 255, 153, 164)
+             : Gdiplus::Color(22, 196, 43, 28);
+    const Gdiplus::Color on_danger(255, 255, 255, 255);
+
+    g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    g.Clear(flyout_bg);
+    g.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+
+    if (!use_dwm_acrylic_) {
+      DrawRoundRect(
+          g,
+          Gdiplus::RectF(0.5f, 0.5f, static_cast<float>(width_ - 1),
+                         static_cast<float>(height_ - 1)),
+          SF(8.0f), fallback_border, 1.0f);
     }
-    if (luma <= 92.0f) return accent;
-    const float scale = 92.0f / luma;
-    return Gdiplus::Color(
-        255,
-        static_cast<BYTE>(std::clamp(fr * scale, 0.0f, 255.0f)),
-        static_cast<BYTE>(std::clamp(fg * scale, 0.0f, 255.0f)),
-        static_cast<BYTE>(std::clamp(fb * scale, 0.0f, 255.0f)));
-  };
-  const Gdiplus::Color accent_ink = compute_accent_ink();
 
-  // Fluent 2 semantic danger colors (#C42B1C / #D13438 light, #F28B82 dark)
-  const Gdiplus::Color danger_fill =
-      dark ? Gdiplus::Color(255, 196, 43, 28)
-           : Gdiplus::Color(255, 209, 52, 56);
-  const Gdiplus::Color danger_ink =
-      dark ? Gdiplus::Color(255, 242, 139, 130)
-           : Gdiplus::Color(255, 196, 43, 28);
-  const Gdiplus::Color danger_tint =
-      dark ? Gdiplus::Color(44, 242, 139, 130)
-           : Gdiplus::Color(28, 209, 52, 56);
-  const Gdiplus::Color on_danger_ink = Gdiplus::Color(255, 255, 255, 255);
+    Gdiplus::FontFamily ff_source_cn(L"Source Han Sans CN");
+    Gdiplus::FontFamily ff_source_sc(L"Source Han Sans SC");
+    Gdiplus::FontFamily ff_yahei(L"Microsoft YaHei UI");
+    Gdiplus::FontFamily ff_segoe(L"Segoe UI");
+    const Gdiplus::FontFamily* text_ff = Gdiplus::FontFamily::GenericSansSerif();
+    for (const auto* candidate :
+         {&ff_source_cn, &ff_source_sc, &ff_yahei, &ff_segoe}) {
+      if (candidate->IsAvailable()) {
+        text_ff = candidate;
+        break;
+      }
+    }
+    Gdiplus::FontFamily icon_ff_win11(L"Segoe Fluent Icons");
+    Gdiplus::FontFamily icon_ff_win10(L"Segoe MDL2 Assets");
+    const Gdiplus::FontFamily* icon_ff =
+        icon_ff_win11.IsAvailable()
+            ? &icon_ff_win11
+            : (icon_ff_win10.IsAvailable() ? &icon_ff_win10 : text_ff);
 
-  g.Clear(bg_color);
-  DrawRoundRect(
-      g,
-      Gdiplus::RectF(0.5f, 0.5f, static_cast<float>(width_ - 1),
-                     static_cast<float>(height_ - 1)),
-      SF(12.0f), border_color, 1.0f);
-
-  Gdiplus::FontFamily font_family(L"Microsoft YaHei UI");
-  Gdiplus::Font font_title(&font_family, SF(13.0f), Gdiplus::FontStyleBold,
-                           Gdiplus::UnitPixel);
-  Gdiplus::Font font_body_bold(&font_family, SF(12.5f), Gdiplus::FontStyleBold,
+    Gdiplus::Font font_item(text_ff, SF(13.0f), Gdiplus::FontStyleRegular,
+                            Gdiplus::UnitPixel);
+    Gdiplus::Font font_item_strong(text_ff, SF(13.0f), Gdiplus::FontStyleBold,
+                                   Gdiplus::UnitPixel);
+    Gdiplus::Font font_caption(text_ff, SF(11.0f), Gdiplus::FontStyleRegular,
                                Gdiplus::UnitPixel);
-  Gdiplus::Font font_body(&font_family, SF(12.0f), Gdiplus::FontStyleRegular,
-                          Gdiplus::UnitPixel);
-  Gdiplus::Font font_caption(&font_family, SF(11.0f), Gdiplus::FontStyleRegular,
-                             Gdiplus::UnitPixel);
-  Gdiplus::Font font_micro(&font_family, SF(10.5f), Gdiplus::FontStyleBold,
-                           Gdiplus::UnitPixel);
+    Gdiplus::Font font_icon(icon_ff, SF(14.5f), Gdiplus::FontStyleRegular,
+                            Gdiplus::UnitPixel);
 
-  Gdiplus::SolidBrush ink_brush(ink_color);
-  Gdiplus::SolidBrush soft_brush(ink_soft);
-  Gdiplus::SolidBrush accent_brush(accent_ink);
-  Gdiplus::SolidBrush danger_brush(danger_ink);
-  Gdiplus::SolidBrush on_primary_brush(on_primary_ink);
-  Gdiplus::SolidBrush on_danger_brush(on_danger_ink);
-  Gdiplus::Pen divider_pen(border_color, 1.0f);
+    Gdiplus::SolidBrush primary_brush(ink_primary);
+    Gdiplus::SolidBrush secondary_brush(ink_secondary);
+    Gdiplus::SolidBrush accent_brush(accent_ink);
+    Gdiplus::SolidBrush danger_brush(danger_ink);
+    Gdiplus::SolidBrush on_danger_brush(on_danger);
+    Gdiplus::Pen divider_pen(divider_color, 1.0f);
 
-  Gdiplus::StringFormat left_vcenter;
-  left_vcenter.SetAlignment(Gdiplus::StringAlignmentNear);
-  left_vcenter.SetLineAlignment(Gdiplus::StringAlignmentCenter);
-  left_vcenter.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
-  left_vcenter.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    Gdiplus::StringFormat left_vcenter;
+    left_vcenter.SetAlignment(Gdiplus::StringAlignmentNear);
+    left_vcenter.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    left_vcenter.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+    left_vcenter.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 
-  Gdiplus::StringFormat center_fmt;
-  center_fmt.SetAlignment(Gdiplus::StringAlignmentCenter);
-  center_fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
-  center_fmt.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    Gdiplus::StringFormat right_vcenter;
+    right_vcenter.SetAlignment(Gdiplus::StringAlignmentFar);
+    right_vcenter.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    right_vcenter.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 
-  const int pad = S(12);
-  int y = pad;
-  size_t region_cursor = 0;
+    Gdiplus::StringFormat center_fmt;
+    center_fmt.SetAlignment(Gdiplus::StringAlignmentCenter);
+    center_fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    center_fmt.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
 
-  // 1. Masthead (App icon + KisakiGals title)
-  {
-    const int icon_size = S(28);
-    const int icon_x = pad;
-    const int icon_y = y + S(5);
-    bool drew_app_icon = false;
-    HICON h_icon = static_cast<HICON>(LoadImageW(
-        GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON,
-        icon_size, icon_size, LR_DEFAULTCOLOR));
-    if (h_icon) {
-      HDC buf_dc = g.GetHDC();
-      if (buf_dc) {
-        DrawIconEx(buf_dc, icon_x, icon_y, h_icon, icon_size, icon_size, 0,
-                   nullptr, DI_NORMAL);
-        g.ReleaseHDC(buf_dc);
-        drew_app_icon = true;
-      }
-      DestroyIcon(h_icon);
-    }
-    if (!drew_app_icon) {
-      Gdiplus::RectF icon_rc(static_cast<float>(icon_x),
-                             static_cast<float>(icon_y),
-                             static_cast<float>(icon_size),
-                             static_cast<float>(icon_size));
-      FillRoundRect(g, icon_rc, SF(6.0f), accent);
-      g.DrawString(L"K", -1, &font_body_bold, icon_rc, &center_fmt,
-                   &on_primary_brush);
-    }
+    auto draw_separator = [&](int sep_y) {
+      g.DrawLine(&divider_pen, 0.0f, static_cast<float>(sep_y),
+                 static_cast<float>(width_), static_cast<float>(sep_y));
+    };
 
-    Gdiplus::RectF name_rc(static_cast<float>(pad + S(36)),
-                           static_cast<float>(y + S(3)), SF(165.0f), SF(18.0f));
-    g.DrawString(L"KisakiGals", -1, &font_title, name_rc, &left_vcenter,
-                 &ink_brush);
-
-    Gdiplus::RectF sub_rc(static_cast<float>(pad + S(36)),
-                          static_cast<float>(y + S(21)), SF(180.0f), SF(15.0f));
-    g.DrawString(kStrSubtitle, -1, &font_caption, sub_rc, &left_vcenter,
-                 &soft_brush);
-
-    std::wstring ver_label =
-        data_.version.empty() ? L"v1.1.0" : (L"v" + data_.version);
-    Gdiplus::RectF ver_rc(static_cast<float>(width_ - pad - S(54)),
-                          static_cast<float>(y + S(9)), SF(54.0f), SF(20.0f));
-    FillRoundRect(g, ver_rc, SF(6.0f), accent_tint);
-    g.DrawString(ver_label.c_str(), -1, &font_micro, ver_rc, &center_fmt,
-                 &accent_brush);
-
-    y += S(40) + S(6);
-  }
-
-  // 2. Running status banner
-  if (!data_.running_title.empty() && region_cursor < regions_.size()) {
-    const int banner_h = S(46);
-    Gdiplus::RectF banner_rc(static_cast<float>(pad), static_cast<float>(y),
-                             static_cast<float>(width_ - pad * 2),
-                             static_cast<float>(banner_h));
-    FillRoundRect(g, banner_rc, SF(8.0f), accent_tint);
-    DrawRoundRect(g, banner_rc, SF(8.0f), accent, 1.0f);
-
-    Gdiplus::RectF dot_rc(static_cast<float>(pad + S(10)),
-                          static_cast<float>(y + S(19)), SF(8.0f), SF(8.0f));
-    g.FillEllipse(&accent_brush, dot_rc);
-
-    Gdiplus::RectF label_rc(static_cast<float>(pad + S(24)),
-                            static_cast<float>(y + S(6)),
-                            static_cast<float>(width_ - pad * 2 - S(108)),
-                            SF(16.0f));
-    g.DrawString(kStrPlayingNow, -1, &font_micro, label_rc, &left_vcenter,
-                 &accent_brush);
-
-    Gdiplus::RectF title_rc(static_cast<float>(pad + S(24)),
-                            static_cast<float>(y + S(22)),
-                            static_cast<float>(width_ - pad * 2 - S(108)),
-                            SF(18.0f));
-    g.DrawString(data_.running_title.c_str(), -1, &font_body_bold, title_rc,
-                 &left_vcenter, &ink_brush);
-
-    const int stop_idx = static_cast<int>(region_cursor++);
-    Gdiplus::RectF stop_rc = ToRectF(regions_[stop_idx].rect);
-    const bool stop_hover = (hovered_index_ == stop_idx);
-    FillRoundRect(g, stop_rc, SF(6.0f), stop_hover ? danger_fill : card_bg);
-    if (!stop_hover) {
-      DrawRoundRect(g, stop_rc, SF(6.0f), danger_ink, 1.0f);
-    }
-    g.DrawString(kStrStopSession, -1, &font_micro, stop_rc, &center_fmt,
-                 stop_hover ? &on_danger_brush : &danger_brush);
-
-    y += banner_h + S(10);
-  }
-
-  // 3. Section header
-  {
-    Gdiplus::RectF sec_rc(static_cast<float>(pad + S(2)),
-                          static_cast<float>(y),
-                          static_cast<float>(width_ - pad * 2), SF(18.0f));
-    g.DrawString(kStrRecentHeader, -1, &font_micro, sec_rc, &left_vcenter,
-                 &soft_brush);
-    y += S(22);
-  }
-
-  // 4. Recently played 2 game cards
-  if (data_.recent_games.empty()) {
-    Gdiplus::RectF empty_rc(static_cast<float>(pad), static_cast<float>(y),
-                            static_cast<float>(width_ - pad * 2), SF(44.0f));
-    FillRoundRect(g, empty_rc, SF(8.0f), card_bg);
-    DrawRoundRect(g, empty_rc, SF(8.0f), border_color, 1.0f);
-    g.DrawString(kStrRecentEmpty, -1, &font_caption, empty_rc, &center_fmt,
-                 &soft_brush);
-    y += S(48);
-  } else {
-    const int count =
-        static_cast<int>(std::min<size_t>(2, data_.recent_games.size()));
-    for (int i = 0; i < count && region_cursor < regions_.size(); ++i) {
-      const int idx = static_cast<int>(region_cursor++);
+    auto draw_menu_row = [&](int idx, const wchar_t* glyph,
+                             const wchar_t* label, const Gdiplus::Font& font,
+                             const Gdiplus::Brush& icon_brush,
+                             const Gdiplus::Brush& text_brush,
+                             const wchar_t* trailing_caption = nullptr) {
       const bool hovered = (hovered_index_ == idx);
-      const auto& game = data_.recent_games[i];
-      Gdiplus::RectF card_rc = ToRectF(regions_[idx].rect);
+      const bool pressed = (pressed_index_ == idx);
+      const Gdiplus::RectF rc = ToRectF(regions_[idx].rect);
 
-      FillRoundRect(g, card_rc, SF(8.0f), hovered ? hover_bg : card_bg);
-      DrawRoundRect(g, card_rc, SF(8.0f),
-                    hovered ? accent : border_color, 1.0f);
-
-      if (hovered) {
-        Gdiplus::RectF bar_rc(card_rc.X + SF(4.0f), card_rc.Y + SF(13.0f),
-                              SF(3.5f), card_rc.Height - SF(26.0f));
-        FillRoundRect(g, bar_rc, SF(2.0f), accent);
-      }
-
-      // 2:3 Cover thumbnail (30x44)
-      Gdiplus::RectF cov_rc(card_rc.X + SF(10.0f), card_rc.Y + SF(7.0f),
-                            SF(30.0f), SF(44.0f));
-      bool drew_cover = false;
-      if (!game.cover_path.empty()) {
-        Gdiplus::Image img(game.cover_path.c_str());
-        if (img.GetLastStatus() == Gdiplus::Ok && img.GetWidth() > 0 &&
-            img.GetHeight() > 0) {
-          Gdiplus::GraphicsPath clip_path;
-          AddRoundRect(clip_path, cov_rc, SF(6.0f));
-          Gdiplus::GraphicsState state = g.Save();
-          g.SetClip(&clip_path);
-          g.DrawImage(&img, cov_rc);
-          g.Restore(state);
-          DrawRoundRect(g, cov_rc, SF(6.0f), border_color, 1.0f);
-          drew_cover = true;
+      if (regions_[idx].kind == RegionKind::kDangerMenuItem) {
+        if (pressed) {
+          FillRoundRect(g, rc, SF(4.0f), danger_fill);
+        } else if (hovered) {
+          FillRoundRect(g, rc, SF(4.0f), danger_tint);
+        }
+      } else {
+        if (pressed) {
+          FillRoundRect(g, rc, SF(4.0f), subtle_press);
+        } else if (hovered) {
+          FillRoundRect(g, rc, SF(4.0f), subtle_hover);
         }
       }
-      if (!drew_cover) {
-        FillRoundRect(g, cov_rc, SF(6.0f), accent_tint);
-        DrawRoundRect(g, cov_rc, SF(6.0f), border_color, 1.0f);
-        g.DrawString(L"G", -1, &font_body_bold, cov_rc, &center_fmt,
-                     &accent_brush);
+
+      Gdiplus::RectF icon_rc(rc.X + SF(10.0f), rc.Y, SF(20.0f), rc.Height);
+      g.DrawString(glyph, -1, &font_icon, icon_rc, &center_fmt, &icon_brush);
+
+      float right_reserve = SF(10.0f);
+      if (trailing_caption != nullptr && trailing_caption[0] != L'\0') {
+        right_reserve = SF(52.0f);
+        Gdiplus::RectF cap_rc(rc.GetRight() - SF(48.0f), rc.Y, SF(38.0f),
+                              rc.Height);
+        g.DrawString(trailing_caption, -1, &font_caption, cap_rc,
+                     &right_vcenter, &accent_brush);
       }
 
-      const float text_left = cov_rc.GetRight() + SF(10.0f);
-      const float pill_w = SF(56.0f);
-      const float text_w =
-          card_rc.GetRight() - text_left - pill_w - SF(14.0f);
+      Gdiplus::RectF label_rc(icon_rc.GetRight() + SF(10.0f), rc.Y,
+                              rc.GetRight() - icon_rc.GetRight() -
+                                  SF(10.0f) - right_reserve,
+                              rc.Height);
+      g.DrawString(label, -1, &font, label_rc, &left_vcenter, &text_brush);
 
-      Gdiplus::RectF title_rc(text_left, card_rc.Y + SF(9.0f), text_w,
-                              SF(20.0f));
-      g.DrawString(game.title.c_str(), -1, &font_body_bold, title_rc,
-                   &left_vcenter, &ink_brush);
-
-      Gdiplus::RectF sub_rc(text_left, card_rc.Y + SF(30.0f), text_w,
-                            SF(17.0f));
-      g.DrawString(game.subtitle.c_str(), -1, &font_caption, sub_rc,
-                   &left_vcenter, game.running ? &accent_brush : &soft_brush);
-
-      Gdiplus::RectF badge_rc(card_rc.GetRight() - pill_w - SF(10.0f),
-                              card_rc.Y + (card_rc.Height - SF(24.0f)) * 0.5f,
-                              pill_w, SF(24.0f));
-      if (game.running) {
-        FillRoundRect(g, badge_rc, SF(6.0f), accent_tint);
-        g.DrawString(kStrRunning, -1, &font_micro, badge_rc, &center_fmt,
-                     &accent_brush);
-      } else {
-        FillRoundRect(g, badge_rc, SF(6.0f),
-                      hovered ? accent : accent_tint);
-        g.DrawString(kStrLaunch, -1, &font_micro, badge_rc, &center_fmt,
-                     hovered ? &on_primary_brush : &accent_brush);
+      if (focused_index_ == idx) {
+        Gdiplus::RectF fr = rc;
+        fr.Inflate(-1.0f, -1.0f);
+        DrawRoundRect(g, fr, SF(4.0f), focus_ring_color, 1.5f);
       }
+    };
+
+    const int sep_space = S(9);
+    const int recent_count =
+        static_cast<int>(std::min<size_t>(2, data_.recent_games.size()));
+
+    size_t i = 0;
+    // 1. Primary window + optional active session stop item
+    if (i < regions_.size()) {
+      draw_menu_row(static_cast<int>(i), kGlyphHome, kStrNavShow, font_item,
+                    secondary_brush, primary_brush);
+      ++i;
     }
-    y += count * (S(58) + S(6));
+    if (!data_.running_title.empty() && i < regions_.size()) {
+      const std::wstring stop_label =
+          std::wstring(kStrStopSessionPrefix) + data_.running_title;
+      draw_menu_row(static_cast<int>(i), kGlyphStop, stop_label.c_str(),
+                    font_item_strong, accent_brush, primary_brush);
+      ++i;
+    }
+
+    if (i > 0) {
+      draw_separator(regions_[i - 1].rect.bottom + sep_space / 2);
+    }
+
+    // 2. Optional compact recent game items
+    if (recent_count > 0) {
+      for (int r = 0; r < recent_count && i < regions_.size(); ++r, ++i) {
+        const auto& game = data_.recent_games[regions_[i].recent_index];
+        const bool hovered = (hovered_index_ == static_cast<int>(i));
+        const Gdiplus::Brush& icon_b =
+            (game.running || hovered) ? static_cast<const Gdiplus::Brush&>(accent_brush)
+                                      : secondary_brush;
+        draw_menu_row(static_cast<int>(i), kGlyphPlay, game.title.c_str(),
+                      game.running ? font_item_strong : font_item, icon_b,
+                      primary_brush, game.running ? kStrRunning : nullptr);
+      }
+      draw_separator(regions_[i - 1].rect.bottom + sep_space / 2);
+    }
+
+    // 3. Navigation menu items
+    const wchar_t* nav_icons[4] = {
+        kGlyphLibrary,
+        kGlyphExplore,
+        kGlyphStats,
+        kGlyphSettings,
+    };
+    const wchar_t* nav_labels[4] = {
+        kStrNavLibrary,
+        kStrNavDiscover,
+        kStrNavStats,
+        kStrNavSettings,
+    };
+    for (int n = 0; n < 4 && i < regions_.size(); ++n, ++i) {
+      draw_menu_row(static_cast<int>(i), nav_icons[n], nav_labels[n], font_item,
+                    secondary_brush, primary_brush);
+    }
+    if (i > 0) {
+      draw_separator(regions_[i - 1].rect.bottom + sep_space / 2);
+    }
+
+    // 4. Danger quit item
+    if (i < regions_.size()) {
+      const bool pressed = (pressed_index_ == static_cast<int>(i));
+      const Gdiplus::Brush& b =
+          pressed ? static_cast<const Gdiplus::Brush&>(on_danger_brush)
+                  : danger_brush;
+      draw_menu_row(static_cast<int>(i), kGlyphQuit, kStrQuit, font_item, b, b);
+    }
   }
 
-  y += S(6);
-  g.DrawLine(&divider_pen, pad, y, width_ - pad, y);
-  y += S(10);
-
-  // 5. 2x2 Navigation grid
-  const wchar_t* nav_labels[4] = {
-      kStrNavShow,
-      kStrNavLibrary,
-      kStrNavDiscover,
-      kStrNavStats,
-  };
-  for (int i = 0; i < 4 && region_cursor < regions_.size(); ++i) {
-    const int idx = static_cast<int>(region_cursor++);
-    const bool hovered = (hovered_index_ == idx);
-    Gdiplus::RectF rc = ToRectF(regions_[idx].rect);
-    FillRoundRect(g, rc, SF(6.0f), hovered ? hover_bg : card_bg);
-    DrawRoundRect(g, rc, SF(6.0f), hovered ? accent : border_color, 1.0f);
-    g.DrawString(nav_labels[i], -1, hovered ? &font_body_bold : &font_body, rc,
-                 &center_fmt, hovered ? &accent_brush : &ink_brush);
-  }
-
-  const int nav_h = S(36);
-  const int gap = S(6);
-  y += nav_h * 2 + gap + S(10);
-
-  g.DrawLine(&divider_pen, pad, y, width_ - pad, y);
-  y += S(8);
-
-  // 6. Footer buttons
-  if (region_cursor + 1 < regions_.size()) {
-    const int set_idx = static_cast<int>(region_cursor++);
-    const bool set_hover = (hovered_index_ == set_idx);
-    Gdiplus::RectF set_rc = ToRectF(regions_[set_idx].rect);
-    FillRoundRect(g, set_rc, SF(6.0f), set_hover ? hover_bg : card_bg);
-    DrawRoundRect(g, set_rc, SF(6.0f), border_color, 1.0f);
-    g.DrawString(kStrNavSettings, -1, &font_body, set_rc, &center_fmt,
-                 &ink_brush);
-
-    const int quit_idx = static_cast<int>(region_cursor++);
-    const bool quit_hover = (hovered_index_ == quit_idx);
-    Gdiplus::RectF quit_rc = ToRectF(regions_[quit_idx].rect);
-    FillRoundRect(g, quit_rc, SF(6.0f), quit_hover ? danger_fill : danger_tint);
-    g.DrawString(kStrQuit, -1, &font_body_bold, quit_rc, &center_fmt,
-                 quit_hover ? &on_danger_brush : &danger_brush);
-  }
-
-  Gdiplus::Graphics screen_g(hdc);
-  screen_g.DrawImage(&buffer, 0, 0);
+  BitBlt(hdc, 0, 0, width_, height_, mem_dc, 0, 0, SRCCOPY);
+  SelectObject(mem_dc, old_bmp);
+  DeleteObject(dib);
+  DeleteDC(mem_dc);
 }
 
 LRESULT CALLBACK KisakiTrayPopup::WndProc(HWND hwnd, UINT msg, WPARAM wparam,
@@ -711,15 +665,45 @@ LRESULT KisakiTrayPopup::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam,
       return 0;
     }
 
-    case WM_LBUTTONUP: {
+    case WM_LBUTTONDOWN: {
       POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
       int hit = HitTest(pt);
-      if (hit >= 0 && hit < static_cast<int>(regions_.size())) {
+      pressed_index_ = hit;
+      focused_index_ = -1;
+      if (hit >= 0) {
+        SetCapture(hwnd);
+      }
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+    }
+
+    case WM_LBUTTONUP: {
+      // Read before ReleaseCapture(), which dispatches WM_CAPTURECHANGED and
+      // clears pressed_index_ synchronously.
+      const int prev_pressed = pressed_index_;
+      pressed_index_ = -1;
+      if (GetCapture() == hwnd) {
+        ReleaseCapture();
+      }
+      POINT pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      int hit = HitTest(pt);
+      if (hit >= 0 && hit == prev_pressed &&
+          hit < static_cast<int>(regions_.size())) {
         std::string action = regions_[hit].action;
         Hide();
         if (on_action_) {
           on_action_(action);
         }
+      } else {
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
+      return 0;
+    }
+
+    case WM_CAPTURECHANGED: {
+      if (pressed_index_ != -1) {
+        pressed_index_ = -1;
+        InvalidateRect(hwnd, nullptr, FALSE);
       }
       return 0;
     }
@@ -728,6 +712,30 @@ LRESULT KisakiTrayPopup::HandleMessage(HWND hwnd, UINT msg, WPARAM wparam,
       if (wparam == VK_ESCAPE) {
         Hide();
         return 0;
+      }
+      if (!regions_.empty()) {
+        const int n = static_cast<int>(regions_.size());
+        if (wparam == VK_DOWN ||
+            (wparam == VK_TAB && !(GetKeyState(VK_SHIFT) & 0x8000))) {
+          focused_index_ = (focused_index_ + 1 + n) % n;
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+        if (wparam == VK_UP ||
+            (wparam == VK_TAB && (GetKeyState(VK_SHIFT) & 0x8000))) {
+          focused_index_ = focused_index_ <= 0 ? (n - 1) : (focused_index_ - 1);
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+        if ((wparam == VK_RETURN || wparam == VK_SPACE) &&
+            focused_index_ >= 0 && focused_index_ < n) {
+          std::string action = regions_[focused_index_].action;
+          Hide();
+          if (on_action_) {
+            on_action_(action);
+          }
+          return 0;
+        }
       }
       break;
     }

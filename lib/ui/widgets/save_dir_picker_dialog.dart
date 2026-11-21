@@ -1,8 +1,11 @@
 /// Fluent 2 存档目录识别与候选选择对话框。
 library;
 
+import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/services.dart';
 
 import '../../app_services.dart';
 import '../../core/utils.dart';
@@ -10,7 +13,9 @@ import '../../data/models.dart';
 import '../../services/save_dir_detector.dart';
 import '../../services/save_write_watcher.dart';
 import '../fluent/fluent_icons.dart';
+import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 
 /// 打开存档目录选择对话框，返回用户选中或手动浏览的目录路径；取消返回 null。
 Future<String?> showSaveDirPickerDialog(
@@ -35,16 +40,18 @@ Future<String?> showSaveDirPickerDialog(
     );
   }
 
-  // 过渡期兼容：旧页面仍托管在 MaterialApp 下时，兜底补齐 FluentTheme 与本地化。
   return Navigator.of(context, rootNavigator: true).push<String>(
     RawDialogRoute<String>(
       barrierDismissible: true,
+      barrierLabel: '选择存档目录',
       barrierColor: const Color(0x8A000000),
-      pageBuilder: (ctx, _, __) => FluentTheme(
-        data: FluentThemeData.light(),
-        child: Localizations.override(
-          context: ctx,
-          delegates: const [FluentLocalizations.delegate],
+      pageBuilder: (ctx, _, __) => ensureFluentScope(
+        context,
+        CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): () =>
+                Navigator.of(ctx).maybePop(),
+          },
           child: SafeArea(
             child: SaveDirPickerDialog(
               game: game,
@@ -79,15 +86,25 @@ class SaveDirPickerDialog extends StatefulWidget {
 }
 
 class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
+  final TextEditingController _filterCtrl = TextEditingController();
   List<SaveDirCandidate> _items = const [];
   bool _loading = true;
+  String? _error;
   String _note = '';
   String? _selectedPath;
+  DateTime? _lastTapAt;
+  String? _lastTapPath;
 
   @override
   void initState() {
     super.initState();
     _scan();
+  }
+
+  @override
+  void dispose() {
+    _filterCtrl.dispose();
+    super.dispose();
   }
 
   DateTime _since() {
@@ -103,17 +120,19 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
   Future<void> _scan() async {
     setState(() {
       _loading = true;
+      _error = null;
       _note = '';
       _selectedPath = null;
     });
 
-    List<SaveDirCandidate> list;
+    List<SaveDirCandidate> list = const [];
     var note = '';
+    String? scanErr;
     if (widget.detectCandidates != null) {
       try {
         list = await widget.detectCandidates!(widget.game);
-      } catch (_) {
-        list = const [];
+      } catch (e) {
+        scanErr = '候选目录扫描失败：$e';
       }
     } else {
       final since = _since();
@@ -136,8 +155,8 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
           writeHits: hits,
           since: since,
         );
-      } catch (_) {
-        list = const [];
+      } catch (e) {
+        scanErr = '自动探测存档目录失败：$e';
       }
     }
 
@@ -145,6 +164,7 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
     setState(() {
       _items = list;
       _loading = false;
+      _error = scanErr;
       _note = note;
       if (widget.game.savePath.isNotEmpty &&
           list.any((c) => c.exists && c.path == widget.game.savePath)) {
@@ -161,18 +181,23 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
     Navigator.pop(context, dir.trim());
   }
 
-  Color _badgeColor(SaveDirCandidate c, FluentThemeData theme, bool isDark) {
-    if (c.confidence >= 90) {
-      return isDark ? const Color(0xFF6CCB5F) : const Color(0xFF107C10);
+  Future<void> _openCandidateDir(String path) async {
+    try {
+      await Process.run('explorer.exe', [path.replaceAll('/', r'\')]);
+    } catch (e) {
+      showNotice('打开目录失败：$e', error: true);
     }
-    if (c.confidence >= 70) {
-      return isDark ? const Color(0xFFFCE100) : const Color(0xFF9D5D00);
-    }
-    return theme.inactiveColor;
+  }
+
+  Color _badgeColor(SaveDirCandidate c, FluentThemeData theme) {
+    if (!c.exists) return theme.textTertiary;
+    if (c.confidence >= 90) return theme.successInk;
+    if (c.confidence >= 70) return theme.warningInk;
+    return theme.textSecondary;
   }
 
   String _subtitle(SaveDirCandidate c) {
-    if (!c.exists) return '${c.reason} · 目录不存在，已失效';
+    if (!c.exists) return c.reason;
     final parts = <String>['${c.fileCount} 个文件'];
     if (c.lastModified != null) {
       parts.add('最后修改 ${fmtDateTime(c.lastModified!)}');
@@ -184,7 +209,7 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 640, maxHeight: 580),
+      constraints: const BoxConstraints(maxWidth: 660, maxHeight: 620),
       title: const Row(
         children: [
           Icon(FluentIcons.folder_open_20_regular, size: 18),
@@ -192,16 +217,16 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
           Expanded(child: Text('选择存档目录')),
         ],
       ),
-      content: SizedBox(
-        width: 590,
-        height: 410,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 610, maxHeight: 430),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               '已按可信度排序；建议优先选择「游玩期间检测到文件写入」的目录',
               style: theme.typography.caption?.copyWith(
-                color: theme.inactiveColor,
+                color: theme.textSecondary,
               ),
             ),
             const SizedBox(height: 10),
@@ -238,13 +263,22 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.caption?.copyWith(
-                        color: theme.inactiveColor,
+                        color: theme.accentInk,
                       ),
                     ),
                   ),
                 ],
               ],
             ),
+            if (!_loading && _items.length > 4) ...[
+              const SizedBox(height: 10),
+              FluentSearchBox(
+                controller: _filterCtrl,
+                compact: true,
+                placeholder: '过滤候选目录路径或来源说明…',
+                onChanged: (_) => setState(() {}),
+              ),
+            ],
             const SizedBox(height: 12),
             const Divider(),
             const SizedBox(height: 12),
@@ -280,6 +314,17 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
         ),
       );
     }
+    if (_error != null) {
+      return FluentEmptyState(
+        icon: FluentIcons.error_circle_24_regular,
+        title: '扫描目录失败',
+        message: _error!,
+        action: Button(
+          onPressed: _scan,
+          child: const Text('重试'),
+        ),
+      );
+    }
     if (_items.isEmpty) {
       return const FluentEmptyState(
         icon: FluentIcons.folder_search_24_regular,
@@ -288,8 +333,25 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
             '也可以点击上方「手动浏览目录」直接指定',
       );
     }
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+
+    final q = _filterCtrl.text.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? _items
+        : _items
+            .where((c) =>
+                c.path.toLowerCase().contains(q) ||
+                c.reason.toLowerCase().contains(q))
+            .toList();
+    if (filtered.isEmpty) {
+      return const FluentEmptyState(
+        icon: FluentIcons.search_24_regular,
+        title: '没有匹配的候选目录',
+        message: '清空筛选词即可查看全部探测结果',
+      );
+    }
+
+    final isDark = theme.isDark;
+    final accent = theme.accentInk;
     return RadioGroup<String>(
       groupValue: _selectedPath,
       onChanged: (value) {
@@ -297,77 +359,106 @@ class _SaveDirPickerDialogState extends State<SaveDirPickerDialog> {
         setState(() => _selectedPath = value);
       },
       child: ListView.separated(
-        itemCount: _items.length,
+        itemCount: filtered.length,
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
-          final c = _items[index];
+          final c = filtered[index];
           final selected = c.exists && _selectedPath == c.path;
-          final badgeColor = _badgeColor(c, theme, isDark);
+          final badgeColor = _badgeColor(c, theme);
           return Tooltip(
             message: c.path,
             child: FluentSurfaceCard(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              backgroundColor: selected
-                  ? accent.withValues(alpha: isDark ? 0.18 : 0.08)
-                  : null,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              selected: selected,
+              semanticLabel: '${c.shortPath}，${c.reason}',
               onTap: c.exists
-                  ? () => setState(() => _selectedPath = c.path)
+                  ? () {
+                      final now = DateTime.now();
+                      final isDouble = _lastTapPath == c.path &&
+                          _lastTapAt != null &&
+                          now.difference(_lastTapAt!) <
+                              const Duration(milliseconds: 350);
+                      _lastTapPath = c.path;
+                      _lastTapAt = now;
+                      if (isDouble) {
+                        Navigator.pop(context, c.path);
+                      } else {
+                        setState(() => _selectedPath = c.path);
+                      }
+                    }
                   : null,
               child: Row(
-                children: [
-                  RadioButton<String>(
-                    value: c.path,
-                    enabled: c.exists,
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    c.exists
-                        ? FluentIcons.folder_20_regular
-                        : FluentIcons.folder_prohibited_20_regular,
-                    size: 18,
-                    color: c.exists ? accent : theme.inactiveColor,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          c.shortPath,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.bodyStrong?.copyWith(
-                            color: c.exists ? null : theme.inactiveColor,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _subtitle(c),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.caption?.copyWith(
-                            color: theme.inactiveColor,
-                          ),
-                        ),
-                      ],
+                  children: [
+                    RadioButton<String>(
+                      value: c.path,
+                      enabled: c.exists,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  FluentBadge(
-                    text: '${c.confidenceLevel} ${c.confidence}',
-                    foreground: badgeColor,
-                    background: badgeColor.withValues(alpha: isDark ? 0.18 : 0.11),
-                  ),
-                  if (!c.exists) ...[
-                    const SizedBox(width: 6),
-                    FluentBadge(
-                      text: '目录不存在',
-                      foreground: theme.inactiveColor,
+                    const SizedBox(width: 8),
+                    Icon(
+                      c.exists
+                          ? FluentIcons.folder_20_regular
+                          : FluentIcons.folder_prohibited_20_regular,
+                      size: 18,
+                      color: c.exists ? accent : theme.textTertiary,
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            c.shortPath,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.bodyStrong?.copyWith(
+                              color: c.exists ? null : theme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _subtitle(c),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.caption?.copyWith(
+                              color: theme.textSecondary,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (c.exists)
+                      FluentBadge(
+                        text: '${c.confidenceLevel} ${c.confidence}',
+                        foreground: badgeColor,
+                        background:
+                            badgeColor.withValues(alpha: isDark ? 0.18 : 0.11),
+                      )
+                    else
+                      FluentBadge(
+                        text: '目录不存在',
+                        foreground: theme.textSecondary,
+                      ),
+                    if (c.exists) ...[
+                      const SizedBox(width: 4),
+                      Tooltip(
+                        message: '在资源管理器中查看该目录',
+                        child: IconButton(
+                          icon: const Icon(
+                            FluentIcons.open_16_regular,
+                            size: 14,
+                          ),
+                          onPressed: () => _openCandidateDir(c.path),
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
           );
         },
       ),

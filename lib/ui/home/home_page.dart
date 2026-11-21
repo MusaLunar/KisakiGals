@@ -1,9 +1,8 @@
-/// Fluent 2 主页：Acrylic 聚光灯横幅 + 4 列 KPI 统计 + 最近游玩 / 待玩水平货架 + 库中动态。
+/// Fluent 2 主页：Spotlight 聚光灯横幅 + 4 列 KPI 统计 + 最近游玩 / 待玩水平货架 + 库中动态。
 library;
 
-import 'dart:ui' show ImageFilter;
-
 import 'package:fluent_ui/fluent_ui.dart' hide FluentIcons;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants.dart';
@@ -14,7 +13,9 @@ import '../../scraping/scraped_game.dart';
 import '../../services/game_launch_service.dart';
 import '../fluent/fluent_icons.dart';
 import '../fluent/fluent_motion.dart';
+import '../fluent/fluent_notices.dart';
 import '../fluent/fluent_surfaces.dart';
+import '../fluent/fluent_theme.dart';
 import '../library/game_actions.dart';
 import '../shell/tabs.dart';
 
@@ -31,6 +32,37 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   List<ScrapedGame>? _recommendations;
   bool _loadingRecommendations = false;
+  String? _recommendError;
+  int _recommendBatch = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  bool _onKey(KeyEvent e) {
+    if (e is KeyDownEvent &&
+        e.logicalKey == LogicalKeyboardKey.f5 &&
+        mounted &&
+        ref.read(tabIndexProvider) == Tabs.home) {
+      _refreshHome();
+      return true;
+    }
+    return false;
+  }
+
+  void _refreshHome() {
+    ref.invalidate(homeDataProvider);
+    ref.invalidate(allTagsProvider);
+    bumpLibrary(ref);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,8 +73,10 @@ class _HomePageState extends ConsumerState<HomePage> {
       Builder(
         builder: (ctx) {
           final theme = FluentTheme.of(ctx);
+          final refreshing = home.isRefreshing;
+
           return ScaffoldPage(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+            padding: EdgeInsets.zero,
             header: Padding(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
               child: Row(
@@ -51,56 +85,70 @@ class _HomePageState extends ConsumerState<HomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(_greeting(), style: theme.typography.titleLarge),
+                        Text(_greeting(), style: theme.typography.title),
                         const SizedBox(height: 2),
                         home.when(
                           skipLoadingOnReload: true,
                           data: (d) => Text(
                             '共 ${d.gameCount} 部作品 · 累计 ${fmtDuration(d.all.totalSeconds)}',
                             style: theme.typography.caption?.copyWith(
-                              color: theme.inactiveColor,
+                              color: theme.textSecondary,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
                             ),
                           ),
                           loading: () => Text(
                             '正在读取你的游玩记录…',
                             style: theme.typography.caption?.copyWith(
-                              color: theme.inactiveColor,
+                              color: theme.textSecondary,
                             ),
                           ),
                           error: (_, __) => Text(
                             '主页数据加载失败',
                             style: theme.typography.caption?.copyWith(
-                              color: theme.inactiveColor,
+                              color: theme.dangerInk,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Button(
-                    onPressed: () {
-                      ref.invalidate(homeDataProvider);
-                      ref.invalidate(allTagsProvider);
-                      bumpLibrary(ref);
-                    },
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(FluentIcons.arrow_clockwise_16_regular, size: 15),
-                        SizedBox(width: 6),
-                        Text('刷新'),
-                      ],
+                  Tooltip(
+                    message: '刷新主页数据 (F5)',
+                    child: Button(
+                      onPressed: refreshing ? null : _refreshHome,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (refreshing)
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: ProgressRing(strokeWidth: 2),
+                            )
+                          else
+                            const Icon(
+                              FluentIcons.arrow_clockwise_16_regular,
+                              size: 16,
+                            ),
+                          const SizedBox(width: 6),
+                          Text(refreshing ? '刷新中…' : '刷新'),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
             content: home.when(
-              loading: () => const Center(child: ProgressRing()),
-              error: (e, _) => FluentEmptyState(
+              skipLoadingOnReload: true,
+              skipLoadingOnRefresh: true,
+              loading: () => _buildLoadingSkeleton(),
+              error: (err, _) => FluentEmptyState(
                 icon: FluentIcons.cloud_off_24_regular,
                 title: '主页数据加载失败',
-                message: '$e',
+                message: '无法读取本地游玩统计：$err',
                 action: FilledButton(
                   onPressed: () => ref.invalidate(homeDataProvider),
                   child: const Text('重试'),
@@ -114,29 +162,69 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  Widget _buildLoadingSkeleton() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+      children: const [
+        FluentCardSkeleton(height: 248, radius: 12),
+        SizedBox(height: 18),
+        Row(
+          children: [
+            Expanded(child: FluentCardSkeleton(height: 92)),
+            SizedBox(width: 12),
+            Expanded(child: FluentCardSkeleton(height: 92)),
+            SizedBox(width: 12),
+            Expanded(child: FluentCardSkeleton(height: 92)),
+            SizedBox(width: 12),
+            Expanded(child: FluentCardSkeleton(height: 92)),
+          ],
+        ),
+        SizedBox(height: 22),
+        FluentCardSkeleton(height: 240),
+      ],
+    );
+  }
+
   Widget _buildContent(BuildContext context, HomeData data) {
     final disableAnim = fluentAnimationsDisabled(context);
-    final allGames =
-        ref.watch(gamesProvider).valueOrNull ?? const <Game>[];
+    final allGamesAsync = ref.watch(allGamesProvider);
+    final allGames = allGamesAsync.valueOrNull ??
+        (allGamesAsync.hasValue
+            ? const <Game>[]
+            : ref.watch(gamesProvider).valueOrNull) ??
+        const <Game>[];
+    final platformRatings =
+        ref.watch(platformRatingsProvider).valueOrNull ?? const <int, double>{};
+
     final wishGames = allGames
         .where((g) => g.playStatus == PlayStatus.wish)
         .take(12)
         .toList();
+    final playingCount =
+        allGames.where((g) => g.playStatus == PlayStatus.playing).length;
+    final playedCount =
+        allGames.where((g) => g.playStatus == PlayStatus.played).length;
+
     final leadGame =
         data.recentGames.isNotEmpty ? data.recentGames.first : null;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _SpotlightHeroBanner(
             game: leadGame,
+            bestPlatformRating:
+                leadGame?.id != null ? platformRatings[leadGame!.id!] : null,
             onOpenLibrary: () => _switchTab(Tabs.library),
+            onOpenAdd: () => _switchTab(Tabs.add),
           ).fluentEntrance(index: 0, disable: disableAnim),
           const SizedBox(height: 18),
           _KpiMatrixRow(
             data: data,
+            playingCount: playingCount,
+            playedCount: playedCount,
             onOpenLibrary: () => _switchTab(Tabs.library),
             onOpenStats: () => _switchTab(Tabs.stats),
           ).fluentEntrance(index: 1, disable: disableAnim),
@@ -150,6 +238,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             actionLabel: '全部作品',
             onAction: () => _switchTab(Tabs.library),
             games: data.recentGames,
+            platformRatings: platformRatings,
             emptyTitle: '还没有游玩记录',
             emptyMessage: '从游戏库挑一部开始新的故事吧',
           ).fluentEntrance(index: 2, disable: disableAnim),
@@ -161,8 +250,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                 : '${wishGames.length} 部待开启的作品',
             icon: FluentIcons.bookmark_16_regular,
             actionLabel: '浏览游戏库',
-            onAction: () => _switchTab(Tabs.library),
+            onAction: _openWishListInLibrary,
             games: wishGames,
+            platformRatings: platformRatings,
             emptyTitle: '暂无待玩作品',
             emptyMessage: '可在游戏库中将作品状态标记为「想玩」',
           ).fluentEntrance(index: 3, disable: disableAnim),
@@ -177,6 +267,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 tags: _topTags(),
                 recommendations: _recommendations,
                 loading: _loadingRecommendations,
+                error: _recommendError,
                 onRefresh: _loadRecommendations,
                 onPickQuery: _openResourceSearch,
               );
@@ -222,6 +313,19 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _switchTab(int index) =>
       ref.read(tabIndexProvider.notifier).state = index;
 
+  void _openWishListInLibrary() {
+    ref.read(libraryFilterProvider)
+      ..status = PlayStatus.wish
+      ..favoriteOnly = false
+      ..tag = null
+      ..developer = null
+      ..source = null
+      ..query = '';
+    ref.read(librarySidebarProvider.notifier).state = true;
+    ref.read(libraryVersionProvider.notifier).state++;
+    _switchTab(Tabs.library);
+  }
+
   void _openResourceSearch(String query) {
     if (query.isNotEmpty) {
       ref.read(resourceQueryProvider.notifier).state = query;
@@ -238,27 +342,42 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (_loadingRecommendations) return;
     final services = tryAppServices();
     if (services == null) return;
-    setState(() => _loadingRecommendations = true);
+    setState(() {
+      _loadingRecommendations = true;
+      _recommendError = null;
+    });
     try {
-      final tagNames = _topTags()
+      final allTagNames = _topTags()
           .map((t) => t.name)
           .where((n) => n.isNotEmpty)
-          .take(3)
           .toList();
       final results = <ScrapedGame>[];
-      if (tagNames.isNotEmpty) {
+      if (allTagNames.isNotEmpty) {
+        final offset = _recommendBatch % allTagNames.length;
+        final rotated = [
+          ...allTagNames.skip(offset),
+          ...allTagNames.take(offset),
+        ].take(3).toList();
         final bySource = await services.fetcher
-            .searchAll(tagNames.join(' '), only: [KisakiSources.vndb]);
+            .searchAll(rotated.join(' '), only: [KisakiSources.vndb]);
         results.addAll(bySource[KisakiSources.vndb] ?? const []);
       }
       if (!mounted) return;
+      _recommendBatch++;
+      final offsetSlice =
+          results.length > _kRecommendLimit ? _recommendBatch % (results.length - _kRecommendLimit + 1) : 0;
       setState(() {
-        _recommendations = results.take(_kRecommendLimit).toList();
+        _recommendations =
+            results.skip(offsetSlice).take(_kRecommendLimit).toList();
         _loadingRecommendations = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _loadingRecommendations = false);
+      setState(() {
+        _loadingRecommendations = false;
+        _recommendError = '检索推荐失败，请检查网络连接或代理设置';
+      });
+      showNotice('推荐获取失败：$e', error: true);
     }
   }
 
@@ -276,6 +395,13 @@ class _HomePageState extends ConsumerState<HomePage> {
             const Icon(FluentIcons.timeline_20_regular, size: 18),
             const SizedBox(width: 8),
             Expanded(child: Text('全部动态 (${activities.length})')),
+            Tooltip(
+              message: '关闭 (Esc)',
+              child: IconButton(
+                icon: const Icon(FluentIcons.dismiss_20_regular, size: 16),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
           ],
         ),
         content: ListView.separated(
@@ -302,11 +428,15 @@ class _HomePageState extends ConsumerState<HomePage> {
 
 class _SpotlightHeroBanner extends ConsumerStatefulWidget {
   final Game? game;
+  final double? bestPlatformRating;
   final VoidCallback onOpenLibrary;
+  final VoidCallback onOpenAdd;
 
   const _SpotlightHeroBanner({
     required this.game,
     required this.onOpenLibrary,
+    required this.onOpenAdd,
+    this.bestPlatformRating,
   });
 
   @override
@@ -316,6 +446,7 @@ class _SpotlightHeroBanner extends ConsumerStatefulWidget {
 
 class _SpotlightHeroBannerState extends ConsumerState<_SpotlightHeroBanner> {
   final FlyoutController _flyoutCtrl = FlyoutController();
+  final GlobalKey _moreKey = GlobalKey();
 
   @override
   void dispose() {
@@ -323,15 +454,21 @@ class _SpotlightHeroBannerState extends ConsumerState<_SpotlightHeroBanner> {
     super.dispose();
   }
 
+  Offset? _moreAnchorPos() {
+    final box = _moreKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset(box.size.width / 2, box.size.height));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final isDark = theme.isDark;
+    final accent = theme.accentInk;
     final game = widget.game;
 
     if (game == null) {
-      return FluentAcrylicPanel(
+      return FluentSurfaceCard(
         radius: 12,
         padding: const EdgeInsets.all(24),
         child: Row(
@@ -343,15 +480,25 @@ class _SpotlightHeroBannerState extends ConsumerState<_SpotlightHeroBanner> {
                   Text('欢迎回到 KisakiGals', style: theme.typography.title),
                   const SizedBox(height: 6),
                   Text(
-                    '从游戏库挑选一部视觉小说开始今天的旅程，或者添加新作品。',
+                    '添加或拖拽第一部视觉小说，开启你的游玩轨迹与存档守护之旅。',
                     style: theme.typography.body?.copyWith(
-                      color: theme.inactiveColor,
+                      color: theme.textSecondary,
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  FilledButton(
-                    onPressed: widget.onOpenLibrary,
-                    child: const Text('前往游戏库'),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton(
+                        onPressed: widget.onOpenAdd,
+                        child: const Text('添加作品'),
+                      ),
+                      Button(
+                        onPressed: widget.onOpenLibrary,
+                        child: const Text('前往游戏库'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -361,11 +508,19 @@ class _SpotlightHeroBannerState extends ConsumerState<_SpotlightHeroBanner> {
       );
     }
 
-    final isRunning =
-        game.id != null && ref.watch(trackingGameProvider) == game.id;
+    final isRunning = ref.watch(
+      trackingGameProvider.select((id) => game.id != null && id == game.id),
+    );
+    final hasExe = game.exePath.trim().isNotEmpty;
     final nsfwMode = ref.watch(nsfwModeProvider);
     final showBackdropCover =
         game.coverPath.isNotEmpty && (!game.nsfw || nsfwMode == 'show');
+    final displayScore = game.userRating > 0
+        ? game.userRating
+        : ((widget.bestPlatformRating != null &&
+                widget.bestPlatformRating! > 0)
+            ? widget.bestPlatformRating
+            : null);
 
     final metaParts = <String>[
       if (game.developer.isNotEmpty) game.developer,
@@ -373,43 +528,47 @@ class _SpotlightHeroBannerState extends ConsumerState<_SpotlightHeroBanner> {
       if (game.lastPlayedAt != null) '上次 ${fmtRelativeShort(game.lastPlayedAt!)}',
     ];
 
-    return FlyoutTarget(
-      controller: _flyoutCtrl,
-      child: GestureDetector(
-        onSecondaryTapUp: (d) => showGameMenuFlyout(
+    void openMenu([Offset? pos]) => showGameMenuFlyout(
           context,
           ref,
           controller: _flyoutCtrl,
           game: game,
-          position: d.globalPosition,
-        ),
+          position: pos,
+        );
+
+    return FlyoutTarget(
+      controller: _flyoutCtrl,
+      child: GestureDetector(
+        onSecondaryTapUp: (d) => openMenu(d.globalPosition),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        accent.withValues(alpha: isDark ? 0.24 : 0.16),
-                        isDark
-                            ? const Color(0xFF202020)
-                            : const Color(0xFFF3F3F3),
-                      ],
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: theme.surfaceStroke),
+            ),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: theme.surfaceCard,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          accent.withValues(alpha: isDark ? 0.20 : 0.12),
+                          theme.surfaceCard,
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              if (showBackdropCover)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Opacity(
-                      opacity: isDark ? 0.30 : 0.22,
-                      child: ImageFiltered(
-                        imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                if (showBackdropCover)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: isDark ? 0.24 : 0.18,
                         child: FluentCoverImage(
                           pathOrUrl: game.coverPath,
                           nsfw: false,
@@ -420,168 +579,245 @@ class _SpotlightHeroBannerState extends ConsumerState<_SpotlightHeroBanner> {
                       ),
                     ),
                   ),
-                ),
-              FluentAcrylicPanel(
-                radius: 12,
-                padding: const EdgeInsets.all(20),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final cover = GestureDetector(
-                      onTap: game.id == null
-                          ? null
-                          : () => openGameDetail(
-                                context,
-                                game.id!,
-                                initial: game,
-                                ref: ref,
-                              ),
-                      child: FluentCoverImage(
-                        pathOrUrl: game.coverPath,
-                        nsfw: game.nsfw,
-                        width: 160,
-                        height: 220,
-                        radius: 8,
-                      ),
-                    );
-
-                    final details = Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        FluentR18ScoreRow(
-                          nsfw: game.nsfw,
-                          scoreText: game.userRating > 0
-                              ? game.userRating.toStringAsFixed(1)
-                              : null,
-                          trailing: [
-                            if (isRunning)
-                              FluentBadge(
-                                icon: FluentIcons.play_16_filled,
-                                text: '正在运行',
-                                foreground: Colors.white,
-                                background: accent,
-                              )
-                            else
-                              FluentStatusPill(status: game.playStatus),
+                // 单层定向可读性遮罩，替代二重模糊开销并保证高对比度文本可读
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.centerRight,
+                          end: Alignment.centerLeft,
+                          colors: [
+                            theme.surfaceCard.withValues(
+                              alpha: isDark ? 0.55 : 0.65,
+                            ),
+                            theme.surfaceCard.withValues(
+                              alpha: isDark ? 0.92 : 0.94,
+                            ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          game.displayName,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.titleLarge,
-                        ),
-                        if (metaParts.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            metaParts.join(' · '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.typography.body?.copyWith(
-                              color: theme.inactiveColor,
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final cover = Tooltip(
+                        message: '查看「${game.displayName}」详情',
+                        child: Semantics(
+                          button: true,
+                          label: '查看「${game.displayName}」详情',
+                          child: HoverButton(
+                            cursor: game.id == null
+                                ? MouseCursor.defer
+                                : SystemMouseCursors.click,
+                            onPressed: game.id == null
+                                ? null
+                                : () => openGameDetail(
+                                      context,
+                                      game.id!,
+                                      initial: game,
+                                      ref: ref,
+                                    ),
+                            builder: (context, states) => FocusBorder(
+                              focused: states.isFocused,
+                              renderOutside: false,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: states.isHovered
+                                        ? accent.withValues(alpha: 0.7)
+                                        : theme.surfaceStroke,
+                                  ),
+                                ),
+                                child: FluentCoverImage(
+                                  pathOrUrl: game.coverPath,
+                                  nsfw: game.nsfw,
+                                  width: 152,
+                                  height: 214,
+                                  radius: 7,
+                                ),
+                              ),
                             ),
                           ),
-                        ],
-                        if (game.summary.trim().isNotEmpty) ...[
-                          const SizedBox(height: 8),
+                        ),
+                      );
+
+                      final details = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          FluentR18ScoreRow(
+                            nsfw: game.nsfw,
+                            scoreText: displayScore?.toStringAsFixed(1),
+                            trailing: [
+                              if (isRunning)
+                                FluentBadge(
+                                  icon: FluentIcons.play_16_filled,
+                                  text: '正在运行',
+                                  foreground: theme.onAccentInk,
+                                  background: accent,
+                                )
+                              else
+                                FluentStatusPill(status: game.playStatus),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
                           Text(
-                            game.summary.trim(),
+                            game.displayName,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.typography.caption?.copyWith(
-                              color: theme.inactiveColor,
-                            ),
+                            style: theme.typography.titleLarge,
                           ),
-                        ],
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton(
-                              onPressed: () {
-                                if (isRunning) {
-                                  stopActiveGameSession(ref);
-                                } else {
-                                  GameLaunchService.launchAndTrack(game, ref);
-                                }
-                              },
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    isRunning
-                                        ? FluentIcons.stop_16_filled
-                                        : FluentIcons.play_16_filled,
-                                    size: 15,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(isRunning ? '停止会话' : '立即启动'),
-                                ],
-                              ),
-                            ),
-                            Button(
-                              onPressed: game.id == null
-                                  ? null
-                                  : () => openGameDetail(
-                                        context,
-                                        game.id!,
-                                        initial: game,
-                                        ref: ref,
-                                      ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(FluentIcons.open_16_regular, size: 15),
-                                  SizedBox(width: 6),
-                                  Text('查看详情'),
-                                ],
-                              ),
-                            ),
-                            Button(
-                              onPressed: () =>
-                                  openGameExploreForGame(context, game),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    FluentIcons.compass_northwest_16_regular,
-                                    size: 15,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Text('探索百科'),
-                                ],
+                          if (metaParts.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              metaParts.join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.typography.body?.copyWith(
+                                color: theme.textSecondary,
                               ),
                             ),
                           ],
-                        ),
-                      ],
-                    );
-
-                    if (constraints.maxWidth < 540) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Center(child: cover),
+                          if (game.summary.trim().isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              game.summary.trim(),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.typography.caption?.copyWith(
+                                color: theme.textSecondary,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 16),
-                          details,
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              isRunning
+                                  ? Button(
+                                      style: ButtonStyle(
+                                        backgroundColor:
+                                            WidgetStatePropertyAll(
+                                          theme.dangerFill,
+                                        ),
+                                        foregroundColor:
+                                            const WidgetStatePropertyAll(
+                                          Colors.white,
+                                        ),
+                                      ),
+                                      onPressed: () =>
+                                          stopActiveGameSession(ref),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            FluentIcons.stop_16_filled,
+                                            size: 15,
+                                          ),
+                                          SizedBox(width: 6),
+                                          Text('停止会话'),
+                                        ],
+                                      ),
+                                    )
+                                  : FilledButton(
+                                      onPressed: () {
+                                        GameLaunchService.launchAndTrack(
+                                          game,
+                                          ref,
+                                        );
+                                      },
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            FluentIcons.play_16_filled,
+                                            size: 15,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(hasExe ? '立即启动' : '配置后启动'),
+                                        ],
+                                      ),
+                                    ),
+                              Button(
+                                onPressed: game.id == null
+                                    ? null
+                                    : () => openGameDetail(
+                                          context,
+                                          game.id!,
+                                          initial: game,
+                                          ref: ref,
+                                        ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(FluentIcons.open_16_regular, size: 15),
+                                    SizedBox(width: 6),
+                                    Text('查看详情'),
+                                  ],
+                                ),
+                              ),
+                              Button(
+                                onPressed: () =>
+                                    openGameExploreForGame(context, game),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      FluentIcons.compass_northwest_16_regular,
+                                      size: 15,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text('探索百科'),
+                                  ],
+                                ),
+                              ),
+                              Tooltip(
+                                message: '更多操作 (右键横幅)',
+                                child: IconButton(
+                                  key: _moreKey,
+                                  icon: const Icon(
+                                    FluentIcons.more_horizontal_16_regular,
+                                    size: 16,
+                                  ),
+                                  onPressed: () => openMenu(_moreAnchorPos()),
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       );
-                    }
 
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        cover,
-                        const SizedBox(width: 22),
-                        Expanded(child: details),
-                      ],
-                    );
-                  },
+                      if (constraints.maxWidth < 540) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Center(child: cover),
+                            const SizedBox(height: 16),
+                            details,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          cover,
+                          const SizedBox(width: 22),
+                          Expanded(child: details),
+                        ],
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -591,11 +827,15 @@ class _SpotlightHeroBannerState extends ConsumerState<_SpotlightHeroBanner> {
 
 class _KpiMatrixRow extends StatelessWidget {
   final HomeData data;
+  final int playingCount;
+  final int playedCount;
   final VoidCallback onOpenLibrary;
   final VoidCallback onOpenStats;
 
   const _KpiMatrixRow({
     required this.data,
+    required this.playingCount,
+    required this.playedCount,
     required this.onOpenLibrary,
     required this.onOpenStats,
   });
@@ -607,7 +847,7 @@ class _KpiMatrixRow extends StatelessWidget {
         icon: FluentIcons.library_20_regular,
         label: '总入库',
         value: '${data.gameCount} 部',
-        hint: '点击前往游戏库',
+        hint: '在玩 $playingCount · 已通关 $playedCount',
         onTap: onOpenLibrary,
       ),
       _KpiCard(
@@ -687,9 +927,10 @@ class _KpiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
+    final accent = theme.accentInk;
     return FluentSurfaceCard(
       onTap: onTap,
+      semanticLabel: '$label $value，$hint',
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -704,10 +945,15 @@ class _KpiCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.caption?.copyWith(
-                    color: theme.inactiveColor,
+                    color: theme.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ),
+              Icon(
+                FluentIcons.chevron_right_16_regular,
+                size: 13,
+                color: theme.textTertiary,
               ),
             ],
           ),
@@ -718,6 +964,7 @@ class _KpiCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: theme.typography.subtitle?.copyWith(
               fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
           const SizedBox(height: 4),
@@ -726,7 +973,8 @@ class _KpiCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.typography.caption?.copyWith(
-              color: theme.inactiveColor,
+              color: theme.textSecondary,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],
@@ -742,6 +990,7 @@ class _HorizontalShelfSection extends StatefulWidget {
   final String actionLabel;
   final VoidCallback onAction;
   final List<Game> games;
+  final Map<int, double> platformRatings;
   final String emptyTitle;
   final String emptyMessage;
 
@@ -752,6 +1001,7 @@ class _HorizontalShelfSection extends StatefulWidget {
     required this.actionLabel,
     required this.onAction,
     required this.games,
+    required this.platformRatings,
     required this.emptyTitle,
     required this.emptyMessage,
   });
@@ -764,20 +1014,52 @@ class _HorizontalShelfSection extends StatefulWidget {
 class _HorizontalShelfSectionState extends State<_HorizontalShelfSection> {
   final ScrollController _scrollCtrl = ScrollController();
   bool _hoveringShelf = false;
+  bool _canLeft = false;
+  bool _canRight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_syncScrollExtents);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncScrollExtents());
+  }
+
+  @override
+  void didUpdateWidget(covariant _HorizontalShelfSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.games.length != widget.games.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncScrollExtents());
+    }
+  }
 
   @override
   void dispose() {
+    _scrollCtrl.removeListener(_syncScrollExtents);
     _scrollCtrl.dispose();
     super.dispose();
   }
 
+  void _syncScrollExtents() {
+    if (!mounted || !_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    final left = pos.pixels > 2;
+    final right = pos.pixels < pos.maxScrollExtent - 2;
+    if (left != _canLeft || right != _canRight) {
+      setState(() {
+        _canLeft = left;
+        _canRight = right;
+      });
+    }
+  }
+
   void _scrollBy(double delta) {
     if (!_scrollCtrl.hasClients) return;
+    final disableAnim = fluentAnimationsDisabled(context);
     final target = (_scrollCtrl.offset + delta)
         .clamp(0.0, _scrollCtrl.position.maxScrollExtent);
     _scrollCtrl.animateTo(
       target,
-      duration: FluentMotion.standard,
+      duration: disableAnim ? Duration.zero : FluentMotion.standard,
       curve: FluentMotion.enterCurve,
     );
   }
@@ -799,7 +1081,7 @@ class _HorizontalShelfSectionState extends State<_HorizontalShelfSection> {
         const SizedBox(height: 12),
         if (widget.games.isEmpty)
           FluentSurfaceCard(
-            padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
             child: FluentEmptyState(
               icon: FluentIcons.games_24_regular,
               title: widget.emptyTitle,
@@ -808,40 +1090,64 @@ class _HorizontalShelfSectionState extends State<_HorizontalShelfSection> {
           )
         else
           MouseRegion(
-            onEnter: (_) => setState(() => _hoveringShelf = true),
+            onEnter: (_) {
+              _syncScrollExtents();
+              setState(() => _hoveringShelf = true);
+            },
             onExit: (_) => setState(() => _hoveringShelf = false),
             child: SizedBox(
-              height: 248,
+              height: 292,
               child: Stack(
                 children: [
-                  ListView.separated(
-                    controller: _scrollCtrl,
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    itemCount: widget.games.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (_, i) => _HomeShelfCard(game: widget.games[i]),
+                  NotificationListener<ScrollMetricsNotification>(
+                    onNotification: (_) {
+                      _syncScrollExtents();
+                      return false;
+                    },
+                    child: ListView.separated(
+                      controller: _scrollCtrl,
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      itemCount: widget.games.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 12),
+                      itemBuilder: (_, i) {
+                        final g = widget.games[i];
+                        return _HomeShelfCard(
+                          game: g,
+                          bestPlatformRating:
+                              g.id != null ? widget.platformRatings[g.id!] : null,
+                        );
+                      },
+                    ),
                   ),
-                  if (_hoveringShelf && widget.games.length > 3) ...[
+                  if ((_hoveringShelf || _canLeft) && _canLeft)
                     Positioned(
                       left: 6,
-                      top: 90,
-                      child: _ShelfArrowButton(
-                        icon: FluentIcons.chevron_left_16_regular,
-                        tooltip: '向左滚动',
-                        onTap: () => _scrollBy(-320),
+                      top: 76,
+                      child: AnimatedOpacity(
+                        opacity: _hoveringShelf ? 1.0 : 0.72,
+                        duration: FluentMotion.fast,
+                        child: _ShelfArrowButton(
+                          icon: FluentIcons.chevron_left_16_regular,
+                          tooltip: '向左滚动',
+                          onTap: () => _scrollBy(-320),
+                        ),
                       ),
                     ),
+                  if ((_hoveringShelf || _canRight) && _canRight)
                     Positioned(
                       right: 6,
-                      top: 90,
-                      child: _ShelfArrowButton(
-                        icon: FluentIcons.chevron_right_16_regular,
-                        tooltip: '向右滚动',
-                        onTap: () => _scrollBy(320),
+                      top: 76,
+                      child: AnimatedOpacity(
+                        opacity: _hoveringShelf ? 1.0 : 0.72,
+                        duration: FluentMotion.fast,
+                        child: _ShelfArrowButton(
+                          icon: FluentIcons.chevron_right_16_regular,
+                          tooltip: '向右滚动',
+                          onTap: () => _scrollBy(320),
+                        ),
                       ),
                     ),
-                  ],
                 ],
               ),
             ),
@@ -868,10 +1174,14 @@ class _ShelfArrowButton extends StatelessWidget {
       message: tooltip,
       child: FluentAcrylicPanel(
         radius: 18,
-        padding: EdgeInsets.zero,
-        child: IconButton(
-          icon: Icon(icon, size: 16),
-          onPressed: onTap,
+        padding: const EdgeInsets.all(2),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: IconButton(
+            icon: Icon(icon, size: 16),
+            onPressed: onTap,
+          ),
         ),
       ),
     );
@@ -880,8 +1190,12 @@ class _ShelfArrowButton extends StatelessWidget {
 
 class _HomeShelfCard extends ConsumerStatefulWidget {
   final Game game;
+  final double? bestPlatformRating;
 
-  const _HomeShelfCard({required this.game});
+  const _HomeShelfCard({
+    required this.game,
+    this.bestPlatformRating,
+  });
 
   @override
   ConsumerState<_HomeShelfCard> createState() => _HomeShelfCardState();
@@ -900,12 +1214,20 @@ class _HomeShelfCardState extends ConsumerState<_HomeShelfCard> {
   Widget build(BuildContext context) {
     final game = widget.game;
     final theme = FluentTheme.of(context);
-    final isRunning =
-        game.id != null && ref.watch(trackingGameProvider) == game.id;
+    final accent = theme.accentInk;
+    final isRunning = ref.watch(
+      trackingGameProvider.select((id) => game.id != null && id == game.id),
+    );
+    final rating = game.userRating > 0
+        ? game.userRating
+        : ((widget.bestPlatformRating != null && widget.bestPlatformRating! > 0)
+            ? widget.bestPlatformRating
+            : null);
 
     return FlyoutTarget(
       controller: _flyoutCtrl,
       child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
         onSecondaryTapUp: (d) => showGameMenuFlyout(
           context,
           ref,
@@ -914,9 +1236,11 @@ class _HomeShelfCardState extends ConsumerState<_HomeShelfCard> {
           position: d.globalPosition,
         ),
         child: SizedBox(
-          width: 146,
+          width: 148,
           child: FluentSurfaceCard(
             padding: const EdgeInsets.all(8),
+            selected: isRunning,
+            semanticLabel: game.displayName,
             onTap: game.id == null
                 ? null
                 : () => openGameDetail(
@@ -928,13 +1252,32 @@ class _HomeShelfCardState extends ConsumerState<_HomeShelfCard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: FluentCoverImage(
-                    pathOrUrl: game.coverPath,
-                    nsfw: game.nsfw,
-                    radius: 6,
-                    width: double.infinity,
-                    height: double.infinity,
+                // 固定封面高度，保证同一水平货架上所有卡片封面底边严格对齐
+                SizedBox(
+                  height: 158,
+                  width: double.infinity,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      FluentCoverImage(
+                        pathOrUrl: game.coverPath,
+                        nsfw: game.nsfw,
+                        radius: 6,
+                        width: double.infinity,
+                        height: double.infinity,
+                      ),
+                      if (isRunning)
+                        Positioned(
+                          left: 5,
+                          top: 5,
+                          child: FluentBadge(
+                            icon: FluentIcons.play_16_filled,
+                            text: '正在运行',
+                            foreground: theme.onAccentInk,
+                            background: accent,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -954,15 +1297,14 @@ class _HomeShelfCardState extends ConsumerState<_HomeShelfCard> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.caption?.copyWith(
-                    color: theme.inactiveColor,
+                    color: isRunning ? accent : theme.textSecondary,
+                    fontWeight: isRunning ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const Spacer(),
                 FluentR18ScoreRow(
                   nsfw: game.nsfw,
-                  scoreText: game.userRating > 0
-                      ? game.userRating.toStringAsFixed(1)
-                      : null,
+                  scoreText: rating?.toStringAsFixed(1),
                 ),
               ],
             ),
@@ -998,7 +1340,7 @@ class _ActivityFeedCard extends ConsumerWidget {
                 )
               : null,
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         FluentSurfaceCard(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: items.isEmpty
@@ -1037,48 +1379,93 @@ class _ActivityRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final accent = theme.accentColor.defaultBrushFor(theme.brightness);
     final (icon, label) = switch (item.type) {
       'added' => (FluentIcons.add_16_regular, '收录入库'),
+      'finished' => (FluentIcons.checkmark_circle_16_regular, '标记通关'),
       'rated' => (
           FluentIcons.star_16_filled,
           item.detail.isEmpty ? '给出评分' : '留下评价',
         ),
       _ => (FluentIcons.play_16_regular, '开始游玩'),
     };
+    final detail = item.detail.trim();
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 68,
-              child: Text(
-                fmtRelativeShort(item.at),
-                style: theme.typography.caption?.copyWith(color: accent),
-              ),
+    return Semantics(
+      button: true,
+      label: '${item.gameName}，$label',
+      child: HoverButton(
+        cursor: SystemMouseCursors.click,
+        onPressed: onTap,
+        builder: (context, states) => FocusBorder(
+          focused: states.isFocused,
+          renderOutside: false,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 6),
+            decoration: BoxDecoration(
+              color: states.isPressed
+                  ? theme.subtlePressed
+                  : states.isHovered
+                      ? theme.subtleHover
+                      : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
             ),
-            FluentCoverImage(
-              pathOrUrl: item.coverPath,
-              width: 30,
-              height: 44,
-              radius: 4,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 68,
+                  child: Text(
+                    fmtRelativeShort(item.at),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.caption?.copyWith(
+                      color: theme.textSecondary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+                FluentCoverImage(
+                  pathOrUrl: item.coverPath,
+                  nsfw: item.nsfw,
+                  width: 30,
+                  height: 44,
+                  radius: 4,
+                  allowRevealOnHover: false,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        item.gameName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.typography.bodyStrong,
+                      ),
+                      if (detail.isNotEmpty)
+                        Text(
+                          detail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.typography.caption?.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FluentBadge(icon: icon, text: label),
+                const SizedBox(width: 4),
+                Icon(
+                  FluentIcons.chevron_right_16_regular,
+                  size: 13,
+                  color: theme.textTertiary,
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                item.gameName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.typography.bodyStrong,
-              ),
-            ),
-            const SizedBox(width: 8),
-            FluentBadge(icon: icon, text: label),
-          ],
+          ),
         ),
       ),
     );
@@ -1089,6 +1476,7 @@ class _RecommendCard extends StatelessWidget {
   final List<TagItem> tags;
   final List<ScrapedGame>? recommendations;
   final bool loading;
+  final String? error;
   final VoidCallback onRefresh;
   final ValueChanged<String> onPickQuery;
 
@@ -1096,6 +1484,7 @@ class _RecommendCard extends StatelessWidget {
     required this.tags,
     required this.recommendations,
     required this.loading,
+    required this.error,
     required this.onRefresh,
     required this.onPickQuery,
   });
@@ -1111,19 +1500,21 @@ class _RecommendCard extends StatelessWidget {
         FluentSectionHeader(
           title: '为你推荐',
           icon: FluentIcons.sparkle_20_regular,
-          trailing: Button(
-            onPressed: loading ? null : onRefresh,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(FluentIcons.arrow_clockwise_16_regular, size: 14),
-                SizedBox(width: 4),
-                Text('换一批'),
-              ],
-            ),
-          ),
+          trailing: recs != null
+              ? Button(
+                  onPressed: loading ? null : onRefresh,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(FluentIcons.arrow_clockwise_16_regular, size: 14),
+                      SizedBox(width: 4),
+                      Text('换一批'),
+                    ],
+                  ),
+                )
+              : null,
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         FluentSurfaceCard(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -1134,7 +1525,12 @@ class _RecommendCard extends StatelessWidget {
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final t in tags) FluentBadge(text: '#${t.name}'),
+                    for (final t in tags)
+                      FluentBadge(
+                        text: '#${t.name}',
+                        tooltip: '在探索页检索「${t.name}」',
+                        onTap: () => onPickQuery(t.name),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1144,12 +1540,22 @@ class _RecommendCard extends StatelessWidget {
                   padding: EdgeInsets.symmetric(vertical: 28),
                   child: Center(child: ProgressRing()),
                 )
+              else if (error != null)
+                FluentEmptyState(
+                  icon: FluentIcons.error_circle_24_regular,
+                  title: '检索推荐出错',
+                  message: error!,
+                  action: FilledButton(
+                    onPressed: onRefresh,
+                    child: const Text('重试'),
+                  ),
+                )
               else if (recs == null)
                 FluentEmptyState(
                   icon: FluentIcons.sparkle_24_regular,
                   title: '按库内标签发现新作',
                   message: '点击下方按钮从 VNDB 检索匹配作品',
-                  action: Button(
+                  action: FilledButton(
                     onPressed: onRefresh,
                     child: const Text('获取推荐'),
                   ),
@@ -1169,49 +1575,78 @@ class _RecommendCard extends StatelessWidget {
                   children: [
                     for (var i = 0; i < recs.length; i++) ...[
                       if (i > 0) const Divider(),
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => onPickQuery(recs[i].displayName),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              FluentCoverImage(
-                                pathOrUrl: recs[i].coverUrl,
-                                nsfw: recs[i].nsfw,
-                                width: 34,
-                                height: 50,
-                                radius: 4,
+                      Semantics(
+                        button: true,
+                        label: '在探索中查看 ${recs[i].displayName}',
+                        child: HoverButton(
+                          cursor: SystemMouseCursors.click,
+                          onPressed: () => onPickQuery(recs[i].displayName),
+                          builder: (context, states) => FocusBorder(
+                            focused: states.isFocused,
+                            renderOutside: false,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 6,
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      recs[i].displayName,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.typography.bodyStrong,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    FluentR18ScoreRow(
-                                      nsfw: recs[i].nsfw,
-                                      scoreText: recs[i].rating > 0
-                                          ? recs[i].rating.toStringAsFixed(1)
-                                          : null,
-                                      trailing: [
-                                        FluentBadge(
-                                          text: KisakiSources
-                                                  .labels[recs[i].source] ??
-                                              recs[i].source,
+                              decoration: BoxDecoration(
+                                color: states.isPressed
+                                    ? theme.subtlePressed
+                                    : states.isHovered
+                                        ? theme.subtleHover
+                                        : Colors.transparent,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                children: [
+                                  FluentCoverImage(
+                                    pathOrUrl: recs[i].coverUrl,
+                                    nsfw: recs[i].nsfw,
+                                    width: 34,
+                                    height: 50,
+                                    radius: 4,
+                                    allowRevealOnHover: false,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          recs[i].displayName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.typography.bodyStrong,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        FluentR18ScoreRow(
+                                          nsfw: recs[i].nsfw,
+                                          scoreText: recs[i].rating > 0
+                                              ? recs[i]
+                                                  .rating
+                                                  .toStringAsFixed(1)
+                                              : null,
+                                          trailing: [
+                                            FluentBadge(
+                                              text: KisakiSources.labels[
+                                                      recs[i].source] ??
+                                                  recs[i].source,
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Icon(
+                                    FluentIcons.chevron_right_16_regular,
+                                    size: 13,
+                                    color: theme.textTertiary,
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ),

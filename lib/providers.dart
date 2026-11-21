@@ -10,6 +10,7 @@ import 'app_services.dart';
 import 'core/constants.dart';
 import 'data/models.dart';
 import 'data/settings_store.dart';
+import 'ui/fluent/fluent_theme.dart';
 import 'ui/shell/tabs.dart';
 
 // ---------- 应用配置 ----------
@@ -63,6 +64,19 @@ final backdropEffectProvider =
     StateNotifierProvider<BackdropEffectController, BackdropEffectPref>(
         (ref) => BackdropEffectController());
 
+/// 低性能 / 流畅模式：禁用全局过渡动效、闪烁骨架与窗口透明合成。
+final performanceModeProvider = StateProvider<bool>((ref) => false);
+
+/// 当前桌面窗口材质能力探测结果（`null` 表示测试或未探测环境，沿用所选材质）。
+final windowBackdropCapsProvider =
+    StateProvider<WindowBackdropCaps?>((ref) => null);
+
+BackdropEffectPref effectiveBackdropFor(
+  BackdropEffectPref requested,
+  WindowBackdropCaps? caps,
+) =>
+    caps == null ? requested : resolveEffectiveBackdrop(requested, caps);
+
 /// 最新 Windows 系统强调色（由 main.dart 启动时及 SystemTheme.onChange 刷新）。
 final systemAccentColorProvider = StateProvider<Color>(
   (ref) => SystemTheme.accentColor.accent,
@@ -70,14 +84,24 @@ final systemAccentColorProvider = StateProvider<Color>(
 
 final tabIndexProvider = StateProvider<int>((ref) => Tabs.home);
 
-/// 设置页分区索引（跨页跳转到「设置 → AI」等分区时设置）。
+/// 设置页内部分区索引常量，避免各页面硬编码裸数字。
+abstract final class SettingsSections {
+  static const int appearance = 0;
+  static const int launchAndPlay = 1;
+  static const int libraryAndNetwork = 2;
+  static const int accountsAndSync = 3;
+  static const int ai = 4;
+  static const int storageAndBackup = 5;
+  static const int pluginsAndAbout = 6;
+}
+
+/// 设置页分区索引（跨页跳转到「设置 → AI 服务」等分区时设置）。
 final settingsSectionProvider = StateProvider<int>((ref) => 0);
 
-/// 跳转到设置页的指定分区（设置页内部的分区编号，AI=3）。
+/// 跳转到设置页的指定分区（使用 [SettingsSections] 常量，如 `SettingsSections.ai`）。
 ///
 /// 注意：这里的 [section] 是**设置页内部**的分区索引，和侧栏页面索引
 /// （[Tabs]）是两套编号，别混用；页面索引用 `Tabs.settings`。
-/// 历史上这里曾写成裸数字 4，正好落到「AI 助手」页，表现为「点了没反应」。
 void jumpToSettingsSection(WidgetRef ref, int section) {
   ref.read(settingsSectionProvider.notifier).state = section;
   ref.read(tabIndexProvider.notifier).state = Tabs.settings;
@@ -166,6 +190,18 @@ class GamesController extends AsyncNotifier<List<Game>> {
 final gamesProvider =
     AsyncNotifierProvider<GamesController, List<Game>>(GamesController.new);
 
+/// 全量库作品（不受游戏库筛选/搜索条件影响，供全局标题栏搜索、主页待玩清单与统计计数使用）。
+final allGamesProvider = FutureProvider<List<Game>>((ref) async {
+  ref.watch(libraryVersionProvider);
+  try {
+    final services = AppServices.I;
+    if (services.ready) {
+      return await services.repo.listGames(sort: GameSort.addedDesc);
+    }
+  } catch (_) {}
+  return ref.watch(gamesProvider.future);
+});
+
 /// 库变更后调用：触发所有依赖页刷新。
 void bumpLibrary(WidgetRef ref) =>
     ref.read(libraryVersionProvider.notifier).state++;
@@ -196,6 +232,38 @@ void jumpToLibraryFiltered(
     ref.read(librarySidebarProvider.notifier).state = true;
   }
   ref.read(libraryVersionProvider.notifier).state++;
+}
+
+/// 跨页打开「入库」标签页时的预填参数（由游戏库「添加游戏」或拖拽入库写入）。
+class PendingAddGameRequest {
+  final String query;
+  final String? dropPath;
+
+  const PendingAddGameRequest({
+    this.query = '',
+    this.dropPath,
+  });
+}
+
+/// 一次性入库预填信号：[AddGamePage] 消费后立即清空。
+final pendingAddGameProvider =
+    StateProvider<PendingAddGameRequest?>((ref) => null);
+
+/// 统一跳转到「入库」标签页（[Tabs.add]），可选携带预填关键词或拖入路径。
+void openAddGameTab(
+  WidgetRef ref, {
+  String initialQuery = '',
+  String? initialDropPath,
+}) {
+  final q = initialQuery.trim();
+  final dp = initialDropPath?.trim() ?? '';
+  if (q.isNotEmpty || dp.isNotEmpty) {
+    ref.read(pendingAddGameProvider.notifier).state = PendingAddGameRequest(
+      query: q,
+      dropPath: dp.isEmpty ? null : dp,
+    );
+  }
+  ref.read(tabIndexProvider.notifier).state = Tabs.add;
 }
 
 final developersProvider = FutureProvider<List<String>>((ref) async {

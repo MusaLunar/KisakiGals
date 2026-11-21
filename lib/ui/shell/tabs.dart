@@ -10,9 +10,10 @@
 /// `ui/discover/discover_page.dart`），因此侧栏从 7 项减为 6 项，
 /// 统计 / AI / 设置的索引整体前移一位。
 ///
-/// **注意区分**：设置页**内部**的分区索引（`settingsSectionProvider` 的
-/// 0..N，例如 `ai_page.dart` 里的 `jumpToSettingsSection(ref, 3)` 指
-/// 「设置 → AI 分区」）与这里的页面索引完全是两套编号，不要混用。
+/// **注意区分**：设置页**内部**的分区索引（`SettingsSections` /
+/// `settingsSectionProvider`，例如 `ai_page.dart` 里的
+/// `jumpToSettingsSection(ref, SettingsSections.ai)` 指「设置 → AI 服务」）与这里
+/// 的页面索引完全是两套编号，不要混用。
 library;
 
 class Tabs {

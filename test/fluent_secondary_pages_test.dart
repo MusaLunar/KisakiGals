@@ -158,7 +158,7 @@ void main() {
     expect(find.text('校园'), findsOneWidget);
   });
 
-  testWidgets('AiPage shows unconfigured InfoBar linking to settings section 3',
+  testWidgets('AiPage shows unconfigured InfoBar linking to SettingsSections.ai',
       (tester) async {
     final container = ProviderContainer(
       overrides: [
@@ -183,7 +183,7 @@ void main() {
     await tester.tap(find.textContaining('前往设置').first);
     await tester.pumpAndSettle();
 
-    expect(container.read(settingsSectionProvider), 3);
+    expect(container.read(settingsSectionProvider), SettingsSections.ai);
     expect(container.read(tabIndexProvider), Tabs.settings);
   });
 
